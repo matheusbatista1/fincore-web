@@ -1,8 +1,13 @@
-import type { ExpenseSource, ParcelaStatus, TransactionKind } from "@/domain/entities/transaction";
+import type {
+  ExpenseSource,
+  ParcelaStatus,
+  Transaction,
+  TransactionKind,
+} from "@/domain/entities/transaction";
 import { isExpense, isIncome, isTransfer } from "@/domain/entities/transaction";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
-import type { FinanceRepository } from "../ports/finance-repository";
+import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
 /** pt-BR labels for the non-card/account expense sources. */
 const SOURCE_LABELS: Record<ExpenseSource, string> = {
@@ -55,25 +60,24 @@ export interface GetTransactionsOptions {
   readonly month?: string;
 }
 
-/** Load a user's transactions as a display-ready, newest-first list. */
-export async function getTransactions(
-  repo: FinanceRepository,
-  userId: string,
-  options: GetTransactionsOptions = {},
-): Promise<TransactionListItem[]> {
-  const ws = await repo.loadWorkspace(userId);
+/** Newest-first comparator for display rows (ties broken by id for stability). */
+export function byDateDesc(a: TransactionListItem, b: TransactionListItem): number {
+  return a.date < b.date ? 1 : a.date > b.date ? -1 : a.id < b.id ? 1 : -1;
+}
 
+/**
+ * Build a pure mapper from a loaded workspace: `(transaction) => TransactionListItem`.
+ * Resolves account/card/category/person names once, so callers (history, monthly
+ * view, projections) share the exact same display logic.
+ */
+export function createTransactionMapper(ws: Workspace): (tx: Transaction) => TransactionListItem {
   const accountName = new Map(ws.accounts.map((a) => [a.id, `${a.bank} · ${a.name}`]));
   const cardName = new Map(ws.creditCards.map((c) => [c.id, `Cartão ${c.bank}`]));
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const personById = new Map(ws.people.map((p) => [p.id, p]));
   const firstName = (full: string): string => full.split(" ")[0] ?? full;
 
-  const source = options.month
-    ? ws.transactions.filter((tx) => monthOf(tx.date) === options.month)
-    : ws.transactions;
-
-  const items: TransactionListItem[] = source.map((tx) => {
+  return (tx: Transaction): TransactionListItem => {
     const base = {
       id: tx.id,
       description: tx.description,
@@ -136,7 +140,6 @@ export async function getTransactions(
       };
     }
 
-    // transfer
     if (isTransfer(tx)) {
       return {
         ...base,
@@ -149,7 +152,19 @@ export async function getTransactions(
     }
 
     throw new Error("Unknown transaction kind");
-  });
+  };
+}
 
-  return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.id < b.id ? 1 : -1));
+/** Load a user's transactions as a display-ready, newest-first list. */
+export async function getTransactions(
+  repo: FinanceRepository,
+  userId: string,
+  options: GetTransactionsOptions = {},
+): Promise<TransactionListItem[]> {
+  const ws = await repo.loadWorkspace(userId);
+  const map = createTransactionMapper(ws);
+  const source = options.month
+    ? ws.transactions.filter((tx) => monthOf(tx.date) === options.month)
+    : ws.transactions;
+  return source.map(map).sort(byDateDesc);
 }
