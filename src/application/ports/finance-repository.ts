@@ -3,7 +3,14 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
-import type { Transaction } from "@/domain/entities/transaction";
+import type {
+  ExpenseSource,
+  ParcelaStatus,
+  Transaction,
+  TransactionKind,
+} from "@/domain/entities/transaction";
+import type { IsoDate } from "@/domain/value-objects/competence-month";
+import type { AccountInput, CategoryInput, CreditCardInput, PersonInput } from "@/shared/schemas/entities";
 
 /**
  * A user's full financial dataset, as domain entities. Personal-finance volumes
@@ -19,13 +26,74 @@ export interface Workspace {
   readonly settlements: Settlement[];
 }
 
+/** One transaction row to persist (a single tx, or one parcela of an installment). */
+export interface NewTransactionEntry {
+  readonly kind: TransactionKind;
+  readonly description: string;
+  readonly date: IsoDate;
+  readonly amountCents: number;
+  readonly note?: string;
+  readonly categoryId?: string | null;
+  readonly source?: ExpenseSource | null;
+  readonly cardId?: string | null;
+  readonly accountId?: string | null;
+  readonly linkedAccountId?: string | null;
+  readonly myShareCents?: number | null;
+  readonly recurrenceDayOfMonth?: number | null;
+  readonly parcelaNo?: number | null;
+  readonly parcelaTotal?: number | null;
+  readonly parcelaStatus?: ParcelaStatus | null;
+  readonly fromPersonId?: string | null;
+  readonly isReimbursement?: boolean;
+  readonly transferFromAccountId?: string | null;
+  readonly transferToAccountId?: string | null;
+  readonly transferValueCents?: number | null;
+  readonly splits?: ReadonlyArray<{ personId: string; shareCents: number }>;
+}
+
+/** A transaction creation command: optional installment group + the entries to insert atomically. */
+export interface CreateTransactionCommand {
+  readonly installmentGroup?: { totalCount: number; totalCents: number };
+  readonly entries: NewTransactionEntry[];
+}
+
+export interface SettlementData {
+  readonly personId: string;
+  readonly amountCents: number;
+  readonly date: IsoDate;
+  readonly accountId?: string | null;
+  readonly note?: string;
+}
+
 /**
  * Port for reading/writing a user's finance data. Implementations enforce per-user
- * isolation via Postgres RLS (the `userId` argument scopes the auth context).
+ * isolation via Postgres RLS (the `userId` argument scopes the auth context); every
+ * write is atomic within that scope.
  */
 export interface FinanceRepository {
-  /** Create the `public.users` profile row if it doesn't exist yet (first login). */
   ensureProfile(userId: string, email: string): Promise<void>;
-  /** Load every non-deleted entity owned by the user. */
   loadWorkspace(userId: string): Promise<Workspace>;
+
+  createAccount(userId: string, input: AccountInput): Promise<Account>;
+  updateAccount(userId: string, id: string, input: AccountInput): Promise<void>;
+  deleteAccount(userId: string, id: string): Promise<void>;
+
+  createCreditCard(userId: string, input: CreditCardInput): Promise<CreditCard>;
+  updateCreditCard(userId: string, id: string, input: CreditCardInput): Promise<void>;
+  deleteCreditCard(userId: string, id: string): Promise<void>;
+
+  createPerson(userId: string, input: PersonInput): Promise<Person>;
+  updatePerson(userId: string, id: string, input: PersonInput): Promise<void>;
+  deletePerson(userId: string, id: string): Promise<void>;
+
+  createCategory(userId: string, input: CategoryInput): Promise<Category>;
+  updateCategory(userId: string, id: string, input: CategoryInput): Promise<void>;
+  deleteCategory(userId: string, id: string): Promise<void>;
+
+  /** Persist a transaction (single or installment schedule) atomically. */
+  createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;
+  /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
+  deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
+
+  createSettlement(userId: string, input: SettlementData): Promise<void>;
 }
