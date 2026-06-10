@@ -8,6 +8,13 @@
       "when": 1781122985216,
       "tag": "0000_motionless_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781128914733,
+      "tag": "0001_authenticated_grants",
+      "breakpoints": true
     }
   ]
 }
