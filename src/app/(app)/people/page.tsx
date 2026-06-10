@@ -1,4 +1,4 @@
-import { Pencil, Plus } from "lucide-react";
+import { Handshake, Pencil, Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { deletePersonAction } from "@/app/_actions/finance";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { DeleteButton } from "@/presentation/components/forms/delete-button";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
+import { SettlePersonDialog } from "@/presentation/components/forms/settle-person-dialog";
 import { Button } from "@/presentation/components/ui/button";
 import { Money } from "@/presentation/components/ui/money";
 
@@ -13,7 +14,8 @@ export default async function PeoplePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { people } = await getWorkspaceView(financeRepository, user.id);
+  const { people, accounts } = await getWorkspaceView(financeRepository, user.id);
+  const settleAccounts = accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name }));
   const toReceive = people.filter((p) => p.balanceCents > 0).reduce((s, p) => s + p.balanceCents, 0);
   const toPay = people.filter((p) => p.balanceCents < 0).reduce((s, p) => s + Math.abs(p.balanceCents), 0);
 
@@ -94,6 +96,21 @@ export default async function PeoplePage() {
                     withSign={false}
                     className={`mr-2 font-semibold ${settled ? "text-text-lo" : owesYou ? "text-mint-500" : "text-rose-500"}`}
                   />
+                  {!settled && (
+                    <SettlePersonDialog
+                      person={{ id: person.id, name: person.name, balanceCents: person.balanceCents }}
+                      accounts={settleAccounts}
+                      trigger={
+                        <button
+                          type="button"
+                          className="grid size-9 place-items-center rounded-sm text-text-lo transition hover:bg-mint-soft hover:text-mint-500"
+                          aria-label="Quitar"
+                        >
+                          <Handshake size={16} />
+                        </button>
+                      }
+                    />
+                  )}
                   <PersonFormDialog
                     person={person}
                     trigger={
