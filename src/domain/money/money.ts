@@ -60,6 +60,18 @@ export class Money {
     return Money.fromCents(Math.round(this._cents * factor));
   }
 
+  /**
+   * Divide by a scalar, rounding half-up to the nearest cent — the integer-cent
+   * equivalent of the prototype's `r2(value / n)`. Prefer `allocate` when the
+   * resulting parts must sum back to the whole without losing a cent.
+   */
+  divide(divisor: number): Money {
+    if (!Number.isFinite(divisor) || divisor === 0) {
+      throw new RangeError(`Money.divide requires a finite non-zero divisor, received ${divisor}`);
+    }
+    return Money.fromCents(Math.round(this._cents / divisor));
+  }
+
   negate(): Money {
     return new Money(-this._cents);
   }

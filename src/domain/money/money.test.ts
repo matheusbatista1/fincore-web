@@ -92,6 +92,14 @@ describe("Money arithmetic", () => {
     );
   });
 
+  it("divide rounds to the nearest cent and rejects an invalid divisor", () => {
+    expect(Money.fromCents(10_000).divide(3).cents).toBe(3333); // 3333.33 → 3333
+    expect(Money.fromCents(9999).divide(4).cents).toBe(2500); // 2499.75 → 2500
+    expect(Money.fromCents(100).divide(2).cents).toBe(50);
+    expect(() => Money.fromCents(100).divide(0)).toThrow(RangeError);
+    expect(() => Money.fromCents(100).divide(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
+
   it("sum() reduces a list and handles the empty case", () => {
     expect(Money.sum([]).isZero()).toBe(true);
     expect(Money.sum([Money.fromCents(100), Money.fromCents(250)]).cents).toBe(350);
