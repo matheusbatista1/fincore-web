@@ -1,0 +1,267 @@
+/* =============================================================================
+ * FinCore — Global styles & design tokens (Tailwind CSS v4).
+ * Dark premium "private banking": graphite layers, electric purple, metal cards.
+ * Tokens ported 1:1 from the approved prototype (styles/tokens.css).
+ * ========================================================================== */
+
+/* Fonts — Fontshare CDN. Must precede `@import "tailwindcss"` so it stays ahead
+ * of all generated rules. TODO(perf): self-host via next/font/local to drop the
+ * render-blocking @import and avoid FOUT. */
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&f[]=clash-display@400,500,600,700&display=swap");
+
+@import "tailwindcss";
+
+/* Dark-only app: opt into Tailwind's dark variant globally. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* ---- Surfaces (layered graphite, never pure black) ---- */
+  --color-bg-0: #08070c; /* app frame / deepest */
+  --color-bg-1: #0c0a12; /* page background */
+  --color-surface-1: #15121e; /* card */
+  --color-surface-2: #1c1828; /* elevated card / panel */
+  --color-surface-3: #251f33; /* inputs, hover */
+  --color-surface-4: #2f2840; /* active / pressed */
+
+  /* ---- Hairlines ---- */
+  --color-line: rgba(255, 255, 255, 0.06);
+  --color-line-2: rgba(255, 255, 255, 0.1);
+  --color-line-3: rgba(255, 255, 255, 0.16);
+
+  /* ---- Brand purple ---- */
+  --color-purple-100: #efe9ff;
+  --color-purple-200: #d6c7ff;
+  --color-purple-300: #b79eff;
+  --color-purple-400: #9b79ff;
+  --color-purple-500: #7c5cff; /* PRIMARY */
+  --color-purple-600: #6a45f0;
+  --color-purple-700: #5733d4;
+  --color-purple-800: #3d2399;
+  --color-purple-glow: rgba(124, 92, 255, 0.45);
+  --color-purple-soft: rgba(124, 92, 255, 0.14);
+  --color-purple-soft-2: rgba(124, 92, 255, 0.24);
+
+  /* ---- Semantic data colors ---- */
+  --color-mint-500: #34e1a8; /* income / positive */
+  --color-mint-600: #1fc591;
+  --color-mint-soft: rgba(52, 225, 168, 0.12);
+  --color-rose-500: #fb6e83; /* expense / danger */
+  --color-rose-600: #f2475f;
+  --color-rose-soft: rgba(251, 110, 131, 0.12);
+  --color-amber-500: #f5b53f; /* warning / due soon */
+  --color-amber-soft: rgba(245, 181, 63, 0.12);
+  --color-sky-500: #56b6f2; /* informational */
+  --color-sky-soft: rgba(86, 182, 242, 0.12);
+
+  /* ---- Text ---- */
+  --color-text-hi: #f5f3fb;
+  --color-text-mid: #aba5be;
+  --color-text-lo: #6f6985;
+  --color-text-faint: #4b465c;
+  --color-on-purple: #ffffff;
+
+  /* ---- Type ---- */
+  --font-display: "Clash Display", "Satoshi", system-ui, sans-serif;
+  --font-ui: "Satoshi", system-ui, -apple-system, sans-serif;
+
+  /* ---- Radii ---- */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* ---- Shadows (deep, soft, for floating only) ---- */
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 8px 30px rgba(124, 92, 255, 0.35);
+}
+
+/* -----------------------------------------------------------------------------
+ * Legacy token aliases — let bespoke CSS ported from the prototype keep using
+ * the short variable names (var(--purple-500), var(--r-md)…). They simply point
+ * at the @theme variables above, so there is a single source of truth.
+ * -------------------------------------------------------------------------- */
+:root {
+  --bg-0: var(--color-bg-0);
+  --bg-1: var(--color-bg-1);
+  --surface-1: var(--color-surface-1);
+  --surface-2: var(--color-surface-2);
+  --surface-3: var(--color-surface-3);
+  --surface-4: var(--color-surface-4);
+
+  --line: var(--color-line);
+  --line-2: var(--color-line-2);
+  --line-3: var(--color-line-3);
+
+  --purple-100: var(--color-purple-100);
+  --purple-200: var(--color-purple-200);
+  --purple-300: var(--color-purple-300);
+  --purple-400: var(--color-purple-400);
+  --purple-500: var(--color-purple-500);
+  --purple-600: var(--color-purple-600);
+  --purple-700: var(--color-purple-700);
+  --purple-800: var(--color-purple-800);
+  --purple-glow: var(--color-purple-glow);
+  --purple-soft: var(--color-purple-soft);
+  --purple-soft-2: var(--color-purple-soft-2);
+
+  --mint-500: var(--color-mint-500);
+  --mint-600: var(--color-mint-600);
+  --mint-soft: var(--color-mint-soft);
+  --rose-500: var(--color-rose-500);
+  --rose-600: var(--color-rose-600);
+  --rose-soft: var(--color-rose-soft);
+  --amber-500: var(--color-amber-500);
+  --amber-soft: var(--color-amber-soft);
+  --sky-500: var(--color-sky-500);
+  --sky-soft: var(--color-sky-soft);
+
+  --text-hi: var(--color-text-hi);
+  --text-mid: var(--color-text-mid);
+  --text-lo: var(--color-text-lo);
+  --text-faint: var(--color-text-faint);
+  --on-purple: var(--color-on-purple);
+
+  --r-xs: var(--radius-xs);
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --r-xl: var(--radius-xl);
+  --r-pill: var(--radius-pill);
+
+  --sh-1: var(--shadow-1);
+  --sh-2: var(--shadow-2);
+  --sh-3: var(--shadow-3);
+  --sh-glow: var(--shadow-glow);
+
+  /* 4px spacing scale (matches Tailwind's default p-1=4px … p-16=64px) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+}
+
+/* -----------------------------------------------------------------------------
+ * Base layer
+ * -------------------------------------------------------------------------- */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-ui);
+    background: var(--color-bg-1);
+    color: var(--color-text-mid);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: -0.005em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
+    margin: 0;
+    color: var(--color-text-hi);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: var(--color-purple-soft-2);
+    color: var(--color-text-hi);
+  }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-purple-400);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-surface-3);
+    border-radius: 999px;
+    border: 2px solid var(--color-bg-1);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-surface-4);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* -----------------------------------------------------------------------------
+ * Utilities & atmosphere
+ * -------------------------------------------------------------------------- */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Atmospheric purple glow behind the app */
+.app-aura {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(900px 600px at 78% -8%, rgba(124, 92, 255, 0.16), transparent 60%),
+    radial-gradient(700px 500px at -5% 8%, rgba(124, 92, 255, 0.08), transparent 55%);
+}
+
+/* Subtle grain overlay for premium texture */
+.app-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}

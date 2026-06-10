@@ -1,0 +1,12 @@
+# pnpm settings (single-package project).
+# Since pnpm v11 these live here instead of the `pnpm` field of package.json.
+# https://pnpm.io/settings
+
+# Explicitly approve the postinstall/build scripts we trust.
+# `lefthook` and `@biomejs/biome` download their native binaries here;
+# `sharp` powers Next.js image optimization.
+allowBuilds:
+  '@biomejs/biome': true
+  esbuild: true
+  lefthook: true
+  sharp: true

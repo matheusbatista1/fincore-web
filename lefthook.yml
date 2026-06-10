@@ -1,0 +1,23 @@
+# Git hooks (lefthook). Installed via `pnpm lefthook install` (runs on prepare).
+# Keep pre-commit fast (format/lint only); heavier checks run on pre-push.
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      run: pnpm biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: false
+  commands:
+    typecheck:
+      run: pnpm typecheck
+    unit-tests:
+      run: pnpm test:unit
+
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm commitlint --edit {1}
