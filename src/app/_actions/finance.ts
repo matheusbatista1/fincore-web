@@ -38,7 +38,7 @@ async function withParsed<S extends z.ZodTypeAny>(
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return INVALID;
   await run(userId, parsed.data);
-  revalidatePath("/dashboard");
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 
@@ -47,7 +47,7 @@ async function withUser(run: (userId: string) => Promise<unknown>): Promise<Acti
   const userId = await currentUserId();
   if (!userId) return UNAUTHORIZED;
   await run(userId);
-  revalidatePath("/dashboard");
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 
@@ -59,7 +59,7 @@ export async function createTransactionAction(raw: unknown): Promise<ActionState
   if (!parsed.success) return INVALID;
   const result = await createTransaction(financeRepository, userId, parsed.data);
   if (!result.ok) return { ok: false, error: result.error.message };
-  revalidatePath("/dashboard");
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 
