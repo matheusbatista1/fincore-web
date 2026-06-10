@@ -7,6 +7,8 @@
 # `sharp` powers Next.js image optimization.
 allowBuilds:
   '@biomejs/biome': true
+  '@parcel/watcher': true
+  '@swc/core': true
   esbuild: true
   lefthook: true
   sharp: true
