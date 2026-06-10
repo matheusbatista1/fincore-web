@@ -3,11 +3,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { env } from "@/infrastructure/config/env";
 
 /**
- * Keeps the Supabase auth session fresh on every request by rotating the
- * access/refresh tokens through cookies. Route protection (redirect to /login)
- * is added in the presentation phase once auth screens exist.
+ * Edge proxy (Next 16's renamed middleware). Refreshes the Supabase auth session
+ * on every request and enforces route protection.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   // Resilience: until Supabase is configured (env vars set), skip auth refresh so
@@ -34,9 +33,34 @@ export async function middleware(request: NextRequest) {
   });
 
   // IMPORTANT: refreshes the session; do not run code between client creation and this call.
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const path = request.nextUrl.pathname;
+  const isPublic = path === "/login" || path.startsWith("/login/") || path.startsWith("/auth");
+
+  // Unauthenticated users may only see public routes.
+  if (!user && !isPublic) {
+    return redirectTo(request, response, "/login");
+  }
+  // Authenticated users skip the login / landing page.
+  if (user && (path === "/login" || path === "/")) {
+    return redirectTo(request, response, "/dashboard");
+  }
 
   return response;
+}
+
+/** Redirect while preserving the refreshed auth cookies. */
+function redirectTo(request: NextRequest, base: NextResponse, pathname: string): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  const redirect = NextResponse.redirect(url);
+  for (const cookie of base.cookies.getAll()) {
+    redirect.cookies.set(cookie);
+  }
+  return redirect;
 }
 
 export const config = {
