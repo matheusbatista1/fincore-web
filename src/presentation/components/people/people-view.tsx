@@ -192,6 +192,7 @@ export function PeopleView({
                 setSettleId(open.id);
               }}
               onRemind={() => toast(`Lembrete enviado para ${firstName(open.name)} via WhatsApp`, "info")}
+              onReport={() => toast(`Relatório de ${firstName(open.name)} exportado em PDF`)}
             />
           </DialogModal>
         )}
@@ -211,12 +212,14 @@ function ProfileBody({
   today,
   onSettle,
   onRemind,
+  onReport,
 }: {
   person: PersonView;
   transactions: TransactionListItem[];
   today: string;
   onSettle: () => void;
   onRemind: () => void;
+  onReport: () => void;
 }) {
   const owes = person.balanceCents > 0;
   const owed = person.balanceCents < 0;
@@ -271,6 +274,12 @@ function ProfileBody({
         style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
         Histórico
+        {involved.length > 0 && (
+          <button type="button" className="card-link" onClick={onReport}>
+            Relatório completo
+            <Icon name="arrow-right" size={14} />
+          </button>
+        )}
       </div>
       {involved.length === 0 && (
         <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "10px 0" }}>

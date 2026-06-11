@@ -17,6 +17,7 @@ export interface TxFormAccount {
   readonly bank: string;
   readonly name: string;
   readonly themeKey: string;
+  readonly balanceCents: number;
 }
 export interface TxFormCard {
   readonly id: string;
@@ -445,6 +446,14 @@ function TransactionForm({
                         {a.bank.slice(0, 2).toUpperCase()}
                       </span>
                       {a.bank} · {a.name}
+                      {a.balanceCents < 0 && (
+                        <span
+                          className="parc-badge"
+                          style={{ marginLeft: 4, background: "var(--rose-soft)", color: "var(--rose-500)" }}
+                        >
+                          negativada
+                        </span>
+                      )}
                     </button>
                   ))}
               </div>
@@ -770,7 +779,9 @@ function TransactionForm({
                       <span>
                         <b>Auto-preencher próximas</b>
                         <small>
-                          {cur < n ? `Lança ${cur + 1} até ${n} (${n - cur} futuras)` : "Lança as seguintes"}
+                          {cur < n
+                            ? `Lança ${cur + 1} até ${n} (${n - cur} futuras)`
+                            : "Lança as parcelas seguintes"}
                         </small>
                       </span>
                     </SwitchRow>

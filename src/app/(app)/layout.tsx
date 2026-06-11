@@ -22,6 +22,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       bank: a.bank,
       name: a.name,
       themeKey: a.themeKey,
+      balanceCents: a.balanceCents,
     })),
     cards: workspace.cards.map((c) => ({ id: c.id, bank: c.bank })),
     people: workspace.people.map((p) => ({ id: p.id, name: p.name, color: p.color })),

@@ -17,6 +17,8 @@ interface StmtGroup {
   readonly key: string;
   readonly name: string;
   readonly sub?: string;
+  /** Overrides the default "{sub} · {n} lançamentos" subtitle entirely. */
+  readonly countText?: string;
   readonly accent: string;
   readonly icon: string;
   readonly items: MonthlyItem[];
@@ -94,8 +96,10 @@ function StmtCard({ group, today }: { group: StmtGroup; today: string }) {
         <div className="sh-main">
           <b>{group.name}</b>
           <small>
-            {group.sub ? `${group.sub} · ` : ""}
-            {group.items.length} {group.items.length === 1 ? "lançamento" : "lançamentos"}
+            {group.countText ??
+              `${group.sub ? `${group.sub} · ` : ""}${group.items.length} ${
+                group.items.length === 1 ? "lançamento" : "lançamentos"
+              }`}
           </small>
         </div>
         <span className="sh-tot" style={group.key === "income" ? { color: group.accent } : undefined}>
@@ -282,6 +286,7 @@ export default async function MonthlyPage({
               group={{
                 key: "income",
                 name: "Receitas",
+                countText: `${incomes.length} ${incomes.length === 1 ? "entrada" : "entradas"}`,
                 accent: "var(--mint-500)",
                 icon: "arrow-down-left",
                 items: incomes,
@@ -304,7 +309,7 @@ export default async function MonthlyPage({
               group={{
                 key: "transfer",
                 name: "Transferências",
-                sub: "entre contas · não afetam o patrimônio",
+                countText: `${transfers.length} entre contas · não afetam o patrimônio`,
                 accent: "var(--sky-500)",
                 icon: "arrow-left-right",
                 items: transfers,
