@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { createTransaction } from "@/application/use-cases/create-transaction";
+import { importStatement } from "@/application/use-cases/import-statement";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import {
@@ -14,6 +15,7 @@ import {
   goalInputSchema,
   personInputSchema,
 } from "@/shared/schemas/entities";
+import { importStatementSchema } from "@/shared/schemas/import";
 import {
   createTransactionSchema,
   deleteTransactionSchema,
@@ -70,6 +72,16 @@ export async function deleteTransactionAction(raw: unknown): Promise<ActionState
   return withParsed(deleteTransactionSchema, raw, (userId, input) =>
     financeRepository.deleteTransaction(userId, input.id, input.scope),
   );
+}
+
+export async function importTransactionsAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = importStatementSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  await importStatement(financeRepository, userId, parsed.data);
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function settlePersonAction(raw: unknown): Promise<ActionState> {
