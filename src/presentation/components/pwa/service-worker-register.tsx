@@ -2,36 +2,29 @@
 
 import { useEffect } from "react";
 
-/** Registers the service worker once on the client (no UI). */
+/**
+ * PWA service worker is temporarily disabled during design iteration (it was
+ * trapping users on stale builds). This component now actively unregisters any
+ * existing worker and clears its caches so every visit gets the latest build.
+ * Re-enable a versioned caching SW once the UI is stable.
+ */
 export function ServiceWorkerRegister() {
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
-
-    // When a new service worker takes control (after a deploy), reload once so
-    // the user sees the new build instead of being trapped on the cached one.
-    let refreshing = false;
-    const onControllerChange = () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
-
-    const register = () => {
-      navigator.serviceWorker
-        .register("/sw.js", { scope: "/", updateViaCache: "none" })
-        .then((reg) => reg.update())
-        .catch(() => {
-          // Registration failures are non-fatal — the app still works online.
-        });
-    };
-    if (document.readyState === "complete") register();
-    else window.addEventListener("load", register, { once: true });
-
-    return () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
-      window.removeEventListener("load", register);
-    };
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((regs) => {
+        for (const reg of regs) void reg.unregister();
+      })
+      .catch(() => {});
+    if ("caches" in window) {
+      caches
+        .keys()
+        .then((keys) => {
+          for (const key of keys) void caches.delete(key);
+        })
+        .catch(() => {});
+    }
   }, []);
 
   return null;
