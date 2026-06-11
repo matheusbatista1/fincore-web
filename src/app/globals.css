@@ -322,64 +322,6 @@
   animation-delay: 0.14s;
 }
 
-/* -----------------------------------------------------------------------------
- * Credit-card face — metallic sheen + guilloché texture + gold chip (ported
- * from the prototype). The per-bank gradient is applied inline (data-driven).
- * -------------------------------------------------------------------------- */
-.cc-face {
-  position: relative;
-  aspect-ratio: 1.586 / 1;
-  border-radius: var(--radius-md);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  color: #fff;
-  overflow: hidden;
-  isolation: isolate;
-  box-shadow: var(--shadow-2);
-}
-.cc-face::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: linear-gradient(
-    125deg,
-    rgba(255, 255, 255, 0.16) 0%,
-    rgba(255, 255, 255, 0) 32%,
-    rgba(255, 255, 255, 0) 64%,
-    rgba(255, 255, 255, 0.08) 100%
-  );
-}
-.cc-face::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  opacity: 0.5;
-  mix-blend-mode: soft-light;
-  background-image: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 7px);
-}
-.cc-face > * {
-  position: relative;
-  z-index: 1;
-}
-.cc-chip {
-  width: 34px;
-  height: 26px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #e9d9a8, #b8923f);
-  position: relative;
-}
-.cc-chip::after {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 3px;
-}
-
 /* Standalone tinted icon badge. The prototype scopes `.kpi-ic` under `.kpi`,
  * but the People and Reports screens use it bare — replicate the intended look. */
 .kpi-ic {

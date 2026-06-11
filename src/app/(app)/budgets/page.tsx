@@ -1,4 +1,3 @@
-import { Pencil, Plus, Target } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { deleteBudgetAction } from "@/app/_actions/finance";
@@ -7,19 +6,16 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { BudgetFormDialog } from "@/presentation/components/forms/budget-form-dialog";
 import { DeleteButton } from "@/presentation/components/forms/delete-button";
-import { Button } from "@/presentation/components/ui/button";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
+import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { monthLabel } from "@/shared/formatting/dates";
+import { currentMonthInBrazil } from "@/shared/formatting/now";
 
-function currentMonthInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
-}
-
-function barTone(budget: BudgetView): string {
-  if (budget.over) return "bg-rose-500";
-  if (budget.ratio > 0.85) return "bg-amber-500";
-  return "bg-mint-500";
+function meterClass(budget: BudgetView): string {
+  if (budget.over) return "danger";
+  if (budget.ratio > 0.85) return "warn";
+  return "";
 }
 
 export default async function BudgetsPage() {
@@ -30,137 +26,140 @@ export default async function BudgetsPage() {
   const data = await getBudgets(financeRepository, user.id, month);
   const canCreate = data.availableCategories.length > 0;
 
-  const newButton = (
-    <BudgetFormDialog
-      availableCategories={data.availableCategories}
-      trigger={
-        <Button>
-          <Plus size={18} />
-          Novo orçamento
-        </Button>
-      }
-    />
-  );
-
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="mt-1 text-text-mid">Limites por categoria · {monthLabel(month, { long: true })}.</p>
-        </div>
-        {canCreate && newButton}
-      </header>
-
+    <div className="budgets-page">
       {data.budgets.length > 0 && (
-        <div className="rounded-lg border border-line bg-gradient-to-br from-surface-2 to-surface-1 p-6 shadow-2">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-faint">Gasto / Limite</p>
-          <p className="mt-2 flex items-baseline gap-2">
-            <Money
-              cents={data.totalSpentCents}
-              withSign={false}
-              className="font-display text-3xl font-semibold text-text-hi"
-            />
-            <span className="text-text-lo">
-              de <Money cents={data.totalLimitCents} withSign={false} />
-            </span>
-          </p>
+        <div className="card card-pad rise" style={{ marginBottom: 18 }}>
+          <span className="kicker">Gasto / Limite · {monthLabel(month, { long: true })}</span>
+          <div
+            className="fc-bignum"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 40,
+              fontWeight: 600,
+              color: "var(--text-hi)",
+              letterSpacing: "-0.03em",
+              marginTop: 6,
+              lineHeight: 1,
+            }}
+          >
+            <Money cents={data.totalSpentCents} withSign={false} />
+          </div>
+          <div style={{ color: "var(--text-lo)", fontSize: 13.5, marginTop: 8 }}>
+            de <Money cents={data.totalLimitCents} withSign={false} /> orçados em {data.budgets.length}{" "}
+            {data.budgets.length === 1 ? "categoria" : "categorias"}
+          </div>
         </div>
       )}
 
-      {data.budgets.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-10 text-center">
-          <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-purple-soft text-purple-300">
-            <Target size={24} />
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h3>Orçamentos</h3>
+            <div className="ch-sub">Limites mensais por categoria</div>
           </div>
-          {canCreate ? (
-            <>
-              <p className="text-text-mid">
-                Defina limites mensais por categoria para controlar seus gastos.
-              </p>
-              <div className="mt-4 flex justify-center">{newButton}</div>
-            </>
-          ) : (
-            <p className="text-text-mid">
-              Crie categorias em{" "}
-              <Link href="/settings" className="text-purple-300 hover:underline">
-                Configurações
-              </Link>{" "}
-              antes de definir orçamentos.
-            </p>
+          {canCreate && (
+            <BudgetFormDialog
+              availableCategories={data.availableCategories}
+              trigger={
+                <button type="button" className="btn btn-ghost btn-sm">
+                  <Icon name="plus" size={16} />
+                  Novo orçamento
+                </button>
+              }
+            />
           )}
         </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {data.budgets.map((budget) => {
-            const pct = Math.min(100, Math.round(budget.ratio * 100));
-            return (
-              <div key={budget.id} className="rounded-lg border border-line bg-surface-1 p-4 shadow-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span
-                      className="grid size-9 shrink-0 place-items-center rounded-md text-white"
-                      style={{ background: budget.categoryColor }}
-                    >
-                      <CategoryIcon name={budget.categoryIcon} size={16} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-text-hi">{budget.categoryName}</p>
-                      <p className="text-sm text-text-lo">
-                        <Money cents={budget.spentCents} withSign={false} /> de{" "}
-                        <Money cents={budget.limitCents} withSign={false} />
-                      </p>
+        <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 10 }}>
+          {data.budgets.length === 0 ? (
+            <div style={{ color: "var(--text-lo)", padding: "16px 0" }}>
+              {canCreate ? (
+                "Defina limites mensais por categoria para controlar seus gastos."
+              ) : (
+                <>
+                  Crie categorias em{" "}
+                  <Link href="/settings" className="card-link">
+                    Configurações
+                  </Link>{" "}
+                  antes de definir orçamentos.
+                </>
+              )}
+            </div>
+          ) : (
+            data.budgets.map((budget) => {
+              const pct = Math.min(100, Math.round(budget.ratio * 100));
+              return (
+                <div key={budget.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--line)" }}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div className="row gap-3" style={{ minWidth: 0 }}>
+                      <span
+                        className="l-ic"
+                        style={{ background: `${budget.categoryColor}22`, color: budget.categoryColor }}
+                      >
+                        <CategoryIcon name={budget.categoryIcon} size={18} />
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="l-title">{budget.categoryName}</div>
+                        <div className="l-sub">
+                          <Money cents={budget.spentCents} withSign={false} /> de{" "}
+                          <Money cents={budget.limitCents} withSign={false} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="row gap-2">
+                      <BudgetFormDialog
+                        budget={{
+                          id: budget.id,
+                          categoryId: budget.categoryId,
+                          categoryName: budget.categoryName,
+                          limitCents: budget.limitCents,
+                        }}
+                        trigger={
+                          <button
+                            type="button"
+                            className="icon-btn btn-sm"
+                            style={{ width: 34, height: 34 }}
+                            title="Editar"
+                          >
+                            <Icon name="pencil" size={15} />
+                          </button>
+                        }
+                      />
+                      <DeleteButton
+                        id={budget.id}
+                        action={deleteBudgetAction}
+                        confirmMessage={`Remover o orçamento de ${budget.categoryName}?`}
+                      />
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <BudgetFormDialog
-                      budget={{
-                        id: budget.id,
-                        categoryId: budget.categoryId,
-                        categoryName: budget.categoryName,
-                        limitCents: budget.limitCents,
-                      }}
-                      trigger={
-                        <button
-                          type="button"
-                          className="grid size-9 place-items-center rounded-sm text-text-lo transition hover:bg-surface-2 hover:text-text-hi"
-                          aria-label="Editar"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                      }
-                    />
-                    <DeleteButton
-                      id={budget.id}
-                      action={deleteBudgetAction}
-                      confirmMessage={`Remover o orçamento de ${budget.categoryName}?`}
-                    />
+                  <div className={`meter ${meterClass(budget)}`} style={{ marginTop: 10 }}>
+                    <span style={{ width: `${pct}%` }} />
+                  </div>
+                  <div
+                    className="row"
+                    style={{ justifyContent: "space-between", marginTop: 6, fontSize: 12.5 }}
+                  >
+                    <span style={{ color: budget.over ? "var(--rose-500)" : "var(--text-lo)" }}>
+                      {budget.over ? "Acima do limite" : `${pct}% usado`}
+                    </span>
+                    <span style={{ color: budget.over ? "var(--rose-500)" : "var(--text-lo)" }}>
+                      {budget.over ? (
+                        <>
+                          + <Money cents={Math.abs(budget.remainingCents)} withSign={false} />
+                        </>
+                      ) : (
+                        <>
+                          restam <Money cents={budget.remainingCents} withSign={false} />
+                        </>
+                      )}
+                    </span>
                   </div>
                 </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-pill bg-surface-3">
-                  <div className={`h-full ${barTone(budget)}`} style={{ width: `${pct}%` }} />
-                </div>
-                <p className="mt-1 flex items-center justify-between text-xs">
-                  <span className={budget.over ? "text-rose-500" : "text-text-lo"}>
-                    {budget.over ? "Acima do limite" : `${pct}% usado`}
-                  </span>
-                  <span className={budget.over ? "text-rose-500" : "text-text-lo"}>
-                    {budget.over ? (
-                      <>
-                        + <Money cents={Math.abs(budget.remainingCents)} withSign={false} />
-                      </>
-                    ) : (
-                      <>
-                        restam <Money cents={budget.remainingCents} withSign={false} />
-                      </>
-                    )}
-                  </span>
-                </p>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
