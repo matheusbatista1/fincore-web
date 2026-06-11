@@ -48,3 +48,7 @@ Thumbs.db
 .claude/settings.local.json
 
 .vercel
+
+# Transient files used to pass commit/PR bodies to git/gh (never committed)
+.commitmsg.txt
+.prbody.txt

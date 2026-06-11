@@ -1,266 +1,121 @@
-import {
-  ArrowDownLeft,
-  ArrowLeftRight,
-  ArrowUpRight,
-  CalendarX,
-  ChevronLeft,
-  ChevronRight,
-  CreditCard,
-  FileText,
-  Layers,
-  Repeat,
-  Scale,
-  Users,
-  Wallet,
-} from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { CSSProperties } from "react";
 import { getMonthly, type MonthlyItem } from "@/application/use-cases/get-monthly";
+import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
-import { DeleteTransactionButton } from "@/presentation/components/forms/delete-transaction-button";
+import { MonthExportButtons } from "@/presentation/components/monthly/month-export-buttons";
+import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
-import { monthLabel } from "@/shared/formatting/dates";
+import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
+import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
+import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
-function currentMonthInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
-}
-
-type StmtAccent = "mint" | "sky" | "purple";
 interface StmtGroup {
   readonly key: string;
   readonly name: string;
-  readonly accent: StmtAccent;
-  readonly rank: number;
+  readonly sub?: string;
+  readonly accent: string;
+  readonly icon: string;
   readonly items: MonthlyItem[];
   readonly totalCents: number;
 }
 
-const STMT_TONE: Record<StmtAccent, string> = {
-  mint: "bg-mint-soft text-mint-500",
-  sky: "bg-sky-soft text-sky-500",
-  purple: "bg-purple-soft text-purple-300",
-};
+function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
+  const isTransfer = item.kind === "transfer";
+  const cat = item.category;
+  const icStyle: CSSProperties = isTransfer
+    ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
+    : cat
+      ? { background: `${cat.color}22`, color: cat.color }
+      : { background: "var(--mint-soft)", color: "var(--mint-500)" };
+  const iconName = isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left";
+  const sub = isTransfer
+    ? item.transferFromName && item.transferToName
+      ? `${item.transferFromName} → ${item.transferToName}`
+      : ""
+    : (item.sourceLabel ?? (cat ? cat.name : ""));
 
-function groupTotal(items: MonthlyItem[]): number {
-  return items.reduce(
-    (sum, i) => sum + (i.kind === "transfer" ? (i.transferValueCents ?? 0) : Math.abs(i.amountCents)),
-    0,
+  return (
+    <div className="lrow">
+      <span className="l-ic" style={icStyle}>
+        <Icon name={iconName} size={18} />
+      </span>
+      <div className="l-main">
+        <div className="l-title">
+          {item.description || (isTransfer ? "Transferência" : "Lançamento")}
+          {item.isFixed && (
+            <span
+              className="parc-badge"
+              style={{ marginLeft: 8, background: "var(--purple-soft)", color: "var(--purple-300)" }}
+            >
+              <Icon name="repeat" size={11} />
+              fixo
+            </span>
+          )}
+          {item.projected && (
+            <span className="parc-badge futura" style={{ marginLeft: 6 }}>
+              previsto
+            </span>
+          )}
+          {item.parcela && (
+            <span className="parc-badge" style={{ marginLeft: 6 }}>
+              {item.parcela.number}/{item.parcela.total}
+            </span>
+          )}
+        </div>
+        <div className="l-sub">
+          {relativeDateLabel(item.date, today)}
+          {sub ? ` · ${sub}` : ""}
+        </div>
+      </div>
+      {isTransfer ? (
+        <div className="l-amt" style={{ color: "var(--sky-500)" }}>
+          <Money cents={item.transferValueCents ?? 0} withSign={false} />
+        </div>
+      ) : (
+        <div className={`l-amt ${item.amountCents < 0 ? "neg" : "pos"}`}>
+          <Money cents={item.amountCents} />
+        </div>
+      )}
+    </div>
   );
 }
 
-/** Group a month's rows by origin (receitas / each card·conta·compromisso / transferências). */
-function buildStatementGroups(items: MonthlyItem[]): StmtGroup[] {
-  const income = items.filter((i) => i.kind === "income");
-  const transfers = items.filter((i) => i.kind === "transfer");
-  const expenses = items.filter((i) => i.kind === "expense");
-
-  const byOrigin = new Map<string, MonthlyItem[]>();
-  for (const e of expenses) {
-    const key = e.sourceLabel ?? "Outros";
-    const arr = byOrigin.get(key);
-    if (arr) arr.push(e);
-    else byOrigin.set(key, [e]);
-  }
-
-  const groups: StmtGroup[] = [];
-  if (income.length > 0) {
-    groups.push({
-      key: "income",
-      name: "Receitas",
-      accent: "mint",
-      rank: 0,
-      items: income,
-      totalCents: groupTotal(income),
-    });
-  }
-  for (const [name, arr] of byOrigin) {
-    const rank = name.startsWith("Cartão") ? 1 : name.includes(" · ") ? 2 : 3;
-    groups.push({
-      key: `exp:${name}`,
-      name,
-      accent: "purple",
-      rank,
-      items: arr,
-      totalCents: groupTotal(arr),
-    });
-  }
-  if (transfers.length > 0) {
-    groups.push({
-      key: "transfer",
-      name: "Transferências",
-      accent: "sky",
-      rank: 9,
-      items: transfers,
-      totalCents: groupTotal(transfers),
-    });
-  }
-  return groups.sort((a, b) => a.rank - b.rank || b.totalCents - a.totalCents);
-}
-
-function StatementIcon({ group }: { group: StmtGroup }) {
-  if (group.key === "income") return <ArrowDownLeft size={18} />;
-  if (group.key === "transfer") return <ArrowLeftRight size={18} />;
-  if (group.name.startsWith("Cartão")) return <CreditCard size={18} />;
-  if (group.name.includes(" · ")) return <Wallet size={18} />;
-  return <FileText size={18} />;
-}
-
-function StatementCard({ group }: { group: StmtGroup }) {
-  const totalTone =
-    group.accent === "mint" ? "text-mint-500" : group.accent === "sky" ? "text-sky-500" : "text-text-hi";
+function StmtCard({ group, today }: { group: StmtGroup; today: string }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-line bg-surface-1 shadow-2">
-      <div className="flex items-center gap-3 border-b border-line p-4">
-        <span className={`grid size-10 shrink-0 place-items-center rounded-md ${STMT_TONE[group.accent]}`}>
-          <StatementIcon group={group} />
+    <div className="card stmt">
+      <div className="stmt-head" style={{ ["--accent" as string]: group.accent } as CSSProperties}>
+        <span className="sh-ic" style={{ background: `${group.accent}22`, color: group.accent }}>
+          <Icon name={group.icon} size={18} />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-text-hi">{group.name}</p>
-          <p className="text-xs text-text-lo">
+        <div className="sh-main">
+          <b>{group.name}</b>
+          <small>
+            {group.sub ? `${group.sub} · ` : ""}
             {group.items.length} {group.items.length === 1 ? "lançamento" : "lançamentos"}
-          </p>
+          </small>
         </div>
-        <Money cents={group.totalCents} withSign={false} className={`shrink-0 font-semibold ${totalTone}`} />
+        <span className="sh-tot" style={group.key === "income" ? { color: group.accent } : undefined}>
+          <Money cents={group.totalCents} withSign={false} />
+        </span>
       </div>
-      <div className="divide-y divide-line">
+      <div className="stmt-body">
         {group.items.map((item) => (
-          <MonthlyRow key={item.id} item={item} />
+          <StmtRow key={item.id} item={item} today={today} />
         ))}
       </div>
-    </section>
-  );
-}
-
-function KindIcon({ kind }: { kind: MonthlyItem["kind"] }) {
-  const base = "grid size-10 shrink-0 place-items-center rounded-md";
-  if (kind === "income")
-    return (
-      <span className={`${base} bg-mint-soft text-mint-500`}>
-        <ArrowDownLeft size={18} />
-      </span>
-    );
-  if (kind === "transfer")
-    return (
-      <span className={`${base} bg-sky-soft text-sky-500`}>
-        <ArrowLeftRight size={18} />
-      </span>
-    );
-  return (
-    <span className={`${base} bg-rose-soft text-rose-500`}>
-      <ArrowUpRight size={18} />
-    </span>
-  );
-}
-
-function Badge({ children, tone }: { children: React.ReactNode; tone?: "purple" }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-xs ${
-        tone === "purple" ? "bg-purple-soft text-purple-300" : "bg-surface-3 text-text-lo"
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  tone,
-  icon,
-}: {
-  label: string;
-  value: number;
-  tone: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-text-faint">
-        {icon}
-        {label}
-      </span>
-      <Money cents={value} withSign={false} className={`font-display text-2xl font-semibold ${tone}`} />
     </div>
   );
 }
 
-function MonthlyRow({ item }: { item: MonthlyItem }) {
-  const sub: React.ReactNode[] = [];
-  if (item.sourceLabel) sub.push(<span key="src">{item.sourceLabel}</span>);
-  if (item.transferFromName && item.transferToName) {
-    sub.push(
-      <span key="x">
-        {item.transferFromName} → {item.transferToName}
-      </span>,
-    );
-  }
-  if (item.fromPersonName) sub.push(<span key="from">Pagamento de {item.fromPersonName}</span>);
-
-  return (
-    <div className={`flex items-center justify-between gap-3 p-4 ${item.projected ? "opacity-70" : ""}`}>
-      <div className="flex min-w-0 items-center gap-3">
-        <KindIcon kind={item.kind} />
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 truncate font-medium text-text-hi">
-            {item.description || (item.kind === "transfer" ? "Transferência" : "Lançamento")}
-            {item.category && (
-              <span className="size-2 shrink-0 rounded-full" style={{ background: item.category.color }} />
-            )}
-          </p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-lo">
-            {sub.length > 0 && <span className="truncate">{sub[0]}</span>}
-            {item.projected && <Badge tone="purple">Previsto</Badge>}
-            {item.isFixed && (
-              <Badge>
-                <Repeat size={12} />
-                Fixo
-              </Badge>
-            )}
-            {item.parcela && (
-              <Badge>
-                <Layers size={12} />
-                {item.parcela.number}/{item.parcela.total}
-              </Badge>
-            )}
-            {item.shares.length > 0 && (
-              <Badge>
-                <Users size={12} />
-                {item.shares.length === 1 ? "1 pessoa" : `${item.shares.length} pessoas`}
-              </Badge>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {item.kind === "transfer" ? (
-          <Money
-            cents={item.transferValueCents ?? 0}
-            withSign={false}
-            className="mr-1 font-semibold text-sky-500"
-          />
-        ) : (
-          <Money
-            cents={item.amountCents}
-            className={`mr-1 font-semibold ${item.kind === "income" ? "text-mint-500" : "text-text-hi"}`}
-          />
-        )}
-        {item.projected ? (
-          <span className="w-9" />
-        ) : (
-          <DeleteTransactionButton
-            id={item.id}
-            isInstallment={item.parcela !== null}
-            description={item.description || "lançamento"}
-          />
-        )}
-      </div>
-    </div>
+const sumAbs = (items: MonthlyItem[]): number =>
+  items.reduce(
+    (s, e) => s + (e.kind === "transfer" ? (e.transferValueCents ?? 0) : Math.abs(e.amountCents)),
+    0,
   );
-}
 
 export default async function MonthlyPage({
   searchParams,
@@ -275,89 +130,190 @@ export default async function MonthlyPage({
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const isCurrent = month === current;
+  const today = todayInBrazil();
+  const label = monthLabel(month, { long: true });
 
-  const data = await getMonthly(financeRepository, user.id, month);
-  const hasProjections = data.items.some((i) => i.projected);
-  const statementGroups = buildStatementGroups(data.items);
-  const net = data.projectedTotals.netCents;
+  const [data, workspace] = await Promise.all([
+    getMonthly(financeRepository, user.id, month),
+    getWorkspaceView(financeRepository, user.id),
+  ]);
+
+  const incomes = data.items.filter((e) => e.kind === "income");
+  const expenses = data.items.filter((e) => e.kind === "expense");
+  const transfers = data.items.filter((e) => e.kind === "transfer");
+  const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);
+  const totOut = expenses.reduce((s, e) => s + Math.abs(e.amountCents), 0);
+
+  // Groups by origin (mirrors the prototype's MonthlyScreen).
+  const cardGroups: StmtGroup[] = workspace.cards
+    .map((c) => {
+      const items = expenses.filter((e) => e.cardId === c.id);
+      const accent = resolveBankTheme(c.themeKey, c.bank).accent;
+      return {
+        key: `card-${c.id}`,
+        name: `${c.bank} · ${c.product}`,
+        accent,
+        icon: "credit-card",
+        items,
+        totalCents: sumAbs(items),
+      };
+    })
+    .filter((g) => g.items.length > 0);
+
+  const acctGroups: StmtGroup[] = workspace.accounts
+    .map((a) => {
+      const items = expenses.filter((e) => e.accountId === a.id);
+      const accent = resolveBankTheme(a.themeKey, a.bank).accent;
+      return {
+        key: `acct-${a.id}`,
+        name: `${a.bank} · ${a.name}`,
+        sub: "Débito / Pix",
+        accent,
+        icon: "wallet",
+        items,
+        totalCents: sumAbs(items),
+      };
+    })
+    .filter((g) => g.items.length > 0);
+
+  const compromissoItems = expenses.filter((e) => !e.cardId && !e.accountId);
+  const compromissos: StmtGroup[] =
+    compromissoItems.length > 0
+      ? [
+          {
+            key: "compromissos",
+            name: "Contas & compromissos",
+            sub: "Boletos, financiamentos, empréstimos",
+            accent: "#8A93A6",
+            icon: "file-text",
+            items: compromissoItems,
+            totalCents: sumAbs(compromissoItems),
+          },
+        ]
+      : [];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-lg border border-line bg-surface-1 p-5 shadow-2">
-        <div className="flex items-center justify-between gap-3">
+    <div className="monthly-page">
+      {/* navegador + resumo */}
+      <div className="card card-pad rise" style={{ marginBottom: 18 }}>
+        <div className="month-nav">
           <Link
+            className="icon-btn"
             href={`/monthly?m=${addMonths(month, -1)}`}
-            className="grid size-10 place-items-center rounded-sm text-text-mid transition hover:bg-surface-2 hover:text-text-hi"
+            title="Mês anterior"
             aria-label="Mês anterior"
           >
-            <ChevronLeft size={20} />
+            <Icon name="chevron-left" size={19} />
           </Link>
-          <div className="flex flex-col items-center gap-1">
-            <span className="font-display text-lg font-semibold text-text-hi">
-              {monthLabel(month, { long: true })}
-            </span>
+          <div className="mn-label">
+            <span className="mn-month">{label}</span>
             {isCurrent ? (
-              <span className="rounded-pill bg-purple-soft px-2.5 py-0.5 text-xs font-semibold text-purple-300">
+              <span className="pill purple" style={{ height: 22 }}>
                 Mês atual
               </span>
             ) : (
-              <Link href="/monthly" className="text-xs font-medium text-purple-300 hover:underline">
+              <Link className="card-link" href="/monthly">
                 Voltar para hoje
               </Link>
             )}
           </div>
           <Link
+            className="icon-btn"
             href={`/monthly?m=${addMonths(month, 1)}`}
-            className="grid size-10 place-items-center rounded-sm text-text-mid transition hover:bg-surface-2 hover:text-text-hi"
+            title="Próximo mês"
             aria-label="Próximo mês"
           >
-            <ChevronRight size={20} />
+            <Icon name="chevron-right" size={19} />
           </Link>
         </div>
-
-        <div className="mt-5 grid grid-cols-3 gap-4 border-t border-line pt-5">
-          <Kpi
-            label="Entradas"
-            value={data.projectedTotals.incomeCents}
-            tone="text-mint-500"
-            icon={<ArrowDownLeft size={13} />}
-          />
-          <Kpi
-            label="Saídas"
-            value={data.projectedTotals.expenseCents}
-            tone="text-rose-500"
-            icon={<ArrowUpRight size={13} />}
-          />
-          <Kpi
-            label="Resultado"
-            value={net}
-            tone={net >= 0 ? "text-text-hi" : "text-rose-500"}
-            icon={<Scale size={13} />}
-          />
+        <div className="month-totals">
+          <div className="mt-cell">
+            <span className="mt-lbl">
+              <Icon name="arrow-down-left" size={14} />
+              Entradas
+            </span>
+            <span className="mt-val" style={{ color: "var(--mint-500)" }}>
+              <Money cents={totIn} withSign={false} />
+            </span>
+          </div>
+          <div className="mt-cell">
+            <span className="mt-lbl">
+              <Icon name="arrow-up-right" size={14} />
+              Saídas
+            </span>
+            <span className="mt-val" style={{ color: "var(--rose-500)" }}>
+              <Money cents={totOut} withSign={false} />
+            </span>
+          </div>
+          <div className="mt-cell">
+            <span className="mt-lbl">
+              <Icon name="scale" size={14} />
+              Resultado
+            </span>
+            <span
+              className="mt-val"
+              style={{ color: totIn - totOut >= 0 ? "var(--text-hi)" : "var(--rose-500)" }}
+            >
+              <Money cents={totIn - totOut} withSign={false} />
+            </span>
+          </div>
         </div>
-        {hasProjections && (
-          <p className="mt-3 text-xs text-text-lo">Inclui lançamentos fixos previstos para este mês.</p>
-        )}
+        <MonthExportButtons monthLabel={label} />
       </div>
 
-      {data.items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-10 text-center">
-          <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-surface-2 text-text-lo">
-            <CalendarX size={24} />
+      {data.items.length === 0 && (
+        <div className="coming">
+          <div className="ci">
+            <Icon name="calendar-x" size={32} />
           </div>
-          <h3 className="font-medium text-text-hi">Nenhum lançamento</h3>
-          <p className="mt-1 text-text-mid">
-            Não há lançamentos em {monthLabel(month, { long: true })}. Lançamentos fixos aparecem
-            automaticamente nos próximos meses.
+          <h3>Nenhum lançamento</h3>
+          <p>
+            Não há lançamentos em {label}. Lançamentos fixos aparecem automaticamente nos meses seguintes.
           </p>
         </div>
-      ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          {statementGroups.map((group) => (
-            <StatementCard key={group.key} group={group} />
+      )}
+
+      <div className="month-cols">
+        {/* coluna esquerda: receitas + cartões */}
+        <div className="col gap-4">
+          {incomes.length > 0 && (
+            <StmtCard
+              today={today}
+              group={{
+                key: "income",
+                name: "Receitas",
+                accent: "var(--mint-500)",
+                icon: "arrow-down-left",
+                items: incomes,
+                totalCents: totIn,
+              }}
+            />
+          )}
+          {cardGroups.map((g) => (
+            <StmtCard key={g.key} group={g} today={today} />
           ))}
         </div>
-      )}
+        {/* coluna direita: contas + compromissos + transferências */}
+        <div className="col gap-4">
+          {[...acctGroups, ...compromissos].map((g) => (
+            <StmtCard key={g.key} group={g} today={today} />
+          ))}
+          {transfers.length > 0 && (
+            <StmtCard
+              today={today}
+              group={{
+                key: "transfer",
+                name: "Transferências",
+                sub: "entre contas · não afetam o patrimônio",
+                accent: "var(--sky-500)",
+                icon: "arrow-left-right",
+                items: transfers,
+                totalCents: sumAbs(transfers),
+              }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

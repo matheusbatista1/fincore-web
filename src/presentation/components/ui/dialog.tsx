@@ -15,7 +15,19 @@ export const DialogClose = DialogPrimitive.Close;
  * the dim-area scrim (click-outside to close); `children` provides the
  * `.modal-body` and `.modal-foot`. Focus is left to the body's own autoFocus.
  */
-export function DialogModal({ title, children }: { title: string; children: ReactNode }) {
+export function DialogModal({
+  title,
+  actions,
+  maxWidth,
+  children,
+}: {
+  title: string;
+  /** Extra buttons placed in the header, before the close button. */
+  actions?: ReactNode;
+  /** Override the modal max-width (px), matching the prototype's per-modal sizing. */
+  maxWidth?: number;
+  children: ReactNode;
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Content
@@ -28,18 +40,21 @@ export function DialogModal({ title, children }: { title: string; children: Reac
           tabIndex={-1}
           style={{ position: "absolute", inset: 0, background: "transparent", border: 0, cursor: "default" }}
         />
-        <div className="modal" style={{ position: "relative" }}>
+        <div className="modal" style={{ position: "relative", maxWidth }}>
           <div className="modal-head">
             <DialogPrimitive.Title asChild>
               <h3>{title}</h3>
             </DialogPrimitive.Title>
-            <DialogPrimitive.Close
-              className="icon-btn btn-sm"
-              style={{ width: 36, height: 36 }}
-              aria-label="Fechar"
-            >
-              <X size={18} />
-            </DialogPrimitive.Close>
+            <div className="row gap-2">
+              {actions}
+              <DialogPrimitive.Close
+                className="icon-btn btn-sm"
+                style={{ width: 36, height: 36 }}
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </DialogPrimitive.Close>
+            </div>
           </div>
           {children}
         </div>
