@@ -1,60 +1,75 @@
 "use client";
 
-import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOutAction } from "@/app/_actions/auth";
-import { NAV } from "@/presentation/components/shell/nav-items";
-import { cn } from "@/presentation/lib/cn";
+import { NAV_GROUPS, SETTINGS_ITEM } from "@/presentation/components/shell/nav-items";
+import { Icon } from "@/presentation/components/ui/icon";
+import { LogoMark } from "@/presentation/components/ui/logo-mark";
 
-export function Sidebar({ userEmail }: { userEmail: string }) {
+const isActive = (pathname: string, href: string): boolean =>
+  pathname === href || pathname.startsWith(`${href}/`);
+
+export function Sidebar({ userEmail, pendingCount }: { userEmail: string; pendingCount: number }) {
   const pathname = usePathname();
+  const name = userEmail.split("@")[0] || "Você";
+  const initials = name.slice(0, 2).toUpperCase();
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-64 flex-col gap-1 border-r border-line bg-bg-0/60 p-4 lg:flex">
-      <div className="flex items-center gap-2 px-2 py-3">
-        <span className="grid size-8 place-items-center rounded-md bg-gradient-to-br from-purple-400 to-purple-700 font-display text-sm font-bold text-on-purple">
-          F
-        </span>
-        <span className="font-display text-lg font-semibold text-text-hi">
-          Fin<span className="text-purple-400">Core</span>
+    <aside className="sidebar">
+      <div className="brand">
+        <LogoMark size={34} />
+        <span className="word">
+          Fin<b>Core</b>
         </span>
       </div>
 
-      <nav className="mt-2 flex flex-1 flex-col gap-0.5">
-        {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
+      <Link href="/settings" className="acct-switch">
+        <span className="ava">{initials}</span>
+        <span className="nm">
+          <b>{name}</b>
+          <span>{userEmail}</span>
+        </span>
+        <Icon name="chevrons-up-down" size={16} />
+      </Link>
+
+      {NAV_GROUPS.map((group) => (
+        <div className="nav-group" key={group.label}>
+          <div className="nav-label">{group.label}</div>
+          {group.items.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition",
-                active
-                  ? "bg-purple-soft text-text-hi"
-                  : "text-text-mid hover:bg-surface-2 hover:text-text-hi",
-              )}
+              className={`nav-item${isActive(pathname, item.href) ? " active" : ""}`}
             >
-              <item.icon size={18} strokeWidth={1.9} />
+              <Icon name={item.icon} size={19} />
               {item.label}
+              {item.badge && pendingCount > 0 && <span className="badge">{pendingCount}</span>}
             </Link>
-          );
-        })}
-      </nav>
-
-      <div className="border-t border-line pt-3">
-        <div className="truncate px-3 pb-2 text-xs text-text-lo" title={userEmail}>
-          {userEmail}
+          ))}
         </div>
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            className="flex w-full items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium text-text-mid transition hover:bg-surface-2 hover:text-rose-500"
-          >
-            <LogOut size={18} strokeWidth={1.9} />
-            Sair
-          </button>
-        </form>
+      ))}
+
+      <div className="nav-group" style={{ marginTop: "auto" }}>
+        <Link
+          href={SETTINGS_ITEM.href}
+          className={`nav-item${isActive(pathname, SETTINGS_ITEM.href) ? " active" : ""}`}
+        >
+          <Icon name={SETTINGS_ITEM.icon} size={19} />
+          {SETTINGS_ITEM.label}
+        </Link>
+      </div>
+
+      <div className="sidebar-foot">
+        <Link href="/reports" className="insight">
+          <span className="ii" style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}>
+            <Icon name="sparkles" size={16} />
+          </span>
+          <p>
+            <b>FinCore Plus</b>
+            <br />
+            Relatórios ilimitados e IA financeira.
+          </p>
+        </Link>
       </div>
     </aside>
   );
