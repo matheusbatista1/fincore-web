@@ -75,3 +75,9 @@ export function resolveBankTheme(themeKey: string | null | undefined, bankName =
   const guessed = guess ? BANK_THEMES[guess] : undefined;
   return guessed ?? FALLBACK_THEME;
 }
+
+/** Resolve the theme KEY (for the prototype's `.cc.<key>` class), guessing from the bank name. */
+export function resolveThemeKey(themeKey: string | null | undefined, bankName = ""): string {
+  if (themeKey && BANK_THEMES[themeKey]) return themeKey;
+  return NAME_GUESSES.find(([re]) => re.test(bankName))?.[1] ?? DEFAULT_BANK_THEME;
+}

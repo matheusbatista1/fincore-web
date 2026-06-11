@@ -37,7 +37,7 @@ export function AreaChart({ data }: { data: AreaPoint[] }) {
   const area = `${line} L ${x(data.length - 1)} ${H - 8} L ${x(0)} ${H - 8} Z`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" aria-hidden="true">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="spark" aria-hidden="true">
       <defs>
         <linearGradient id="fc-area-fill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#7C5CFF" stopOpacity="0.42" />

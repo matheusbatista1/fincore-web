@@ -4,40 +4,39 @@ interface MonthBar {
   readonly expenseCents: number;
 }
 
-/** Grouped income/expense bars per month. Heights are data-driven (inline %). */
+/** Grouped income/expense bars per month — prototype classes (.bars/.bargrp/.bar). */
 export function BarsChart({ months }: { months: MonthBar[] }) {
   const max = Math.max(1, ...months.flatMap((m) => [m.incomeCents, m.expenseCents]));
-
   return (
     <div>
-      <div className="flex h-44 items-end justify-between gap-3">
+      <div className="bars">
         {months.map((m) => (
-          <div key={m.label} className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-36 w-full items-end justify-center gap-1">
+          <div className="bargrp" key={m.label}>
+            <div className="barpair">
               <div
-                className="w-1/2 max-w-5 rounded-t-sm bg-gradient-to-b from-mint-500 to-mint-600"
+                className="bar inc"
                 style={{ height: `${(m.incomeCents / max) * 100}%` }}
                 title={`Receitas ${m.label}`}
               />
               <div
-                className="w-1/2 max-w-5 rounded-t-sm bg-gradient-to-b from-purple-400 to-purple-700"
+                className="bar exp"
                 style={{ height: `${(m.expenseCents / max) * 100}%` }}
                 title={`Despesas ${m.label}`}
               />
             </div>
-            <span className="text-xs text-text-lo">{m.label}</span>
+            <div className="blabel">{m.label}</div>
           </div>
         ))}
       </div>
-      <div className="mt-4 flex items-center gap-4 text-sm text-text-mid">
-        <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-gradient-to-b from-mint-500 to-mint-600" />
+      <div className="legend" style={{ marginTop: 16 }}>
+        <div className="lg">
+          <span className="sw" style={{ background: "linear-gradient(180deg,#34E1A8,#1FC591)" }} />
           Receitas
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-gradient-to-b from-purple-400 to-purple-700" />
+        </div>
+        <div className="lg">
+          <span className="sw" style={{ background: "linear-gradient(180deg,#9B79FF,#6A45F0)" }} />
           Despesas
-        </span>
+        </div>
       </div>
     </div>
   );
