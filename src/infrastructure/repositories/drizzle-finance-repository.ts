@@ -91,18 +91,29 @@ export class DrizzleFinanceRepository implements FinanceRepository {
 
   async loadWorkspace(userId: string): Promise<Workspace> {
     return this.run(userId, async (tx) => {
-      const accountRows = await tx.select().from(schema.accounts).where(isNull(schema.accounts.deletedAt));
-      const cardRows = await tx.select().from(schema.creditCards).where(isNull(schema.creditCards.deletedAt));
-      const peopleRows = await tx.select().from(schema.people).where(isNull(schema.people.deletedAt));
-      const categoryRows = await tx
-        .select()
-        .from(schema.categories)
-        .where(isNull(schema.categories.deletedAt));
-      const txRows = await tx.select().from(schema.transactions).where(isNull(schema.transactions.deletedAt));
-      const splitRows = await tx.select().from(schema.transactionSplits);
-      const settlementRows = await tx.select().from(schema.settlements);
-      const budgetRows = await tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt));
-      const goalRows = await tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt));
+      // Pipelined on the single RLS-scoped transaction connection (one network
+      // flight) instead of nine sequential round-trips.
+      const [
+        accountRows,
+        cardRows,
+        peopleRows,
+        categoryRows,
+        txRows,
+        splitRows,
+        settlementRows,
+        budgetRows,
+        goalRows,
+      ] = await Promise.all([
+        tx.select().from(schema.accounts).where(isNull(schema.accounts.deletedAt)),
+        tx.select().from(schema.creditCards).where(isNull(schema.creditCards.deletedAt)),
+        tx.select().from(schema.people).where(isNull(schema.people.deletedAt)),
+        tx.select().from(schema.categories).where(isNull(schema.categories.deletedAt)),
+        tx.select().from(schema.transactions).where(isNull(schema.transactions.deletedAt)),
+        tx.select().from(schema.transactionSplits),
+        tx.select().from(schema.settlements),
+        tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt)),
+        tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt)),
+      ]);
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
       for (const split of splitRows) {

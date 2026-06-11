@@ -4,6 +4,7 @@ import { cardUtilization, computeCardBills } from "@/domain/services/card-bill.c
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
 export interface AccountSummary {
@@ -55,7 +56,7 @@ export async function getDashboard(
   userId: string,
   month: CompetenceMonth,
 ): Promise<DashboardData> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
 
   const balances = computeAccountBalances(ws.accounts, ws.transactions);
   const bills = computeCardBills(ws.creditCards, ws.transactions);

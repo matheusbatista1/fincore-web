@@ -1,5 +1,6 @@
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 import { byDateDesc, createTransactionMapper, type TransactionListItem } from "./get-transactions";
 
@@ -38,7 +39,7 @@ export async function getMonthly(
   userId: string,
   month: CompetenceMonth,
 ): Promise<MonthlyData> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
   const map = createTransactionMapper(ws);
   const { real, projected } = transactionsForMonth(ws.transactions, month);
 
