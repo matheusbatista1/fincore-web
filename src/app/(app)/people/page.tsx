@@ -23,7 +23,6 @@ export default async function PeoplePage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-text-hi">Pessoas</h1>
           <p className="mt-1 text-text-mid">Quem te deve, quem você deve e despesas compartilhadas.</p>
         </div>
         <PersonFormDialog

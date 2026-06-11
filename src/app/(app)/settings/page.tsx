@@ -20,7 +20,6 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-3xl font-semibold text-text-hi">Configurações</h1>
         <p className="mt-1 text-text-mid">Sua conta e as categorias de despesa.</p>
       </div>
 

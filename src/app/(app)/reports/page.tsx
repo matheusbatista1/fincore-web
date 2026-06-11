@@ -20,7 +20,6 @@ export default async function ReportsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-3xl font-semibold text-text-hi">Relatórios</h1>
         <p className="mt-1 text-text-mid">Tendência de receitas e despesas e gastos por categoria.</p>
       </div>
 

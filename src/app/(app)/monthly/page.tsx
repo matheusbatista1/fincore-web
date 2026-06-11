@@ -5,10 +5,13 @@ import {
   CalendarX,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
+  FileText,
   Layers,
   Repeat,
   Scale,
   Users,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -18,13 +21,116 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { DeleteTransactionButton } from "@/presentation/components/forms/delete-transaction-button";
 import { Money } from "@/presentation/components/ui/money";
-import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
+import { monthLabel } from "@/shared/formatting/dates";
 
 function currentMonthInBrazil(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
 }
-function todayInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+type StmtAccent = "mint" | "sky" | "purple";
+interface StmtGroup {
+  readonly key: string;
+  readonly name: string;
+  readonly accent: StmtAccent;
+  readonly rank: number;
+  readonly items: MonthlyItem[];
+  readonly totalCents: number;
+}
+
+const STMT_TONE: Record<StmtAccent, string> = {
+  mint: "bg-mint-soft text-mint-500",
+  sky: "bg-sky-soft text-sky-500",
+  purple: "bg-purple-soft text-purple-300",
+};
+
+function groupTotal(items: MonthlyItem[]): number {
+  return items.reduce(
+    (sum, i) => sum + (i.kind === "transfer" ? (i.transferValueCents ?? 0) : Math.abs(i.amountCents)),
+    0,
+  );
+}
+
+/** Group a month's rows by origin (receitas / each card·conta·compromisso / transferências). */
+function buildStatementGroups(items: MonthlyItem[]): StmtGroup[] {
+  const income = items.filter((i) => i.kind === "income");
+  const transfers = items.filter((i) => i.kind === "transfer");
+  const expenses = items.filter((i) => i.kind === "expense");
+
+  const byOrigin = new Map<string, MonthlyItem[]>();
+  for (const e of expenses) {
+    const key = e.sourceLabel ?? "Outros";
+    const arr = byOrigin.get(key);
+    if (arr) arr.push(e);
+    else byOrigin.set(key, [e]);
+  }
+
+  const groups: StmtGroup[] = [];
+  if (income.length > 0) {
+    groups.push({
+      key: "income",
+      name: "Receitas",
+      accent: "mint",
+      rank: 0,
+      items: income,
+      totalCents: groupTotal(income),
+    });
+  }
+  for (const [name, arr] of byOrigin) {
+    const rank = name.startsWith("Cartão") ? 1 : name.includes(" · ") ? 2 : 3;
+    groups.push({
+      key: `exp:${name}`,
+      name,
+      accent: "purple",
+      rank,
+      items: arr,
+      totalCents: groupTotal(arr),
+    });
+  }
+  if (transfers.length > 0) {
+    groups.push({
+      key: "transfer",
+      name: "Transferências",
+      accent: "sky",
+      rank: 9,
+      items: transfers,
+      totalCents: groupTotal(transfers),
+    });
+  }
+  return groups.sort((a, b) => a.rank - b.rank || b.totalCents - a.totalCents);
+}
+
+function StatementIcon({ group }: { group: StmtGroup }) {
+  if (group.key === "income") return <ArrowDownLeft size={18} />;
+  if (group.key === "transfer") return <ArrowLeftRight size={18} />;
+  if (group.name.startsWith("Cartão")) return <CreditCard size={18} />;
+  if (group.name.includes(" · ")) return <Wallet size={18} />;
+  return <FileText size={18} />;
+}
+
+function StatementCard({ group }: { group: StmtGroup }) {
+  const totalTone =
+    group.accent === "mint" ? "text-mint-500" : group.accent === "sky" ? "text-sky-500" : "text-text-hi";
+  return (
+    <section className="overflow-hidden rounded-lg border border-line bg-surface-1 shadow-2">
+      <div className="flex items-center gap-3 border-b border-line p-4">
+        <span className={`grid size-10 shrink-0 place-items-center rounded-md ${STMT_TONE[group.accent]}`}>
+          <StatementIcon group={group} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-text-hi">{group.name}</p>
+          <p className="text-xs text-text-lo">
+            {group.items.length} {group.items.length === 1 ? "lançamento" : "lançamentos"}
+          </p>
+        </div>
+        <Money cents={group.totalCents} withSign={false} className={`shrink-0 font-semibold ${totalTone}`} />
+      </div>
+      <div className="divide-y divide-line">
+        {group.items.map((item) => (
+          <MonthlyRow key={item.id} item={item} />
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function KindIcon({ kind }: { kind: MonthlyItem["kind"] }) {
@@ -171,25 +277,12 @@ export default async function MonthlyPage({
   const isCurrent = month === current;
 
   const data = await getMonthly(financeRepository, user.id, month);
-  const today = todayInBrazil();
   const hasProjections = data.items.some((i) => i.projected);
-
-  const groups: { date: string; items: MonthlyItem[] }[] = [];
-  for (const item of data.items) {
-    const last = groups.at(-1);
-    if (last && last.date === item.date) last.items.push(item);
-    else groups.push({ date: item.date, items: [item] });
-  }
-
+  const statementGroups = buildStatementGroups(data.items);
   const net = data.projectedTotals.netCents;
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-text-hi">Visão mensal</h1>
-        <p className="mt-1 text-text-mid">Extrato do mês com lançamentos fixos projetados.</p>
-      </div>
-
       <div className="rounded-lg border border-line bg-surface-1 p-5 shadow-2">
         <div className="flex items-center justify-between gap-3">
           <Link
@@ -259,18 +352,9 @@ export default async function MonthlyPage({
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
-          {groups.map((group) => (
-            <section key={group.date}>
-              <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-widest text-text-faint">
-                {relativeDateLabel(group.date, today)}
-              </h2>
-              <div className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface-1">
-                {group.items.map((item) => (
-                  <MonthlyRow key={item.id} item={item} />
-                ))}
-              </div>
-            </section>
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          {statementGroups.map((group) => (
+            <StatementCard key={group.key} group={group} />
           ))}
         </div>
       )}
