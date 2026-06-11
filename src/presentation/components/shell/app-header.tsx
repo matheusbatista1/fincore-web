@@ -11,6 +11,7 @@ import {
 } from "@/presentation/components/forms/new-transaction-dialog";
 import { NAV } from "@/presentation/components/shell/nav-items";
 import { Button } from "@/presentation/components/ui/button";
+import { SegmentedControl } from "@/presentation/components/ui/segmented-control";
 import { useUIStore } from "@/presentation/stores/ui-store";
 
 function titleFor(pathname: string): string {
@@ -32,6 +33,8 @@ export function AppHeader({
   const pathname = usePathname();
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
+  const view = useUIStore((s) => s.view);
+  const setView = useUIStore((s) => s.setView);
   const canCreate = accounts.length > 0 || cards.length > 0;
 
   return (
@@ -39,6 +42,15 @@ export function AppHeader({
       <h1 className="truncate font-display text-lg font-semibold text-text-hi">{titleFor(pathname)}</h1>
 
       <div className="flex items-center gap-1.5">
+        <SegmentedControl
+          className="hidden sm:inline-flex"
+          options={[
+            { value: "general", label: "Geral" },
+            { value: "personal", label: "Pessoal" },
+          ]}
+          value={view}
+          onChange={setView}
+        />
         <button
           type="button"
           onClick={togglePrivacy}

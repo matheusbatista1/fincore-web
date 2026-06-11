@@ -3,7 +3,8 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import { cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
+import { addMonths, type CompetenceMonth, dateInMonth } from "@/domain/value-objects/competence-month";
+import { monthLabel } from "@/shared/formatting/dates";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
@@ -39,6 +40,12 @@ export interface ViewTotalsDto {
   readonly netCents: number;
 }
 
+/** One point of the net-worth trend sparkline (cumulative balance at month-end). */
+export interface TrendPoint {
+  readonly label: string;
+  readonly valueCents: number;
+}
+
 /** Serializable dashboard snapshot (plain cents — safe to pass to client components). */
 export interface DashboardData {
   readonly month: CompetenceMonth;
@@ -48,6 +55,8 @@ export interface DashboardData {
   readonly people: PersonSummary[];
   readonly general: ViewTotalsDto;
   readonly personal: ViewTotalsDto;
+  /** Trailing 6-month cumulative balance for the hero sparkline. */
+  readonly trend: TrendPoint[];
 }
 
 /** Load the user's workspace and derive the dashboard via the domain calculators. */
@@ -96,12 +105,26 @@ export async function getDashboard(
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
 
+  // Trailing 6-month cumulative balance: re-run the balance calculator over the
+  // transactions up to each month-end (small in-memory volumes).
+  const trend: TrendPoint[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const m = addMonths(month, -i);
+    const cutoff = dateInMonth(m, 31);
+    const upTo = ws.transactions.filter((tx) => tx.date <= cutoff);
+    const monthBalances = computeAccountBalances(ws.accounts, upTo);
+    let total = 0;
+    for (const value of monthBalances.values()) total += value.cents;
+    trend.push({ label: monthLabel(m), valueCents: total });
+  }
+
   return {
     month,
     totalBalanceCents,
     accounts,
     cards,
     people,
+    trend,
     general: {
       incomeCents: general.income.cents,
       expenseCents: general.expense.cents,
