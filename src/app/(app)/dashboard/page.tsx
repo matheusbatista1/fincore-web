@@ -1,22 +1,54 @@
+import { Plus, Wallet } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
+import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { NewTransactionDialog } from "@/presentation/components/forms/new-transaction-dialog";
+import { Button } from "@/presentation/components/ui/button";
 import { formatBRL } from "@/shared/formatting/currency";
+
+function currentMonthInBrazil(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
+}
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const month = new Date().toISOString().slice(0, 7);
-  const dash = await getDashboard(financeRepository, user.id, month);
+  const month = currentMonthInBrazil();
+  const [dash, workspace] = await Promise.all([
+    getDashboard(financeRepository, user.id, month),
+    getWorkspaceView(financeRepository, user.id),
+  ]);
   const isEmpty = dash.accounts.length === 0 && dash.cards.length === 0;
+
+  const formData = {
+    accounts: workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name })),
+    cards: workspace.cards.map((c) => ({ id: c.id, bank: c.bank })),
+    people: workspace.people.map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    categories: workspace.categories.map((c) => ({ id: c.id, name: c.name, color: c.color })),
+  };
 
   return (
     <div className="flex flex-col gap-8">
-      <header>
-        <h1 className="font-display text-3xl font-semibold text-text-hi">Olá 👋</h1>
-        <p className="mt-1 text-text-mid">Aqui está o resumo da sua vida financeira.</p>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-semibold text-text-hi">Olá 👋</h1>
+          <p className="mt-1 text-text-mid">Aqui está o resumo da sua vida financeira.</p>
+        </div>
+        {!isEmpty && (
+          <NewTransactionDialog
+            {...formData}
+            trigger={
+              <Button>
+                <Plus size={18} />
+                Novo lançamento
+              </Button>
+            }
+          />
+        )}
       </header>
 
       {/* Hero + KPIs */}
@@ -42,9 +74,25 @@ export default async function DashboardPage() {
       </section>
 
       {isEmpty ? (
-        <p className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-8 text-center text-text-mid">
-          Você ainda não tem contas ou cartões. Em breve você poderá adicioná-los por aqui.
-        </p>
+        <div className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-10 text-center">
+          <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-purple-soft text-purple-300">
+            <Wallet size={24} />
+          </div>
+          <p className="text-text-mid">
+            Comece criando uma carteira ou um cartão — depois seus lançamentos aparecem aqui.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link href="/wallets">
+              <Button>
+                <Plus size={18} />
+                Criar carteira
+              </Button>
+            </Link>
+            <Link href="/cards">
+              <Button variant="ghost">Adicionar cartão</Button>
+            </Link>
+          </div>
+        </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <Panel title="Carteiras">
