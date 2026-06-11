@@ -1,4 +1,5 @@
 import type { Account } from "@/domain/entities/account";
+import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
@@ -10,7 +11,13 @@ import type {
   TransactionKind,
 } from "@/domain/entities/transaction";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
-import type { AccountInput, CategoryInput, CreditCardInput, PersonInput } from "@/shared/schemas/entities";
+import type {
+  AccountInput,
+  BudgetInput,
+  CategoryInput,
+  CreditCardInput,
+  PersonInput,
+} from "@/shared/schemas/entities";
 
 /**
  * A user's full financial dataset, as domain entities. Personal-finance volumes
@@ -24,6 +31,7 @@ export interface Workspace {
   readonly categories: Category[];
   readonly transactions: Transaction[];
   readonly settlements: Settlement[];
+  readonly budgets: Budget[];
 }
 
 /** One transaction row to persist (a single tx, or one parcela of an installment). */
@@ -89,6 +97,10 @@ export interface FinanceRepository {
   createCategory(userId: string, input: CategoryInput): Promise<Category>;
   updateCategory(userId: string, id: string, input: CategoryInput): Promise<void>;
   deleteCategory(userId: string, id: string): Promise<void>;
+
+  createBudget(userId: string, input: BudgetInput): Promise<Budget>;
+  updateBudget(userId: string, id: string, input: BudgetInput): Promise<void>;
+  deleteBudget(userId: string, id: string): Promise<void>;
 
   /** Persist a transaction (single or installment schedule) atomically. */
   createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;

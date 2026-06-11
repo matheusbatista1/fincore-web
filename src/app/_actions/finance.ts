@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import {
   accountInputSchema,
+  budgetInputSchema,
   categoryInputSchema,
   creditCardInputSchema,
   personInputSchema,
@@ -123,4 +124,15 @@ export async function updateCategoryAction(id: string, raw: unknown): Promise<Ac
 }
 export async function deleteCategoryAction(id: string): Promise<ActionState> {
   return withUser((u) => financeRepository.deleteCategory(u, id));
+}
+
+// --- budgets ---
+export async function createBudgetAction(raw: unknown): Promise<ActionState> {
+  return withParsed(budgetInputSchema, raw, (u, i) => financeRepository.createBudget(u, i));
+}
+export async function updateBudgetAction(id: string, raw: unknown): Promise<ActionState> {
+  return withParsed(budgetInputSchema, raw, (u, i) => financeRepository.updateBudget(u, id, i));
+}
+export async function deleteBudgetAction(id: string): Promise<ActionState> {
+  return withUser((u) => financeRepository.deleteBudget(u, id));
 }

@@ -15,6 +15,13 @@
       "when": 1781128914733,
       "tag": "0001_authenticated_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781137224166,
+      "tag": "0002_majestic_silk_fever",
+      "breakpoints": true
     }
   ]
 }

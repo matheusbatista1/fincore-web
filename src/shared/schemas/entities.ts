@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { centsSchema, dayOfMonthSchema } from "./common";
+import { centsSchema, dayOfMonthSchema, idSchema } from "./common";
 
 export const accountInputSchema = z.object({
   bank: z.string().trim().min(1, "Informe o banco.").max(60),
@@ -36,3 +36,9 @@ export const categoryInputSchema = z.object({
   icon: z.string().max(40).default(""),
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
+
+export const budgetInputSchema = z.object({
+  categoryId: idSchema,
+  limitCents: centsSchema.positive("Informe um limite maior que zero."),
+});
+export type BudgetInput = z.infer<typeof budgetInputSchema>;

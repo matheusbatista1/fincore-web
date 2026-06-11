@@ -7,12 +7,27 @@ import type {
   Workspace,
 } from "@/application/ports/finance-repository";
 import type { Account } from "@/domain/entities/account";
+import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
-import type { AccountInput, CategoryInput, CreditCardInput, PersonInput } from "@/shared/schemas/entities";
+import type {
+  AccountInput,
+  BudgetInput,
+  CategoryInput,
+  CreditCardInput,
+  PersonInput,
+} from "@/shared/schemas/entities";
 import type { Database } from "../db/client";
-import { toAccount, toCategory, toCreditCard, toPerson, toSettlement, toTransaction } from "../db/mappers";
+import {
+  toAccount,
+  toBudget,
+  toCategory,
+  toCreditCard,
+  toPerson,
+  toSettlement,
+  toTransaction,
+} from "../db/mappers";
 import { type RlsTransaction, withUserContext } from "../db/rls";
 import * as schema from "../db/schema";
 
@@ -83,6 +98,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       const txRows = await tx.select().from(schema.transactions).where(isNull(schema.transactions.deletedAt));
       const splitRows = await tx.select().from(schema.transactionSplits);
       const settlementRows = await tx.select().from(schema.settlements);
+      const budgetRows = await tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt));
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
       for (const split of splitRows) {
@@ -98,6 +114,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         categories: categoryRows.map(toCategory),
         transactions: txRows.map((row) => toTransaction(row, splitsByTx.get(row.id) ?? [])),
         settlements: settlementRows.map(toSettlement),
+        budgets: budgetRows.map(toBudget),
       };
     });
   }
@@ -211,6 +228,34 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   async deleteCategory(userId: string, id: string): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.update(schema.categories).set({ deletedAt: new Date() }).where(eq(schema.categories.id, id));
+    });
+  }
+
+  async createBudget(userId: string, input: BudgetInput): Promise<Budget> {
+    return this.run(userId, async (tx) =>
+      toBudget(
+        one(
+          await tx
+            .insert(schema.budgets)
+            .values({ userId, ...input })
+            .returning(),
+        ),
+      ),
+    );
+  }
+
+  async updateBudget(userId: string, id: string, input: BudgetInput): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.budgets)
+        .set({ ...input, updatedAt: new Date() })
+        .where(eq(schema.budgets.id, id));
+    });
+  }
+
+  async deleteBudget(userId: string, id: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx.update(schema.budgets).set({ deletedAt: new Date() }).where(eq(schema.budgets.id, id));
     });
   }
 

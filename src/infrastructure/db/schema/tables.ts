@@ -248,6 +248,27 @@ export const transactionSplits = pgTable(
   ],
 );
 
+/** Monthly spending limit per category (orçamento). At most one active budget per category. */
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+    limitCents: bigint("limit_cents", { mode: "number" }).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("uq_budgets_user_category").on(t.userId, t.categoryId).where(sql`deleted_at IS NULL`),
+    check("chk_budget_limit_positive", sql`limit_cents > 0`),
+    ownerPolicy("budgets_owner"),
+  ],
+);
+
 /** Partial/full payment that settles a person's debt. */
 export const settlements = pgTable(
   "settlements",
