@@ -5,6 +5,7 @@ import { settlePersonAction } from "@/app/_actions/finance";
 import { Button } from "@/presentation/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { cn } from "@/presentation/lib/cn";
+import { toast } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
 import { settlementInputSchema } from "@/shared/schemas/transaction";
 
@@ -75,6 +76,7 @@ export function SettlePersonDialog({
       setError(result.error);
       return;
     }
+    toast("Acerto registrado.");
     setOpen(false);
   }
 

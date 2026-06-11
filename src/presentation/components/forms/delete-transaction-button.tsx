@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { deleteTransactionAction } from "@/app/_actions/finance";
 import { Button } from "@/presentation/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
+import { toast } from "@/presentation/stores/ui-store";
 
 type Scope = "one" | "forward" | "all";
 
@@ -40,7 +41,8 @@ export function DeleteTransactionButton({
 
   function remove(scope: Scope) {
     startTransition(async () => {
-      await deleteTransactionAction({ id, scope });
+      const result = await deleteTransactionAction({ id, scope });
+      if (result.ok) toast("Lançamento excluído.");
       setOpen(false);
     });
   }
