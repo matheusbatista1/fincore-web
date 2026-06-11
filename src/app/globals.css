@@ -379,3 +379,37 @@
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 3px;
 }
+
+/* Standalone tinted icon badge. The prototype scopes `.kpi-ic` under `.kpi`,
+ * but the People and Reports screens use it bare — replicate the intended look. */
+.kpi-ic {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+}
+.kpi-ic svg {
+  width: 19px;
+  height: 19px;
+}
+.kpi-ic.purple {
+  background: var(--purple-soft);
+  color: var(--purple-300);
+}
+.kpi-ic.mint {
+  background: var(--mint-soft);
+  color: var(--mint-500);
+}
+.kpi-ic.rose {
+  background: var(--rose-soft);
+  color: var(--rose-500);
+}
+.kpi-ic.amber {
+  background: var(--amber-soft);
+  color: var(--amber-500);
+}
+.kpi-ic.sky {
+  background: var(--sky-soft);
+  color: var(--sky-500);
+}

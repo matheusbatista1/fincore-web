@@ -1,4 +1,3 @@
-import { FileUp, LogOut, Pencil, Plus, Tags } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
@@ -8,123 +7,126 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
 import { DeleteButton } from "@/presentation/components/forms/delete-button";
-import { Button } from "@/presentation/components/ui/button";
+import { SettingsView } from "@/presentation/components/settings/settings-view";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
+import { Icon } from "@/presentation/components/ui/icon";
+
+/** Derive a display name + initials from the account email (no separate profile yet). */
+function profileFromEmail(email: string): { name: string; initials: string } {
+  const local = email.split("@")[0] ?? email;
+  const words = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+  const name = words.join(" ") || email;
+  const initials =
+    words
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase() || email.slice(0, 2).toUpperCase();
+  return { name, initials };
+}
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { categories } = await getWorkspaceView(financeRepository, user.id);
+  const email = user.email ?? "";
+  const { name, initials } = profileFromEmail(email);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="mt-1 text-text-mid">Sua conta e as categorias de despesa.</p>
-      </div>
+    <div className="settings-page" style={{ maxWidth: 720 }}>
+      <SettingsView name={name} email={email} initials={initials} />
 
-      {/* account */}
-      <section className="rounded-lg border border-line bg-surface-1 p-5 shadow-2">
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-faint">Conta</h2>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate font-medium text-text-hi">{user.email}</p>
-            <p className="text-sm text-text-lo">Sessão autenticada via Supabase</p>
+      {/* Categorias (feature real, mesma linguagem visual) */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head">
+          <div>
+            <h3>Categorias</h3>
+            <div className="ch-sub">
+              {categories.length} {categories.length === 1 ? "categoria" : "categorias"} de despesa
+            </div>
           </div>
-          <form action={signOutAction}>
-            <Button type="submit" variant="ghost">
-              <LogOut size={16} />
-              Sair
-            </Button>
-          </form>
-        </div>
-      </section>
-
-      {/* data */}
-      <section className="rounded-lg border border-line bg-surface-1 p-5 shadow-2">
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-faint">Dados</h2>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-medium text-text-hi">Importar extrato</p>
-            <p className="text-sm text-text-lo">Traga lançamentos de um arquivo CSV ou OFX do seu banco.</p>
-          </div>
-          <Link href="/import">
-            <Button variant="ghost">
-              <FileUp size={16} />
-              Importar
-            </Button>
-          </Link>
-        </div>
-      </section>
-
-      {/* categories */}
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-text-hi">
-            <Tags size={20} className="text-purple-300" />
-            Categorias
-          </h2>
           <CategoryFormDialog
             trigger={
-              <Button size="sm">
-                <Plus size={16} />
+              <button type="button" className="btn btn-ghost btn-sm">
+                <Icon name="plus" size={16} />
                 Nova categoria
-              </Button>
+              </button>
             }
           />
         </div>
-
-        {categories.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-10 text-center">
-            <p className="text-text-mid">Você ainda não cadastrou categorias.</p>
-            <div className="mt-4 flex justify-center">
-              <CategoryFormDialog
-                trigger={
-                  <Button>
-                    <Plus size={18} />
-                    Criar primeira categoria
-                  </Button>
-                }
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface-1">
-            {categories.map((category) => (
-              <div key={category.id} className="flex items-center justify-between gap-4 p-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span
-                    className="grid size-10 shrink-0 place-items-center rounded-md text-white"
-                    style={{ background: category.color || "#7c5cff" }}
-                  >
-                    <CategoryIcon name={category.icon} size={18} />
-                  </span>
-                  <p className="truncate font-medium text-text-hi">{category.name}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <CategoryFormDialog
-                    category={category}
-                    trigger={
-                      <button
-                        type="button"
-                        className="grid size-9 place-items-center rounded-sm text-text-lo transition hover:bg-surface-2 hover:text-text-hi"
-                        aria-label="Editar"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                    }
-                  />
-                  <DeleteButton
-                    id={category.id}
-                    action={deleteCategoryAction}
-                    confirmMessage={`Excluir a categoria ${category.name}? As transações não são afetadas.`}
-                  />
-                </div>
+        <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 8 }}>
+          {categories.length === 0 && (
+            <div style={{ color: "var(--text-lo)", padding: "16px 0" }}>Nenhuma categoria ainda.</div>
+          )}
+          {categories.map((category) => (
+            <div className="lrow" key={category.id}>
+              <span className="l-ic" style={{ background: `${category.color}22`, color: category.color }}>
+                <CategoryIcon name={category.icon} size={18} />
+              </span>
+              <div className="l-main">
+                <div className="l-title">{category.name}</div>
               </div>
-            ))}
+              <div className="row gap-2">
+                <CategoryFormDialog
+                  category={category}
+                  trigger={
+                    <button
+                      type="button"
+                      className="icon-btn btn-sm"
+                      style={{ width: 34, height: 34 }}
+                      title="Editar"
+                    >
+                      <Icon name="pencil" size={15} />
+                    </button>
+                  }
+                />
+                <DeleteButton
+                  id={category.id}
+                  action={deleteCategoryAction}
+                  confirmMessage={`Excluir a categoria ${category.name}? As transações não são afetadas.`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Importar (feature real, mesma linguagem visual) */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head">
+          <div>
+            <h3>Importar extrato</h3>
+            <div className="ch-sub">Traga lançamentos de um arquivo CSV ou OFX do seu banco.</div>
           </div>
-        )}
-      </section>
+          <Link className="btn btn-ghost btn-sm" href="/import">
+            <Icon name="file-up" size={16} />
+            Importar
+          </Link>
+        </div>
+      </div>
+
+      {/* Sair */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-pad">
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="danger-row"
+              style={{ width: "100%", cursor: "pointer", color: "var(--rose-500)" }}
+            >
+              <span className="row gap-2">
+                <Icon name="log-out" size={17} />
+                Sair da conta
+              </span>
+              <Icon name="chevron-right" size={16} />
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

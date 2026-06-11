@@ -1,63 +1,96 @@
-import { ChartPie, TrendingUp } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getReports } from "@/application/use-cases/get-reports";
+import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { BarList } from "@/presentation/components/charts/bar-list";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
-import { Money } from "@/presentation/components/ui/money";
-
-function currentMonthInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
-}
+import { ReportPickButtons } from "@/presentation/components/reports/report-pick-buttons";
+import { Icon } from "@/presentation/components/ui/icon";
+import { currentMonthInBrazil } from "@/shared/formatting/now";
 
 export default async function ReportsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const data = await getReports(financeRepository, user.id, currentMonthInBrazil());
+  const [data, { cards }] = await Promise.all([
+    getReports(financeRepository, user.id, currentMonthInBrazil()),
+    getWorkspaceView(financeRepository, user.id),
+  ]);
+
+  const byCard = cards
+    .map((c) => ({
+      id: c.id,
+      name: `${c.bank} · ${c.product}`,
+      color: "#7C5CFF",
+      valueCents: c.billCents,
+    }))
+    .sort((a, b) => b.valueCents - a.valueCents);
+
+  const topCategories = data.categories.slice(0, 5);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="mt-1 text-text-mid">Tendência de receitas e despesas e gastos por categoria.</p>
+    <div className="reports-page">
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 16 }}>
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Fluxo de caixa</h3>
+              <div className="ch-sub">Receitas x despesas · 6 meses</div>
+            </div>
+            <div className="legend">
+              <div className="lg">
+                <span className="sw" style={{ background: "#34E1A8" }} />
+                Receitas
+              </div>
+              <div className="lg">
+                <span className="sw" style={{ background: "#9B79FF" }} />
+                Despesas
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <BarsChart months={data.months} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Por categoria</h3>
+            </div>
+          </div>
+          <div className="card-pad">
+            <DonutChart slices={data.categories} totalCents={data.totalExpenseCents} />
+          </div>
+        </div>
       </div>
 
-      <section className="rounded-lg border border-line bg-surface-1 p-6 shadow-2">
-        <h2 className="mb-5 flex items-center gap-2 font-display text-lg font-semibold text-text-hi">
-          <TrendingUp size={18} className="text-purple-300" />
-          Receitas × Despesas
-          <span className="text-sm font-normal text-text-lo">· últimos 6 meses</span>
-        </h2>
-        <BarsChart months={data.months} />
-      </section>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="card card-pad">
+          <h3 style={{ fontSize: 16, marginBottom: 18 }}>Gasto por cartão</h3>
+          <BarList items={byCard} />
+        </div>
+        <div className="card card-pad">
+          <h3 style={{ fontSize: 16, marginBottom: 18 }}>Top categorias</h3>
+          <BarList items={topCategories} />
+        </div>
+      </div>
 
-      <section className="rounded-lg border border-line bg-surface-1 p-6 shadow-2">
-        <h2 className="mb-5 flex items-center gap-2 font-display text-lg font-semibold text-text-hi">
-          <ChartPie size={18} className="text-purple-300" />
-          Gastos por categoria
-          <span className="text-sm font-normal text-text-lo">· {data.monthLabel}</span>
-        </h2>
-
-        {data.totalExpenseCents === 0 ? (
-          <p className="py-6 text-center text-text-mid">Nenhuma despesa registrada em {data.monthLabel}.</p>
-        ) : (
-          <div className="flex flex-col gap-6">
-            <DonutChart slices={data.categories} totalCents={data.totalExpenseCents} />
-            <ul className="flex flex-col divide-y divide-line border-t border-line">
-              {data.categories.map((category) => (
-                <li key={category.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="size-3 shrink-0 rounded-full" style={{ background: category.color }} />
-                    <span className="truncate text-text-mid">{category.name}</span>
-                  </span>
-                  <Money cents={category.valueCents} withSign={false} className="font-medium text-text-hi" />
-                </li>
-              ))}
-            </ul>
+      <div className="card card-pad" style={{ marginTop: 16 }}>
+        <div className="row gap-4" style={{ marginBottom: 16 }}>
+          <span className="kpi-ic purple" style={{ width: 46, height: 46 }}>
+            <Icon name="file-down" size={22} />
+          </span>
+          <div>
+            <h3 style={{ fontSize: 16 }}>Gerar relatório</h3>
+            <div className="ch-sub" style={{ marginTop: 3 }}>
+              Exporte em PDF ou CSV. Escolha o recorte:
+            </div>
           </div>
-        )}
-      </section>
+        </div>
+        <ReportPickButtons />
+      </div>
     </div>
   );
 }
