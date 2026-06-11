@@ -38,7 +38,15 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = path === "/login" || path.startsWith("/login/") || path.startsWith("/auth");
+  const isPublic =
+    path === "/login" ||
+    path.startsWith("/login/") ||
+    path.startsWith("/auth") ||
+    // PWA surfaces must be reachable without a session.
+    path === "/offline" ||
+    path === "/sw.js" ||
+    path === "/manifest.webmanifest" ||
+    path.startsWith("/icons/");
 
   // Unauthenticated users may only see public routes.
   if (!user && !isPublic) {
