@@ -65,7 +65,13 @@ export default async function DashboardPage() {
   const debtors = workspace.people
     .filter((p) => p.balanceCents > 0)
     .sort((a, b) => b.balanceCents - a.balanceCents)
-    .map((p) => ({ id: p.id, name: p.name, color: p.color, balanceCents: p.balanceCents }));
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      color: p.color,
+      relationship: p.relationship,
+      balanceCents: p.balanceCents,
+    }));
   const aReceberCents = debtors.reduce((sum, p) => sum + p.balanceCents, 0);
   const othersCents = Math.max(0, dash.general.expenseCents - dash.personal.expenseCents);
 

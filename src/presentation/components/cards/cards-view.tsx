@@ -274,7 +274,7 @@ export function CardsView({
                   <Icon name="chevron-left" size={17} />
                 </button>
                 <div style={{ textAlign: "center", minWidth: 132 }}>
-                  <h3 style={{ fontSize: 15 }}>Fatura · {monthLabel(fatKey, { long: true })}</h3>
+                  <h3 style={{ fontSize: 15 }}>Fatura · {monthLabel(fatKey, { long: false })}</h3>
                   <div className="ch-sub">
                     {compras.length} {compras.length === 1 ? "lançamento" : "lançamentos"} ·{" "}
                     {isFatAtual ? "aberta" : "fechada"}

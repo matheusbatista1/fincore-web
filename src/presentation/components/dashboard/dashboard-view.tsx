@@ -30,6 +30,7 @@ interface DebtorData {
   readonly id: string;
   readonly name: string;
   readonly color: string;
+  readonly relationship: string;
   readonly balanceCents: number;
 }
 export interface DashboardData {
@@ -49,6 +50,12 @@ export interface DashboardData {
   readonly recent: TransactionListItem[];
   readonly accountsCount: number;
   readonly today: string;
+}
+
+/** Approx. days from `today` (ISO) to the next occurrence of `dueDay` (1–31). */
+function daysUntilDue(dueDay: number, today: string): number {
+  const day = Number(today.split("-")[2] ?? "1");
+  return dueDay >= day ? dueDay - day : 31 - day + dueDay;
 }
 
 function MiniCard({ card }: { card: MiniCardData }) {
@@ -149,7 +156,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
             Geral
           </button>
           <button type="button" className={isPersonal ? "on" : ""} onClick={() => setView("personal")}>
-            <Icon name="users" size={15} />
+            <Icon name="user" size={15} />
             Apenas meu
           </button>
         </div>
@@ -233,7 +240,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   className="row gap-2"
                   style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
                 >
-                  <Icon name="handshake" size={14} />A receber
+                  <Icon name="hand-coins" size={14} />A receber
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 18, color: "var(--mint-500)" }}>
                   <Money cents={data.aReceberCents} withSign={false} />
@@ -304,7 +311,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
           valueCents={receitaMes}
           sub={
             <span className="row gap-2">
-              <Icon name="calendar-range" size={14} />
+              <Icon name="calendar" size={14} />
               {isPersonal ? "Sem reembolsos" : "Tudo que entrou"}
             </span>
           }
@@ -456,22 +463,30 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 </div>
               </div>
               <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-                {data.cards.map((c) => (
-                  <div className="lrow" key={c.id}>
-                    <span className="l-ic" style={{ background: "var(--surface-3)" }}>
-                      <Icon name="credit-card" size={18} />
-                    </span>
-                    <div className="l-main">
-                      <div className="l-title">
-                        {c.bank} · {c.product}
+                {data.cards.map((c) => {
+                  const soon = daysUntilDue(c.dueDay, data.today) <= 7;
+                  return (
+                    <div className="lrow" key={c.id}>
+                      <span className="l-ic" style={{ background: "var(--surface-3)" }}>
+                        <Icon name="credit-card" size={18} />
+                      </span>
+                      <div className="l-main">
+                        <div className="l-title">
+                          {c.bank} · {c.product}
+                        </div>
+                        <div className="l-sub">Vence dia {c.dueDay}</div>
                       </div>
-                      <div className="l-sub">Vence dia {c.dueDay}</div>
+                      <div style={{ textAlign: "right" }}>
+                        <div className="l-amt">
+                          <Money cents={c.billCents} withSign={false} />
+                        </div>
+                        <span className={`pill ${soon ? "amber" : "neutral"}`} style={{ marginTop: 4 }}>
+                          {soon ? "Em breve" : "Em dia"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="l-amt">
-                      <Money cents={c.billCents} withSign={false} />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -497,7 +512,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     <Avatar name={p.name} color={p.color} size={40} radius={12} />
                     <div className="l-main">
                       <div className="l-title">{p.name}</div>
-                      <div className="l-sub">te deve</div>
+                      <div className="l-sub">{p.relationship || "te deve"}</div>
                     </div>
                     <div className="l-amt pos">
                       <Money cents={p.balanceCents} withSign={false} />

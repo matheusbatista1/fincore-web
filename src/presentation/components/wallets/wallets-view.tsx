@@ -134,7 +134,7 @@ export function WalletsView({
             <h3>Suas carteiras</h3>
             <div className="ch-sub">
               {accounts.length} {accounts.length === 1 ? "conta conectada" : "contas conectadas"} · movimento
-              de {monthLabel(currentMonth, { long: false })}
+              de {monthLabel(currentMonth, { long: true })}
             </div>
           </div>
         </div>
