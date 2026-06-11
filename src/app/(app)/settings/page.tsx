@@ -1,4 +1,5 @@
-import { LogOut, Pencil, Plus, Tags } from "lucide-react";
+import { FileUp, LogOut, Pencil, Plus, Tags } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
 import { deleteCategoryAction } from "@/app/_actions/finance";
@@ -37,6 +38,23 @@ export default async function SettingsPage() {
               Sair
             </Button>
           </form>
+        </div>
+      </section>
+
+      {/* data */}
+      <section className="rounded-lg border border-line bg-surface-1 p-5 shadow-2">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-text-faint">Dados</h2>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-medium text-text-hi">Importar extrato</p>
+            <p className="text-sm text-text-lo">Traga lançamentos de um arquivo CSV ou OFX do seu banco.</p>
+          </div>
+          <Link href="/import">
+            <Button variant="ghost">
+              <FileUp size={16} />
+              Importar
+            </Button>
+          </Link>
         </div>
       </section>
 
