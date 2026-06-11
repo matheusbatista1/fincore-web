@@ -9,6 +9,45 @@ export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
+/**
+ * Prototype-styled modal (`.overlay` > `.modal` with `.modal-head`), keeping
+ * Radix for focus-trap, Escape and scroll-lock. The full-screen Close button is
+ * the dim-area scrim (click-outside to close); `children` provides the
+ * `.modal-body` and `.modal-foot`. Focus is left to the body's own autoFocus.
+ */
+export function DialogModal({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Content
+        className="overlay"
+        aria-describedby={undefined}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DialogPrimitive.Close
+          aria-label="Fechar"
+          tabIndex={-1}
+          style={{ position: "absolute", inset: 0, background: "transparent", border: 0, cursor: "default" }}
+        />
+        <div className="modal" style={{ position: "relative" }}>
+          <div className="modal-head">
+            <DialogPrimitive.Title asChild>
+              <h3>{title}</h3>
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Close
+              className="icon-btn btn-sm"
+              style={{ width: 36, height: 36 }}
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </DialogPrimitive.Close>
+          </div>
+          {children}
+        </div>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  );
+}
+
 export function DialogContent({
   title,
   description,

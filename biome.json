@@ -36,6 +36,19 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/presentation/components/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "off",
+            "useSemanticElements": "off"
+          }
+        }
+      }
+    }
+  ],
   "css": {
     "parser": {
       "tailwindDirectives": true

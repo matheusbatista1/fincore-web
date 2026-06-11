@@ -1,32 +1,22 @@
 "use client";
 
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowDownLeft,
-  ArrowLeftRight,
-  ArrowUpRight,
-  Check,
-  Info,
-  Layers,
-  Repeat,
-} from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type CSSProperties, type ReactNode, useId, useState } from "react";
 import { createTransactionAction } from "@/app/_actions/finance";
 import type { ExpenseSource } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { calculateSplit } from "@/domain/services/split.calculator";
-import { Button } from "@/presentation/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
-import { cn } from "@/presentation/lib/cn";
+import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
+import { Icon } from "@/presentation/components/ui/icon";
 import { toast } from "@/presentation/stores/ui-store";
-import { formatBRL } from "@/shared/formatting/currency";
+import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { createTransactionSchema } from "@/shared/schemas/transaction";
+import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
 export interface TxFormAccount {
   readonly id: string;
   readonly bank: string;
   readonly name: string;
+  readonly themeKey: string;
 }
 export interface TxFormCard {
   readonly id: string;
@@ -41,6 +31,7 @@ export interface TxFormCategory {
   readonly id: string;
   readonly name: string;
   readonly color: string;
+  readonly icon: string;
 }
 
 type Tab = "expense" | "income" | "transfer";
@@ -57,6 +48,16 @@ const SOURCES: ReadonlyArray<{ id: ExpenseSource; label: string }> = [
 const PARCELABLE: ReadonlySet<ExpenseSource> = new Set(["card", "loan", "financing", "boleto"]);
 const LINKABLE: ReadonlySet<ExpenseSource> = new Set(["boleto", "loan", "financing", "overdraft"]);
 
+const INFO_STYLE: CSSProperties = {
+  fontSize: 12.5,
+  color: "var(--text-lo)",
+  marginTop: 10,
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 7,
+  lineHeight: 1.45,
+};
+
 function reaisToCents(value: string): number {
   const normalized = value.replace(/\./g, "").replace(",", ".").trim();
   const parsed = Number.parseFloat(normalized);
@@ -70,100 +71,43 @@ function todayIso(): string {
 }
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
-const initial = (full: string): string => full.charAt(0).toUpperCase();
+const accentOf = (a: TxFormAccount): string => resolveBankTheme(a.themeKey, a.bank).accent;
 
-// ---- small presentational helpers -------------------------------------------------
-
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-pill border px-3 py-2 text-sm font-medium transition",
-        active
-          ? "border-purple-400 bg-purple-soft text-text-hi"
-          : "border-line bg-surface-2 text-text-mid hover:border-line-2 hover:text-text-hi",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Toggle({ on }: { on: boolean }) {
-  return (
-    <span
-      className={cn(
-        "relative h-6 w-11 shrink-0 rounded-pill transition",
-        on ? "bg-purple-500" : "bg-surface-3",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 size-5 rounded-full bg-white transition",
-          on ? "left-[22px]" : "left-0.5",
-        )}
-      />
-    </span>
-  );
-}
-
-function FieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-text-lo">{children}</span>
-  );
-}
-
-function Avatar({ color, className, children }: { color?: string; className?: string; children: ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "grid size-6 place-items-center rounded-full text-[11px] font-bold text-white",
-        className,
-      )}
-      style={color ? { background: color } : undefined}
-    >
-      {children}
-    </span>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  tone,
-  total,
+/** A clickable row carrying an `.fc-switch` toggle — keyboard accessible. */
+function SwitchRow({
+  on,
+  onToggle,
+  className = "row",
+  style,
+  children,
 }: {
-  label: string;
-  value: ReactNode;
-  tone?: "mint" | "purple" | "sky" | "rose";
-  total?: boolean;
+  on: boolean;
+  onToggle: () => void;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
 }) {
-  const toneClass =
-    tone === "mint"
-      ? "text-mint-500"
-      : tone === "purple"
-        ? "text-purple-300"
-        : tone === "sky"
-          ? "text-sky-500"
-          : tone === "rose"
-            ? "text-rose-500"
-            : "text-text-hi";
   return (
     <div
-      className={cn(
-        "flex items-center justify-between gap-4 py-2 text-sm",
-        total && "mt-1 border-t border-line pt-3 font-semibold",
-      )}
+      role="button"
+      tabIndex={0}
+      className={className}
+      style={{ cursor: "pointer", ...style }}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
     >
-      <span className="text-text-mid">{label}</span>
-      <span className={cn("tnum font-semibold", toneClass)}>{value}</span>
+      {children}
+      <span className={`fc-switch${on ? " on" : ""}`}>
+        <span />
+      </span>
     </div>
   );
 }
-
-// ---- the dialog --------------------------------------------------------------------
 
 export function NewTransactionDialog({
   accounts,
@@ -186,7 +130,7 @@ export function NewTransactionDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent title="Novo lançamento">
+      <DialogModal title="Novo lançamento">
         {/* Remount the form each time the dialog opens so state always starts fresh. */}
         {open && (
           <TransactionForm
@@ -199,7 +143,7 @@ export function NewTransactionDialog({
             onDone={() => setOpen(false)}
           />
         )}
-      </DialogContent>
+      </DialogModal>
     </Dialog>
   );
 }
@@ -256,6 +200,7 @@ function TransactionForm({
   const cur = Math.min(n, Math.max(1, Number.parseInt(parcCur, 10) || 1));
   const totalMoney = Money.fromCents(cents);
   const unitMoney = parcelado && canParcel ? totalMoney.divide(n) : totalMoney;
+  const unitCents = unitMoney.abs().cents;
   const fixedDay = Number.parseInt(ymd.split("-")[2] ?? "1", 10);
 
   const customMap = new Map<string, Money>(
@@ -263,10 +208,18 @@ function TransactionForm({
   );
   // Pure, cheap, single source of truth for the live preview — the server recomputes on submit.
   const split = calculateSplit({ unit: unitMoney.abs(), method, meIn, selected, custom: customMap });
+  const meShareCents = meIn ? split.myShare.cents : 0;
+  const pct = (value: number): number => (unitCents > 0 ? Math.round((value / unitCents) * 100) : 0);
 
   function toggleSelected(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   }
+
+  const accountName = (id: string | null): string => accounts.find((a) => a.id === id)?.bank ?? "";
+  const personFirst = (id: string | null): string => {
+    const p = people.find((x) => x.id === id);
+    return p ? firstName(p.name) : "";
+  };
 
   const srcOk = srcType === "card" ? Boolean(cardId) : srcType === "account" ? Boolean(acctId) : true;
   const canSubmit =
@@ -348,41 +301,36 @@ function TransactionForm({
   }
 
   const amountColor =
-    tab === "income" ? "text-mint-500" : tab === "transfer" ? "text-sky-500" : "text-text-hi";
-
+    tab === "income" ? "var(--mint-500)" : tab === "transfer" ? "var(--sky-500)" : "var(--text-hi)";
   const createdCount = (parcPrev ? cur - 1 : 0) + 1 + (parcNext ? n - cur : 0);
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* intent */}
-      <div className="grid grid-cols-3 gap-1 rounded-pill bg-surface-2 p-1">
-        {(
-          [
-            { id: "expense", label: "Despesa", icon: ArrowUpRight },
-            { id: "income", label: "Receita", icon: ArrowDownLeft },
-            { id: "transfer", label: "Transferência", icon: ArrowLeftRight },
-          ] as const
-        ).map((t) => (
+    <>
+      <div className="modal-body">
+        {/* despesa / receita / transferência */}
+        <div className="seg intent" style={{ marginBottom: 18 }}>
           <button
-            key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-pill py-2 text-sm font-semibold transition",
-              tab === t.id ? "bg-surface-3 text-text-hi shadow-1" : "text-text-lo hover:text-text-hi",
-            )}
+            className={tab === "expense" ? "on exp" : ""}
+            onClick={() => setTab("expense")}
           >
-            <t.icon size={15} />
-            {t.label}
+            <Icon name="arrow-up-right" size={15} style={{ marginRight: 6 }} />
+            Despesa
           </button>
-        ))}
-      </div>
+          <button type="button" className={tab === "income" ? "on inc" : ""} onClick={() => setTab("income")}>
+            <Icon name="arrow-down-left" size={15} style={{ marginRight: 6 }} />
+            Receita
+          </button>
+          <button type="button" className={tab === "transfer" ? "on" : ""} onClick={() => setTab("transfer")}>
+            <Icon name="arrow-left-right" size={15} style={{ marginRight: 6 }} />
+            Transferência
+          </button>
+        </div>
 
-      {/* amount */}
-      <label className="block">
-        <span className="sr-only">Valor</span>
+        {/* valor */}
         <input
-          value={formatBRL(cents, { withSign: false })}
+          className="amount-input"
+          value={formatBRLAbsolute(cents)}
           onChange={(e) => {
             const digits = e.target.value.replace(/\D/g, "");
             setCents(digits ? Number.parseInt(digits, 10) : 0);
@@ -390,477 +338,761 @@ function TransactionForm({
           inputMode="numeric"
           // biome-ignore lint/a11y/noAutofocus: amount is the first and primary field of the modal.
           autoFocus
-          className={cn(
-            "w-full bg-transparent text-center font-display text-4xl font-semibold tabular-nums outline-none",
-            amountColor,
-          )}
+          aria-label="Valor"
+          style={{ marginBottom: 18, color: amountColor }}
         />
-      </label>
 
-      {/* description */}
-      <label className="block">
-        <FieldLabel>Descrição</FieldLabel>
-        <input
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          placeholder={
-            tab === "income"
-              ? "Ex.: Salário, freela, reembolso…"
-              : tab === "transfer"
-                ? "Ex.: Cobrir fatura, mover saldo…"
-                : "Ex.: Pizza, viagem, mercado…"
-          }
-          className="h-11 w-full rounded-sm border border-line bg-surface-3 px-3 text-text-hi outline-none transition placeholder:text-text-faint focus:border-purple-400"
-        />
-      </label>
+        {/* descrição */}
+        <div className="field">
+          <label>Descrição</label>
+          <input
+            className="input"
+            placeholder={
+              tab === "income"
+                ? "Ex.: Salário, freela, reembolso…"
+                : tab === "transfer"
+                  ? "Ex.: Cobrir fatura, mover saldo…"
+                  : "Ex.: Pizza, viagem, mercado…"
+            }
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+          />
+        </div>
 
-      {/* date */}
-      <label className="block">
-        <FieldLabel>Data{fixed ? " da 1ª ocorrência" : ""}</FieldLabel>
-        <input
-          type="date"
-          value={ymd}
-          onChange={(e) => setYmd(e.target.value || todayIso())}
-          className="h-11 w-full rounded-sm border border-line bg-surface-3 px-3 text-text-hi outline-none transition focus:border-purple-400"
-        />
-      </label>
+        {/* data */}
+        <div className="field">
+          <label>Data{fixed ? " da 1ª ocorrência" : ""}</label>
+          <input
+            className="input"
+            type="date"
+            value={ymd}
+            onChange={(e) => setYmd(e.target.value || todayIso())}
+          />
+        </div>
 
-      {/* fixed toggle */}
-      <button
-        type="button"
-        onClick={() => {
-          setFixed((v) => !v);
-          if (!fixed) setParcelado(false);
-        }}
-        className="flex items-center justify-between gap-3 text-sm"
-      >
-        <span className="flex items-center gap-2 text-text-mid">
-          <Repeat size={15} className="text-purple-300" />
-          Lançamento fixo (todo mês)
-        </span>
-        <Toggle on={fixed} />
-      </button>
-      {fixed && (
-        <p className="-mt-1 flex items-start gap-2 text-xs leading-relaxed text-text-lo">
-          <Info size={14} className="mt-0.5 shrink-0 text-purple-300" />
-          <span>
-            Repete automaticamente <b className="text-text-hi">todo dia {fixedDay}</b> nos próximos meses.
-          </span>
-        </p>
-      )}
-
-      {/* ---------------- TRANSFER ---------------- */}
-      {tab === "transfer" && (
-        <>
-          <div>
-            <FieldLabel>De qual carteira sai?</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              {accounts.map((a) => (
-                <Chip
-                  key={a.id}
-                  active={fromAcct === a.id}
-                  onClick={() => {
-                    setFromAcct(a.id);
-                    if (toAcct === a.id) setToAcct(accounts.find((x) => x.id !== a.id)?.id ?? null);
-                  }}
-                >
-                  {a.bank} · {a.name}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-center text-text-lo">
-            <ArrowDown size={18} />
-          </div>
-          <div>
-            <FieldLabel>Para qual carteira vai?</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              {accounts
-                .filter((a) => a.id !== fromAcct)
-                .map((a) => (
-                  <Chip key={a.id} active={toAcct === a.id} onClick={() => setToAcct(a.id)}>
-                    {a.bank} · {a.name}
-                  </Chip>
-                ))}
-            </div>
-          </div>
-          <div className="rounded-lg border border-line bg-surface-2 px-4">
-            <SummaryRow
-              label="Transferência"
-              value={formatBRL(cents, { withSign: false })}
-              tone="sky"
-              total
-            />
-          </div>
-        </>
-      )}
-
-      {/* ---------------- INCOME ---------------- */}
-      {tab === "income" && (
-        <>
-          <div>
-            <FieldLabel>Cai em qual carteira?</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              {accounts.map((a) => (
-                <Chip key={a.id} active={acctId === a.id} onClick={() => setAcctId(a.id)}>
-                  {a.bank} · {a.name}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          <div>
-            <FieldLabel>
-              É pagamento de alguém? <span className="font-normal text-text-lo">· opcional</span>
-            </FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              <Chip active={!fromPerson} onClick={() => setFromPerson(null)}>
-                Ganho próprio
-              </Chip>
-              {people.map((p) => (
-                <Chip key={p.id} active={fromPerson === p.id} onClick={() => setFromPerson(p.id)}>
-                  <Avatar color={p.color}>{initial(p.name)}</Avatar>
-                  {firstName(p.name)}
-                </Chip>
-              ))}
-            </div>
-            {fromPerson && (
-              <p className="mt-2 flex items-start gap-2 text-xs leading-relaxed text-text-lo">
-                <Info size={14} className="mt-0.5 shrink-0 text-mint-500" />
-                <span>Abate da dívida desta pessoa e não conta como sua renda no modo Pessoal.</span>
-              </p>
-            )}
-          </div>
-          <div className="rounded-lg border border-line bg-surface-2 px-4">
-            <SummaryRow
-              label="Entrada na carteira"
-              value={`+ ${formatBRL(cents, { withSign: false })}`}
-              tone="mint"
-              total
-            />
-          </div>
-        </>
-      )}
-
-      {/* ---------------- EXPENSE ---------------- */}
-      {tab === "expense" && (
-        <>
-          <div>
-            <FieldLabel>Categoria</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((c) => (
-                <Chip key={c.id} active={catId === c.id} onClick={() => setCatId(c.id)}>
-                  <span className="size-3 rounded-full" style={{ background: c.color }} />
-                  {c.name}
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          <label className="block">
-            <FieldLabel>Forma de pagamento</FieldLabel>
-            <select
-              value={srcType}
-              onChange={(e) => setSrcType(e.target.value as ExpenseSource)}
-              className="h-11 w-full rounded-sm border border-line bg-surface-3 px-3 text-text-hi outline-none transition focus:border-purple-400"
-            >
-              {SOURCES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {srcType === "card" && (
-            <div>
-              <FieldLabel>Qual cartão?</FieldLabel>
-              <div className="flex flex-wrap gap-2">
-                {cards.map((c) => (
-                  <Chip key={c.id} active={cardId === c.id} onClick={() => setCardId(c.id)}>
-                    {c.bank}
-                  </Chip>
-                ))}
-              </div>
+        {/* recorrência */}
+        <div className="field">
+          <SwitchRow
+            on={fixed}
+            onToggle={() => {
+              setFixed((v) => !v);
+              if (!fixed) setParcelado(false);
+            }}
+            style={{ justifyContent: "space-between" }}
+          >
+            <span className="row gap-2">
+              <Icon name="repeat" size={15} style={{ color: "var(--purple-300)" }} />
+              Lançamento fixo (todo mês)
+            </span>
+          </SwitchRow>
+          {fixed && (
+            <div style={INFO_STYLE}>
+              <Icon
+                name="info"
+                size={14}
+                style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+              />
+              <span>
+                Repete automaticamente <b style={{ color: "var(--text-hi)" }}>todo dia {fixedDay}</b> nos
+                próximos meses. Ideal para salário, aluguel, assinaturas e contas fixas.
+              </span>
             </div>
           )}
-          {srcType === "account" && (
-            <div>
-              <FieldLabel>
-                De qual carteira? <span className="font-normal text-text-lo">· debita o saldo</span>
-              </FieldLabel>
-              <div className="flex flex-wrap gap-2">
+        </div>
+
+        {/* TRANSFERÊNCIA */}
+        {tab === "transfer" && (
+          <div className="xfer-body">
+            <div className="field">
+              <label>De qual carteira sai?</label>
+              <div className="chip-select">
                 {accounts.map((a) => (
-                  <Chip key={a.id} active={acctId === a.id} onClick={() => setAcctId(a.id)}>
-                    {a.bank} · {a.name}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-          {LINKABLE.has(srcType) && (
-            <div>
-              <FieldLabel>
-                Vincular a um banco <span className="font-normal text-text-lo">· opcional</span>
-              </FieldLabel>
-              <div className="flex flex-wrap gap-2">
-                <Chip active={!linkedAccount} onClick={() => setLinkedAccount(null)}>
-                  Sem vínculo
-                </Chip>
-                {accounts.map((a) => (
-                  <Chip key={a.id} active={linkedAccount === a.id} onClick={() => setLinkedAccount(a.id)}>
-                    {a.bank} · {a.name}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* installments */}
-          {canParcel && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setParcelado((v) => !v)}
-                className="flex w-full items-center justify-between gap-3 text-sm"
-              >
-                <span className="flex items-center gap-2 text-text-mid">
-                  <Layers size={15} className="text-purple-300" />
-                  Compra parcelada
-                </span>
-                <Toggle on={parcelado} />
-              </button>
-              {parcelado && (
-                <div className="mt-3 rounded-lg border border-line bg-surface-2 p-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block">
-                      <FieldLabel>Total de parcelas</FieldLabel>
-                      <input
-                        inputMode="numeric"
-                        value={parcN}
-                        onChange={(e) => setParcN(e.target.value.replace(/\D/g, ""))}
-                        placeholder="10"
-                        className="h-11 w-full rounded-sm border border-line bg-surface-3 px-3 text-text-hi tabular-nums outline-none focus:border-purple-400"
-                      />
-                    </label>
-                    <label className="block">
-                      <FieldLabel>Parcela atual</FieldLabel>
-                      <input
-                        inputMode="numeric"
-                        value={parcCur}
-                        onChange={(e) => setParcCur(e.target.value.replace(/\D/g, ""))}
-                        placeholder="1"
-                        className="h-11 w-full rounded-sm border border-line bg-surface-3 px-3 text-text-hi tabular-nums outline-none focus:border-purple-400"
-                      />
-                    </label>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-sm">
-                    <span className="text-text-mid">
-                      Parcela <b className="text-text-hi">{cur}</b> de <b className="text-text-hi">{n}</b>
-                    </span>
-                    <span className="tnum font-bold text-text-hi">
-                      {n}× {formatBRL(unitMoney.abs().cents, { withSign: false })}
-                    </span>
-                  </div>
                   <button
                     type="button"
-                    onClick={() => setParcNext((v) => !v)}
-                    className="mt-3 flex w-full items-center justify-between gap-3 border-t border-line pt-3 text-left text-sm"
+                    key={a.id}
+                    className={`person-chip${fromAcct === a.id ? " on" : ""}`}
+                    onClick={() => {
+                      setFromAcct(a.id);
+                      if (toAcct === a.id) setToAcct(accounts.find((x) => x.id !== a.id)?.id ?? null);
+                    }}
                   >
-                    <span>
-                      <b className="text-text-hi">Auto-preencher próximas</b>
-                      <small className="block text-text-lo">
-                        {cur < n ? `Lança ${cur + 1} até ${n} (${n - cur} futuras)` : "Lança as seguintes"}
-                      </small>
+                    <span className="pa" style={{ background: accentOf(a), fontSize: 10 }}>
+                      {a.bank.slice(0, 2).toUpperCase()}
                     </span>
-                    <Toggle on={parcNext} />
+                    {a.bank} · {a.name}
                   </button>
-                  {cur > 1 && (
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", margin: "-4px 0 6px" }}>
+              <span className="xfer-arrow">
+                <Icon name="arrow-down" size={18} />
+              </span>
+            </div>
+            <div className="field">
+              <label>Para qual carteira vai?</label>
+              <div className="chip-select">
+                {accounts
+                  .filter((a) => a.id !== fromAcct)
+                  .map((a) => (
                     <button
                       type="button"
-                      onClick={() => setParcPrev((v) => !v)}
-                      className="mt-2 flex w-full items-center justify-between gap-3 text-left text-sm"
+                      key={a.id}
+                      className={`person-chip${toAcct === a.id ? " on" : ""}`}
+                      onClick={() => setToAcct(a.id)}
                     >
-                      <span>
-                        <b className="text-text-hi">Lançar anteriores</b>
-                        <small className="block text-text-lo">
-                          Registra 1 até {cur - 1} ({cur - 1} já pagas) para histórico
-                        </small>
+                      <span className="pa" style={{ background: accentOf(a), fontSize: 10 }}>
+                        {a.bank.slice(0, 2).toUpperCase()}
                       </span>
-                      <Toggle on={parcPrev} />
+                      {a.bank} · {a.name}
                     </button>
-                  )}
-                  <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-text-lo">
-                    <Info size={14} className="mt-0.5 shrink-0 text-purple-300" />
-                    <span>
-                      Serão criados <b className="text-text-hi">{createdCount}</b> lançamentos. Apenas a
-                      parcela atual ({cur}) afeta a fatura/saldo agora.
-                    </span>
-                  </p>
+                  ))}
+              </div>
+            </div>
+            <div className="summary-box">
+              {fromAcct && (
+                <div className="sb-row">
+                  <span className="k">Sai de {accountName(fromAcct)}</span>
+                  <span className="v" style={{ color: "var(--rose-500)" }}>
+                    - {formatBRLAbsolute(cents)}
+                  </span>
+                </div>
+              )}
+              {toAcct && fromAcct !== toAcct && (
+                <div className="sb-row">
+                  <span className="k">Entra em {accountName(toAcct)}</span>
+                  <span className="v" style={{ color: "var(--mint-500)" }}>
+                    + {formatBRLAbsolute(cents)}
+                  </span>
+                </div>
+              )}
+              <div className="sb-row total">
+                <span className="k">Transferência</span>
+                <span className="v" style={{ color: "var(--sky-500)" }}>
+                  {formatBRLAbsolute(cents)}
+                </span>
+              </div>
+              {fromAcct === toAcct && (
+                <div className="warn-text">
+                  <Icon name="alert-triangle" size={14} />
+                  Escolha carteiras diferentes.
                 </div>
               )}
             </div>
-          )}
-
-          {/* split method */}
-          <div>
-            <FieldLabel>Método de divisão</FieldLabel>
-            <div className="grid grid-cols-2 gap-1 rounded-pill bg-surface-2 p-1">
-              {(
-                [
-                  { id: "equal", label: "Dividir igual" },
-                  { id: "custom", label: "Personalizado" },
-                ] as const
-              ).map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setMethod(m.id)}
-                  className={cn(
-                    "rounded-pill py-2 text-sm font-semibold transition",
-                    method === m.id
-                      ? "bg-surface-3 text-text-hi shadow-1"
-                      : "text-text-lo hover:text-text-hi",
-                  )}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
           </div>
+        )}
 
-          {/* participants */}
-          <div>
-            <FieldLabel>Quem entra no rateio?</FieldLabel>
-            <div className="flex flex-wrap gap-2">
-              <Chip active={meIn} onClick={() => setMeIn((v) => !v)}>
-                <Avatar className="bg-gradient-to-br from-purple-400 to-purple-700">EU</Avatar>
-                Você
-                {meIn && <Check size={14} className="text-purple-300" />}
-              </Chip>
-              {people.map((p) => (
-                <Chip key={p.id} active={selected.includes(p.id)} onClick={() => toggleSelected(p.id)}>
-                  <Avatar color={p.color}>{initial(p.name)}</Avatar>
-                  {firstName(p.name)}
-                  {selected.includes(p.id) && <Check size={14} className="text-purple-300" />}
-                </Chip>
-              ))}
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-faint">Atalhos</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setMethod("equal");
-                  setMeIn(true);
-                  setSelected([]);
-                }}
-                className="rounded-sm px-2.5 py-1 text-sm text-text-mid transition hover:bg-surface-2 hover:text-text-hi"
-              >
-                Só eu
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMethod("equal");
-                  setMeIn(true);
-                  setSelected(people.map((p) => p.id));
-                }}
-                className="rounded-sm px-2.5 py-1 text-sm text-text-mid transition hover:bg-surface-2 hover:text-text-hi"
-              >
-                Todos
-              </button>
-            </div>
-          </div>
-
-          {/* split breakdown */}
-          {(meIn || selected.length > 0) && (
-            <div>
-              <FieldLabel>{parcelado && canParcel ? "Divisão por parcela" : "Divisão"}</FieldLabel>
-              <div className="rounded-lg border border-line bg-surface-2 px-4">
-                <div
-                  className={cn(
-                    "flex items-center justify-between gap-3 border-b border-line py-2.5",
-                    !meIn && "opacity-50",
-                  )}
-                >
-                  <span className="flex items-center gap-2 text-sm text-text-hi">
-                    <Avatar className="bg-gradient-to-br from-purple-400 to-purple-700">EU</Avatar>
-                    Você {!meIn && <span className="text-xs text-text-lo">· fora</span>}
-                  </span>
-                  <span
-                    className={cn(
-                      "tnum text-sm font-bold",
-                      split.myShare.isNegative() ? "text-rose-500" : "text-text-hi",
-                    )}
+        {/* RECEITA */}
+        {tab === "income" && (
+          <>
+            <div className="field">
+              <label>Cai em qual carteira?</label>
+              <div className="chip-select">
+                {accounts.map((a) => (
+                  <button
+                    type="button"
+                    key={a.id}
+                    className={`person-chip${acctId === a.id ? " on" : ""}`}
+                    onClick={() => setAcctId(a.id)}
                   >
-                    {formatBRL((meIn ? split.myShare : Money.zero()).cents, { withSign: false })}
+                    <Icon
+                      name="wallet"
+                      size={15}
+                      style={{ color: acctId === a.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                    />
+                    {a.bank} · {a.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label>
+                É pagamento de alguém?{" "}
+                <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· opcional</span>
+              </label>
+              <div className="chip-select">
+                <button
+                  type="button"
+                  className={`person-chip${!fromPerson ? " on" : ""}`}
+                  onClick={() => setFromPerson(null)}
+                >
+                  <Icon
+                    name="briefcase"
+                    size={15}
+                    style={{ color: !fromPerson ? "var(--purple-300)" : "var(--text-lo)" }}
+                  />
+                  Ganho próprio
+                </button>
+                {people.map((p) => (
+                  <button
+                    type="button"
+                    key={p.id}
+                    className={`person-chip${fromPerson === p.id ? " on" : ""}`}
+                    onClick={() => setFromPerson(p.id)}
+                  >
+                    <span className="pa" style={{ background: p.color }}>
+                      {p.name[0]}
+                    </span>
+                    {firstName(p.name)}
+                  </button>
+                ))}
+              </div>
+              {fromPerson && (
+                <div style={INFO_STYLE}>
+                  <Icon
+                    name="info"
+                    size={14}
+                    style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
+                  />
+                  <span>
+                    Abate <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(cents)}</b> da dívida de{" "}
+                    {personFirst(fromPerson)}. Não conta como sua renda no modo Pessoal.
                   </span>
                 </div>
-                {selected.map((id) => {
-                  const p = people.find((x) => x.id === id);
-                  if (!p) return null;
-                  const shareCents = split.shares.get(id)?.cents ?? 0;
-                  return (
-                    <div
-                      key={id}
-                      className="flex items-center justify-between gap-3 border-b border-line py-2.5 last:border-0"
+              )}
+            </div>
+            <div className="summary-box">
+              <div className="sb-row">
+                <span className="k">Entrada na carteira</span>
+                <span className="v" style={{ color: "var(--mint-500)" }}>
+                  + {formatBRLAbsolute(cents)}
+                </span>
+              </div>
+              {fromPerson && (
+                <div className="sb-row">
+                  <span className="k">Abate da dívida de {personFirst(fromPerson)}</span>
+                  <span className="v" style={{ color: "var(--purple-300)" }}>
+                    - {formatBRLAbsolute(cents)}
+                  </span>
+                </div>
+              )}
+              <div className="sb-row total">
+                <span className="k">{fromPerson ? "Pagamento recebido" : "Receita registrada"}</span>
+                <span className="v">{formatBRLAbsolute(cents)}</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* DESPESA */}
+        {tab === "expense" && (
+          <div className="exp-body">
+            <div className="field">
+              <label>Categoria</label>
+              <div className="chip-select">
+                {categories.map((c) => (
+                  <button
+                    type="button"
+                    key={c.id}
+                    className={`person-chip${catId === c.id ? " on" : ""}`}
+                    onClick={() => setCatId(c.id)}
+                  >
+                    <span className="pa" style={{ background: c.color, width: 24, height: 24 }}>
+                      <Icon name={c.icon} size={13} />
+                    </span>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Forma de pagamento</label>
+              <select
+                className="input"
+                value={srcType}
+                onChange={(e) => setSrcType(e.target.value as ExpenseSource)}
+              >
+                {SOURCES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {srcType === "card" && (
+              <div className="field">
+                <label>Qual cartão?</label>
+                <div className="chip-select">
+                  {cards.map((c) => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      className={`person-chip${cardId === c.id ? " on" : ""}`}
+                      onClick={() => setCardId(c.id)}
                     >
-                      <span className="flex items-center gap-2 text-sm text-text-hi">
-                        <Avatar color={p.color}>{initial(p.name)}</Avatar>
-                        {firstName(p.name)}
-                      </span>
-                      {method === "custom" ? (
+                      <Icon
+                        name="credit-card"
+                        size={15}
+                        style={{ color: cardId === c.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                      />
+                      {c.bank}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {srcType === "account" && (
+              <div className="field">
+                <label>
+                  De qual carteira?{" "}
+                  <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· debita o saldo</span>
+                </label>
+                <div className="chip-select">
+                  {accounts.map((a) => (
+                    <button
+                      type="button"
+                      key={a.id}
+                      className={`person-chip${acctId === a.id ? " on" : ""}`}
+                      onClick={() => setAcctId(a.id)}
+                    >
+                      <Icon
+                        name="wallet"
+                        size={15}
+                        style={{ color: acctId === a.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                      />
+                      {a.bank} · {a.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {LINKABLE.has(srcType) && (
+              <div className="field">
+                <label>
+                  Vincular a um banco{" "}
+                  <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>
+                    · opcional{srcType === "overdraft" ? " · conta do cheque especial" : ""}
+                  </span>
+                </label>
+                <div className="chip-select">
+                  <button
+                    type="button"
+                    className={`person-chip${!linkedAccount ? " on" : ""}`}
+                    onClick={() => setLinkedAccount(null)}
+                  >
+                    <Icon
+                      name="ban"
+                      size={15}
+                      style={{ color: !linkedAccount ? "var(--purple-300)" : "var(--text-lo)" }}
+                    />
+                    Sem vínculo
+                  </button>
+                  {accounts.map((a) => (
+                    <button
+                      type="button"
+                      key={a.id}
+                      className={`person-chip${linkedAccount === a.id ? " on" : ""}`}
+                      onClick={() => setLinkedAccount(a.id)}
+                    >
+                      <Icon
+                        name="landmark"
+                        size={15}
+                        style={{ color: linkedAccount === a.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                      />
+                      {a.bank} · {a.name}
+                    </button>
+                  ))}
+                </div>
+                <div style={INFO_STYLE}>
+                  <Icon
+                    name="info"
+                    size={14}
+                    style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                  />
+                  <span>
+                    Lançado como{" "}
+                    <b style={{ color: "var(--text-hi)" }}>{SOURCES.find((s) => s.id === srcType)?.label}</b>.
+                    Entra nos relatórios e pode ser parcelado/rateado; o vínculo é só para organização e não
+                    debita o saldo.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* PARCELAMENTO */}
+            {canParcel && (
+              <div className="field">
+                <SwitchRow
+                  on={parcelado}
+                  onToggle={() => setParcelado((v) => !v)}
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <span className="row gap-2">
+                    <Icon name="layers" size={15} style={{ color: "var(--purple-300)" }} />
+                    Compra parcelada
+                  </span>
+                </SwitchRow>
+                {parcelado && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--r-md)",
+                      padding: 16,
+                    }}
+                  >
+                    <div className="form-grid-2" style={{ marginBottom: 14 }}>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label>Total de parcelas</label>
                         <input
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={custom[id] ?? ""}
-                          onChange={(e) => setCustom((c) => ({ ...c, [id]: e.target.value }))}
-                          className="h-9 w-28 rounded-sm border border-line bg-surface-3 px-2 text-right text-sm text-text-hi tabular-nums outline-none focus:border-purple-400"
+                          className="input tnum"
+                          inputMode="numeric"
+                          value={parcN}
+                          onChange={(e) => setParcN(e.target.value.replace(/\D/g, ""))}
+                          placeholder="10"
                         />
-                      ) : (
-                        <span className="tnum text-sm font-bold text-text-hi">
-                          {formatBRL(shareCents, { withSign: false })}
+                      </div>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label>Parcela atual</label>
+                        <input
+                          className="input tnum"
+                          inputMode="numeric"
+                          value={parcCur}
+                          onChange={(e) => setParcCur(e.target.value.replace(/\D/g, ""))}
+                          placeholder="1"
+                        />
+                      </div>
+                    </div>
+                    <div className="parc-readout">
+                      <span className="row gap-2">
+                        <Icon name="calendar-clock" size={15} style={{ color: "var(--purple-300)" }} />
+                        Parcela <b style={{ color: "var(--text-hi)", margin: "0 3px" }}>{cur}</b> de{" "}
+                        <b style={{ color: "var(--text-hi)", margin: "0 3px" }}>{n}</b>
+                      </span>
+                      <span className="tnum" style={{ color: "var(--text-hi)", fontWeight: 700 }}>
+                        {n}× {formatBRLAbsolute(unitCents)}
+                      </span>
+                    </div>
+                    <SwitchRow on={parcNext} onToggle={() => setParcNext((v) => !v)} className="parc-toggle">
+                      <span>
+                        <b>Auto-preencher próximas</b>
+                        <small>
+                          {cur < n ? `Lança ${cur + 1} até ${n} (${n - cur} futuras)` : "Lança as seguintes"}
+                        </small>
+                      </span>
+                    </SwitchRow>
+                    {cur > 1 && (
+                      <SwitchRow
+                        on={parcPrev}
+                        onToggle={() => setParcPrev((v) => !v)}
+                        className="parc-toggle"
+                      >
+                        <span>
+                          <b>Lançar anteriores</b>
+                          <small>
+                            Registra 1 até {cur - 1} ({cur - 1} já pagas) para histórico
+                          </small>
+                        </span>
+                      </SwitchRow>
+                    )}
+                    <div style={{ ...INFO_STYLE, marginTop: 12 }}>
+                      <Icon
+                        name="info"
+                        size={14}
+                        style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                      />
+                      <span>
+                        Serão criados <b style={{ color: "var(--text-hi)" }}>{createdCount}</b> lançamentos.
+                        Apenas a parcela atual ({cur}) afeta a fatura/saldo agora.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* método */}
+            <div className="field">
+              <label>Método de divisão</label>
+              <div className="seg">
+                <button
+                  type="button"
+                  className={method === "equal" ? "on" : ""}
+                  onClick={() => setMethod("equal")}
+                >
+                  Dividir igual
+                </button>
+                <button
+                  type="button"
+                  className={method === "custom" ? "on" : ""}
+                  onClick={() => setMethod("custom")}
+                >
+                  Personalizado
+                </button>
+              </div>
+            </div>
+
+            {/* participantes */}
+            <div className="field">
+              <label>Quem entra no rateio?</label>
+              <div className="chip-select">
+                <button
+                  type="button"
+                  className={`person-chip${meIn ? " on" : ""}`}
+                  onClick={() => setMeIn((v) => !v)}
+                >
+                  <span
+                    className="pa"
+                    style={{ background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))" }}
+                  >
+                    EU
+                  </span>
+                  Você
+                  <span className="check">
+                    <Icon name="check" size={14} />
+                  </span>
+                </button>
+                {people.map((p) => (
+                  <button
+                    type="button"
+                    key={p.id}
+                    className={`person-chip${selected.includes(p.id) ? " on" : ""}`}
+                    onClick={() => toggleSelected(p.id)}
+                  >
+                    <span className="pa" style={{ background: p.color }}>
+                      {p.name[0]}
+                    </span>
+                    {firstName(p.name)}
+                    <span className="check">
+                      <Icon name="check" size={14} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div style={INFO_STYLE}>
+                <Icon
+                  name="info"
+                  size={14}
+                  style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                />
+                <span>
+                  {meIn
+                    ? "Você está incluído. Remova “Você” se pagou no seu cartão mas a despesa é só de outras pessoas."
+                    : "Você está fora (paga R$ 0,00). O valor divide entre as pessoas selecionadas."}
+                </span>
+              </div>
+              <div className="row gap-2" style={{ marginTop: 12 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-faint)",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Atalhos
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ height: 30 }}
+                  onClick={() => {
+                    setMethod("equal");
+                    setMeIn(true);
+                    setSelected([]);
+                  }}
+                >
+                  Só eu
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ height: 30 }}
+                  onClick={() => {
+                    setMethod("equal");
+                    setMeIn(true);
+                    setSelected(people.map((p) => p.id));
+                  }}
+                >
+                  Todos
+                </button>
+              </div>
+            </div>
+
+            {/* divisão */}
+            {(meIn || selected.length > 0) && (
+              <div className="field">
+                <label>{parcelado && canParcel ? "Divisão por parcela" : "Divisão"}</label>
+                <div
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--r-md)",
+                    padding: "4px 16px",
+                  }}
+                >
+                  <div className="split-row" style={{ opacity: meIn ? 1 : 0.5 }}>
+                    <div className="sr-name">
+                      <span
+                        className="pa"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          display: "grid",
+                          placeItems: "center",
+                          background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))",
+                          color: "#fff",
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        EU
+                      </span>
+                      Você{" "}
+                      {!meIn && (
+                        <span style={{ fontSize: 11.5, color: "var(--text-lo)", fontWeight: 500 }}>
+                          · fora
                         </span>
                       )}
                     </div>
-                  );
-                })}
+                    <div className="sr-amt">
+                      <div
+                        className="input"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "flex-end",
+                          background: "transparent",
+                          border: 0,
+                          height: 40,
+                          fontWeight: 700,
+                          color: meShareCents < 0 ? "var(--rose-500)" : "var(--text-hi)",
+                        }}
+                      >
+                        {formatBRLAbsolute(meShareCents)}
+                      </div>
+                    </div>
+                    <div className="sr-share">{pct(meShareCents)}%</div>
+                  </div>
+                  {selected.map((id) => {
+                    const p = people.find((x) => x.id === id);
+                    if (!p) return null;
+                    const shareCents = split.shares.get(id)?.cents ?? 0;
+                    return (
+                      <div className="split-row" key={id}>
+                        <div className="sr-name">
+                          <span
+                            className="pa"
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: "50%",
+                              display: "grid",
+                              placeItems: "center",
+                              background: p.color,
+                              color: "#fff",
+                              fontSize: 12,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {p.name[0]}
+                          </span>
+                          {firstName(p.name)}
+                        </div>
+                        <div className="sr-amt">
+                          {method === "custom" ? (
+                            <input
+                              className="input"
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              value={custom[id] ?? ""}
+                              onChange={(e) =>
+                                setCustom((c) => ({ ...c, [id]: e.target.value.replace(",", ".") }))
+                              }
+                            />
+                          ) : (
+                            <div
+                              className="input"
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "flex-end",
+                                background: "transparent",
+                                border: 0,
+                                height: 40,
+                                fontWeight: 700,
+                                color: "var(--text-hi)",
+                              }}
+                            >
+                              {formatBRLAbsolute(shareCents)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="sr-share">{pct(shareCents)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* summary */}
-          <div className="rounded-lg border border-line bg-surface-2 px-4">
-            <SummaryRow
-              label={`Sua parte${parcelado && canParcel ? " (por parcela)" : ""}`}
-              value={formatBRL(Math.max(0, split.myShare.cents), { withSign: false })}
-            />
-            <SummaryRow
-              label={`${meIn ? "Pendente de terceiros" : "A receber das pessoas"}${
-                parcelado && canParcel ? " (por parcela)" : ""
-              }`}
-              value={formatBRL(split.othersTotal.cents, { withSign: false })}
-              tone="mint"
-            />
-            <SummaryRow label="Total da despesa" value={formatBRL(cents, { withSign: false })} total />
-            {split.warning && (
-              <p className="flex items-center gap-2 pb-3 text-sm text-rose-500">
-                <AlertTriangle size={14} />
-                {split.warning}
-              </p>
             )}
+
+            {/* resumo */}
+            <div className="summary-box">
+              <div className="sb-row">
+                <span className="k">Sua parte{parcelado && canParcel ? " (por parcela)" : ""}</span>
+                <span className="v">{formatBRLAbsolute(Math.max(0, meShareCents))}</span>
+              </div>
+              <div className="sb-row">
+                <span className="k">
+                  {meIn ? "Pendente de terceiros" : "A receber das pessoas"}
+                  {parcelado && canParcel ? " (por parcela)" : ""}
+                </span>
+                <span className="v" style={{ color: "var(--mint-500)" }}>
+                  {formatBRLAbsolute(split.othersTotal.cents)}
+                </span>
+              </div>
+              {parcelado && canParcel && (
+                <div className="sb-row">
+                  <span className="k">Valor da parcela</span>
+                  <span className="v">
+                    {n}× {formatBRLAbsolute(unitCents)}
+                  </span>
+                </div>
+              )}
+              <div className="sb-row total">
+                <span className="k">Total da despesa</span>
+                <span className="v">{formatBRLAbsolute(cents)}</span>
+              </div>
+              {split.warning && (
+                <div className="warn-text">
+                  <Icon name="alert-triangle" size={14} />
+                  {split.warning}
+                </div>
+              )}
+            </div>
           </div>
-        </>
-      )}
+        )}
 
-      {serverError && <p className="text-sm text-rose-500">{serverError}</p>}
+        {serverError && (
+          <div className="warn-text" style={{ marginTop: 4 }}>
+            <Icon name="alert-triangle" size={14} />
+            {serverError}
+          </div>
+        )}
+      </div>
 
-      <div className="mt-1 flex justify-end gap-2">
+      <div className="modal-foot">
         <DialogClose asChild>
-          <Button variant="ghost">Cancelar</Button>
+          <button type="button" className="btn btn-ghost">
+            Cancelar
+          </button>
         </DialogClose>
-        <Button onClick={submit} disabled={!canSubmit || submitting}>
-          <Check size={17} />
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!canSubmit || submitting}
+          style={{
+            opacity: canSubmit && !submitting ? 1 : 0.45,
+            pointerEvents: canSubmit && !submitting ? "auto" : "none",
+          }}
+          onClick={submit}
+        >
+          <Icon name="check" size={17} />
           {submitting
             ? "Salvando…"
             : tab === "income"
@@ -868,8 +1100,8 @@ function TransactionForm({
               : tab === "transfer"
                 ? "Transferir"
                 : "Adicionar despesa"}
-        </Button>
+        </button>
       </div>
-    </div>
+    </>
   );
 }
