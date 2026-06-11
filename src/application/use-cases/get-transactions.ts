@@ -40,11 +40,17 @@ export interface TransactionListItem {
   readonly category: { readonly name: string; readonly color: string; readonly icon: string } | null;
   /** "Cartão Nubank", "Itaú · Conta principal", "Boleto", … */
   readonly sourceLabel: string | null;
+  /** Card this expense was charged to (for per-card bill filtering). */
+  readonly cardId: string | null;
+  /** Account that moved (expense debit / income credit) — null for card-source and transfers. */
+  readonly accountId: string | null;
   readonly parcela: {
     readonly number: number;
     readonly total: number;
     readonly status: ParcelaStatus;
   } | null;
+  /** Groups installments of the same purchase (for the active-installments panel). */
+  readonly installmentGroupId: string | null;
   readonly isFixed: boolean;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
@@ -53,6 +59,8 @@ export interface TransactionListItem {
   readonly fromPersonName: string | null;
   readonly transferFromName: string | null;
   readonly transferToName: string | null;
+  readonly transferFromAccountId: string | null;
+  readonly transferToAccountId: string | null;
   readonly transferValueCents: number | null;
 }
 
@@ -86,13 +94,18 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       note: tx.note ?? null,
       category: null,
       sourceLabel: null,
+      cardId: null,
+      accountId: null,
       parcela: null,
+      installmentGroupId: null,
       isFixed: false,
       shares: [] as TxShareView[],
       myShareCents: null,
       fromPersonName: null,
       transferFromName: null,
       transferToName: null,
+      transferFromAccountId: null,
+      transferToAccountId: null,
       transferValueCents: null,
     };
 
@@ -120,9 +133,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         amountCents: tx.amountCents,
         category: category ? { name: category.name, color: category.color, icon: category.icon } : null,
         sourceLabel,
+        cardId: tx.cardId,
+        accountId: tx.accountId,
         parcela: tx.installment
           ? { number: tx.installment.number, total: tx.installment.total, status: tx.installment.status }
           : null,
+        installmentGroupId: tx.installment?.groupId ?? null,
         isFixed: tx.recurrence !== null,
         shares,
         myShareCents: tx.myShareCents,
@@ -136,6 +152,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         kind: "income" as const,
         amountCents: tx.amountCents,
         sourceLabel: accountName.get(tx.accountId) ?? null,
+        accountId: tx.accountId,
         isFixed: tx.recurrence !== null,
         fromPersonName: person ? firstName(person.name) : null,
       };
@@ -148,6 +165,8 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         amountCents: 0,
         transferFromName: accountName.get(tx.fromAccountId) ?? null,
         transferToName: accountName.get(tx.toAccountId) ?? null,
+        transferFromAccountId: tx.fromAccountId,
+        transferToAccountId: tx.toAccountId,
         transferValueCents: tx.valueCents,
       };
     }

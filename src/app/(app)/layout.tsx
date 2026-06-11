@@ -17,10 +17,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // Cached (React.cache) — shares the single workspace load with the page below.
   const workspace = await getWorkspaceView(financeRepository, user.id);
   const formData = {
-    accounts: workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name })),
+    accounts: workspace.accounts.map((a) => ({
+      id: a.id,
+      bank: a.bank,
+      name: a.name,
+      themeKey: a.themeKey,
+    })),
     cards: workspace.cards.map((c) => ({ id: c.id, bank: c.bank })),
     people: workspace.people.map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    categories: workspace.categories.map((c) => ({ id: c.id, name: c.name, color: c.color })),
+    categories: workspace.categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      icon: c.icon,
+    })),
   };
   const pendingCount = workspace.people.filter((p) => p.balanceCents !== 0).length;
 
