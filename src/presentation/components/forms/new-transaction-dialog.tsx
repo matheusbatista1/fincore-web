@@ -19,6 +19,7 @@ import { calculateSplit } from "@/domain/services/split.calculator";
 import { Button } from "@/presentation/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { cn } from "@/presentation/lib/cn";
+import { toast } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
 import { createTransactionSchema } from "@/shared/schemas/transaction";
 
@@ -336,6 +337,13 @@ function TransactionForm({
       setServerError(result.error);
       return;
     }
+    toast(
+      tab === "income"
+        ? "Receita adicionada."
+        : tab === "transfer"
+          ? "Transferência feita."
+          : "Despesa adicionada.",
+    );
     onDone();
   }
 

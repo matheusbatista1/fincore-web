@@ -264,3 +264,60 @@
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* -----------------------------------------------------------------------------
+ * Motion — ported from the prototype (rise on mount, pop for modals, route fade).
+ * The reduced-motion block in the base layer neutralizes all of these.
+ * -------------------------------------------------------------------------- */
+@keyframes fc-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fc-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fc-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.rise {
+  animation: fc-rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.fc-pop {
+  animation: fc-pop 0.26s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* Page transition: fade the section, cascade its top-level blocks in. */
+.route-enter {
+  animation: fc-fade 0.3s ease both;
+}
+.route-enter > * {
+  animation: fc-rise 0.42s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.route-enter > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+.route-enter > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.route-enter > *:nth-child(n + 4) {
+  animation-delay: 0.14s;
+}
