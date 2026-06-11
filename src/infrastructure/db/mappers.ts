@@ -6,6 +6,7 @@ import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
+import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
@@ -14,6 +15,7 @@ import type {
   budgets,
   categories,
   creditCards,
+  goals,
   people,
   settlements,
   transactionSplits,
@@ -28,6 +30,7 @@ type TransactionRow = typeof transactions.$inferSelect;
 type SplitRow = typeof transactionSplits.$inferSelect;
 type SettlementRow = typeof settlements.$inferSelect;
 type BudgetRow = typeof budgets.$inferSelect;
+type GoalRow = typeof goals.$inferSelect;
 
 /** Throw on a NULL column that a transaction kind guarantees to be present. */
 function required<T>(value: T | null | undefined, field: string): T {
@@ -86,6 +89,15 @@ export function toBudget(row: BudgetRow): Budget {
     id: row.id,
     categoryId: row.categoryId,
     limitCents: row.limitCents,
+  };
+}
+
+export function toGoal(row: GoalRow): Goal {
+  return {
+    id: row.id,
+    name: row.name,
+    targetCents: row.targetCents,
+    savedCents: row.savedCents,
   };
 }
 
