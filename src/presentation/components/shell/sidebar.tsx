@@ -1,31 +1,11 @@
 "use client";
 
-import {
-  ArrowLeftRight,
-  CalendarRange,
-  ChartPie,
-  CreditCard,
-  LayoutDashboard,
-  LogOut,
-  Settings,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
+import { NAV } from "@/presentation/components/shell/nav-items";
 import { cn } from "@/presentation/lib/cn";
-
-const NAV = [
-  { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
-  { href: "/wallets", label: "Carteiras", icon: Wallet },
-  { href: "/cards", label: "Cartões", icon: CreditCard },
-  { href: "/transactions", label: "Lançamentos", icon: ArrowLeftRight },
-  { href: "/monthly", label: "Visão mensal", icon: CalendarRange },
-  { href: "/people", label: "Pessoas", icon: Users },
-  { href: "/reports", label: "Relatórios", icon: ChartPie },
-  { href: "/settings", label: "Configurações", icon: Settings },
-] as const;
 
 export function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
