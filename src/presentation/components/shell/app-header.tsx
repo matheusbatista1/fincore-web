@@ -1,6 +1,5 @@
 "use client";
 
-import { Eye, EyeOff, Plus } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
   NewTransactionDialog,
@@ -9,15 +8,8 @@ import {
   type TxFormCategory,
   type TxFormPerson,
 } from "@/presentation/components/forms/new-transaction-dialog";
-import { NAV } from "@/presentation/components/shell/nav-items";
-import { Button } from "@/presentation/components/ui/button";
-import { SegmentedControl } from "@/presentation/components/ui/segmented-control";
-import { useUIStore } from "@/presentation/stores/ui-store";
-
-function titleFor(pathname: string): string {
-  const item = NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
-  return item?.label ?? "FinCore";
-}
+import { titleForPath } from "@/presentation/components/shell/nav-items";
+import { Icon } from "@/presentation/components/ui/icon";
 
 export function AppHeader({
   accounts,
@@ -31,36 +23,36 @@ export function AppHeader({
   categories: TxFormCategory[];
 }) {
   const pathname = usePathname();
-  const privacy = useUIStore((s) => s.privacy);
-  const togglePrivacy = useUIStore((s) => s.togglePrivacy);
-  const view = useUIStore((s) => s.view);
-  const setView = useUIStore((s) => s.setView);
   const canCreate = accounts.length > 0 || cards.length > 0;
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-line bg-bg-1/70 px-5 backdrop-blur-lg sm:px-8">
-      <h1 className="truncate font-display text-lg font-semibold text-text-hi">{titleFor(pathname)}</h1>
+    <header className="topbar">
+      <span className="tb-title">{titleForPath(pathname)}</span>
 
-      <div className="flex items-center gap-1.5">
-        <SegmentedControl
-          className="hidden sm:inline-flex"
-          options={[
-            { value: "general", label: "Geral" },
-            { value: "personal", label: "Pessoal" },
-          ]}
-          value={view}
-          onChange={setView}
-        />
-        <button
-          type="button"
-          onClick={togglePrivacy}
-          aria-label={privacy ? "Mostrar valores" : "Ocultar valores"}
-          aria-pressed={privacy}
-          className="grid size-10 place-items-center rounded-sm text-text-lo transition hover:bg-surface-2 hover:text-text-hi"
+      <button type="button" className="search" aria-label="Buscar">
+        <Icon name="search" size={17} />
+        <span style={{ flex: 1, textAlign: "left", color: "var(--text-lo)", fontSize: 14 }}>
+          Buscar transações, pessoas, cartões…
+        </span>
+        <kbd
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--text-lo)",
+            background: "var(--surface-3)",
+            border: "1px solid var(--line-2)",
+            borderRadius: 6,
+            padding: "2px 7px",
+          }}
         >
-          {privacy ? <EyeOff size={18} /> : <Eye size={18} />}
-        </button>
+          ⌘K
+        </kbd>
+      </button>
 
+      <div className="tb-actions">
+        <button type="button" className="icon-btn" aria-label="Notificações">
+          <Icon name="bell" size={19} />
+        </button>
         {canCreate && (
           <NewTransactionDialog
             accounts={accounts}
@@ -68,10 +60,10 @@ export function AppHeader({
             people={people}
             categories={categories}
             trigger={
-              <Button size="sm">
-                <Plus size={16} />
-                <span className="hidden sm:inline">Novo lançamento</span>
-              </Button>
+              <button type="button" className="btn btn-primary">
+                <Icon name="plus" size={17} />
+                Novo lançamento
+              </button>
             }
           />
         )}

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ServiceWorkerRegister } from "@/presentation/components/pwa/service-worker-register";
 import { clashDisplay, satoshi } from "./_fonts";
 import "./globals.css";
+import "./prototype.css";
 
 export const metadata: Metadata = {
   title: { default: "FinCore", template: "%s · FinCore" },

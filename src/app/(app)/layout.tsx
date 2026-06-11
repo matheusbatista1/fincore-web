@@ -9,7 +9,7 @@ import { PageTransition } from "@/presentation/components/shell/page-transition"
 import { Sidebar } from "@/presentation/components/shell/sidebar";
 import { Toaster } from "@/presentation/components/ui/toaster";
 
-/** Authenticated app shell: sidebar (desktop) + topbar + bottom nav (mobile) + main content. */
+/** Authenticated app shell — 1:1 with the prototype: .shell grid (sidebar + main) + mobile nav. */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -22,17 +22,18 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     people: workspace.people.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     categories: workspace.categories.map((c) => ({ id: c.id, name: c.name, color: c.color })),
   };
+  const pendingCount = workspace.people.filter((p) => p.balanceCents !== 0).length;
 
   return (
-    <div className="relative z-10 flex min-h-dvh">
-      <Sidebar userEmail={user.email ?? ""} />
-      <div className="flex min-h-dvh flex-1 flex-col">
+    <div className="shell">
+      <Sidebar userEmail={user.email ?? ""} pendingCount={pendingCount} />
+      <main className="main">
         <AppHeader {...formData} />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-5 pt-6 pb-24 sm:px-8 lg:pb-10">
+        <div className="page">
           <PageTransition>{children}</PageTransition>
-        </main>
-      </div>
-      <MobileNav />
+        </div>
+      </main>
+      <MobileNav {...formData} pendingCount={pendingCount} />
       <Toaster />
     </div>
   );

@@ -1,87 +1,108 @@
 "use client";
 
-import { LogOut, Menu } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { signOutAction } from "@/app/_actions/auth";
-import { MOBILE_PRIMARY, NAV } from "@/presentation/components/shell/nav-items";
-import { Dialog, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
-import { cn } from "@/presentation/lib/cn";
+import {
+  NewTransactionDialog,
+  type TxFormAccount,
+  type TxFormCard,
+  type TxFormCategory,
+  type TxFormPerson,
+} from "@/presentation/components/forms/new-transaction-dialog";
+import { MOBILE_MORE, MOBILE_TABS } from "@/presentation/components/shell/nav-items";
+import { Icon } from "@/presentation/components/ui/icon";
 
 const isActive = (pathname: string, href: string): boolean =>
   pathname === href || pathname.startsWith(`${href}/`);
 
-export function MobileNav() {
+export function MobileNav({
+  accounts,
+  cards,
+  people,
+  categories,
+  pendingCount,
+}: {
+  accounts: TxFormAccount[];
+  cards: TxFormCard[];
+  people: TxFormPerson[];
+  categories: TxFormCategory[];
+  pendingCount: number;
+}) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-
-  const primary = MOBILE_PRIMARY.map((href) => NAV.find((item) => item.href === href)).filter(
-    (item): item is (typeof NAV)[number] => item !== undefined,
-  );
-  const moreActive = NAV.some((item) => !MOBILE_PRIMARY.includes(item.href) && isActive(pathname, item.href));
-
-  const tabClass = (active: boolean) =>
-    cn(
-      "flex flex-1 flex-col items-center gap-1 py-2 text-[11px] font-medium transition",
-      active ? "text-purple-300" : "text-text-lo",
-    );
+  const canCreate = accounts.length > 0 || cards.length > 0;
+  const moreActive = MOBILE_MORE.some((i) => isActive(pathname, i.href));
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-bg-0/90 backdrop-blur-lg lg:hidden">
-      {primary.map((item) => {
-        const active = isActive(pathname, item.href);
-        return (
-          <Link key={item.href} href={item.href} className={tabClass(active)}>
-            <item.icon size={20} strokeWidth={active ? 2.2 : 1.9} />
-            {item.label}
+    <>
+      <nav className="bottom-nav">
+        {MOBILE_TABS.map((tab) => (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            className={`bn-item${isActive(pathname, tab.href) ? " active" : ""}`}
+          >
+            <Icon name={tab.icon} size={22} />
+            <span>{tab.label}</span>
+            {tab.badge && pendingCount > 0 && <span className="bn-dot" />}
           </Link>
-        );
-      })}
-
-      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogTrigger asChild>
-          <button type="button" className={tabClass(moreActive)}>
-            <Menu size={20} strokeWidth={moreActive ? 2.2 : 1.9} />
-            Mais
-          </button>
-        </DialogTrigger>
-        <DialogContent
-          title="Menu"
-          className="top-auto bottom-0 left-1/2 max-h-[80dvh] -translate-y-0 rounded-b-none"
+        ))}
+        <button
+          type="button"
+          className={`bn-item${moreActive ? " active" : ""}`}
+          onClick={() => setMoreOpen(true)}
         >
-          <div className="grid grid-cols-2 gap-2">
-            {NAV.map((item) => {
-              const active = isActive(pathname, item.href);
-              return (
+          <Icon name="menu" size={22} />
+          <span>Mais</span>
+        </button>
+      </nav>
+
+      {canCreate && (
+        <NewTransactionDialog
+          accounts={accounts}
+          cards={cards}
+          people={people}
+          categories={categories}
+          trigger={
+            <button type="button" className="fab" aria-label="Novo lançamento">
+              <Icon name="plus" size={26} />
+            </button>
+          }
+        />
+      )}
+
+      {moreOpen && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes the sheet (keyboard via Escape below).
+        <div
+          className="sheet-scrim"
+          onClick={() => setMoreOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setMoreOpen(false);
+          }}
+        >
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stops the sheet body from closing on click. */}
+          <div className="sheet" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <div className="sheet-grip" />
+            <h3 className="sheet-title">Mais</h3>
+            <div className="more-grid">
+              {MOBILE_MORE.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md border p-3 text-sm font-medium transition",
-                    active
-                      ? "border-purple-400 bg-purple-soft text-text-hi"
-                      : "border-line bg-surface-2 text-text-mid hover:text-text-hi",
-                  )}
+                  className={`more-tile${isActive(pathname, item.href) ? " on" : ""}`}
                 >
-                  <item.icon size={18} strokeWidth={1.9} />
+                  <span className="mt-ic">
+                    <Icon name={item.icon} size={22} />
+                  </span>
                   {item.label}
                 </Link>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          <form action={signOutAction} className="mt-3">
-            <button
-              type="submit"
-              className="flex w-full items-center justify-center gap-2 rounded-md border border-line bg-surface-2 p-3 text-sm font-medium text-text-mid transition hover:text-rose-500"
-            >
-              <LogOut size={18} strokeWidth={1.9} />
-              Sair
-            </button>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </nav>
+        </div>
+      )}
+    </>
   );
 }
