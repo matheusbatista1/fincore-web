@@ -1,22 +1,27 @@
 /*
  * FinCore service worker — installable PWA with offline read.
  *
- * Strategy:
- *   - navigations: network-first, falling back to the cached page, then /offline.
- *   - hashed build assets & images: cache-first (they are content-addressed).
- * Only same-origin GET requests are handled. Auth/data is the user's own and
- * stays in their device cache; old caches are purged on activate.
+ * Update strategy (important): bump CACHE on every release-worthy change. On
+ * activate we skipWaiting + claim clients and purge every other cache, so a new
+ * deploy takes over immediately instead of trapping users on a stale build.
+ * The client (ServiceWorkerRegister) reloads once on controllerchange.
+ *
+ * Caching:
+ *   - navigations: network-first (always fresh online), falling back to the
+ *     cached page, then /offline.
+ *   - hashed build assets & images: cache-first (content-addressed).
+ * Only same-origin GET requests are handled.
  */
-const CACHE = "fincore-v1";
+const CACHE = "fincore-v2";
 const OFFLINE_URL = "/offline";
-const PRECACHE = [OFFLINE_URL];
 
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting()),
+      .then((cache) => cache.add(OFFLINE_URL))
+      .catch(() => {}),
   );
 });
 
@@ -42,7 +47,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Page navigations: network-first so data is fresh, with an offline fallback.
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -52,7 +56,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Content-addressed build output and images: cache-first.
   const isStatic =
     url.pathname.startsWith("/_next/static") ||
     request.destination === "style" ||
