@@ -4,10 +4,9 @@
  * Tokens ported 1:1 from the approved prototype (styles/tokens.css).
  * ========================================================================== */
 
-/* Fonts — Fontshare CDN. Must precede `@import "tailwindcss"` so it stays ahead
- * of all generated rules. TODO(perf): self-host via next/font/local to drop the
- * render-blocking @import and avoid FOUT. */
-@import url("https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&f[]=clash-display@400,500,600,700&display=swap");
+/* Fonts are self-hosted via next/font/local (see src/app/_fonts.ts), which sets
+ * the --font-satoshi / --font-clash CSS variables on <html>. No render-blocking
+ * remote @import, no FOUT. */
 
 @import "tailwindcss";
 
@@ -60,9 +59,9 @@
   --color-text-faint: #4b465c;
   --color-on-purple: #ffffff;
 
-  /* ---- Type ---- */
-  --font-display: "Clash Display", "Satoshi", system-ui, sans-serif;
-  --font-ui: "Satoshi", system-ui, -apple-system, sans-serif;
+  /* ---- Type (self-hosted via next/font/local → --font-clash / --font-satoshi) ---- */
+  --font-display: var(--font-clash), "Satoshi", system-ui, sans-serif;
+  --font-ui: var(--font-satoshi), system-ui, -apple-system, sans-serif;
 
   /* ---- Radii ---- */
   --radius-xs: 8px;

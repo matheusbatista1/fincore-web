@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { ServiceWorkerRegister } from "@/presentation/components/pwa/service-worker-register";
+import { clashDisplay, satoshi } from "./_fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang="pt-BR" className={`dark ${satoshi.variable} ${clashDisplay.variable}`}>
       <body>
         <div className="app-aura" aria-hidden="true" />
         <div className="app-grain" aria-hidden="true" />

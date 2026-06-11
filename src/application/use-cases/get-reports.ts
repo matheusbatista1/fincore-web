@@ -2,6 +2,7 @@ import { isExpense } from "@/domain/entities/transaction";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { addMonths, type CompetenceMonth, monthOf } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
 /** One month's income/expense/net totals for the trend bars. */
@@ -40,7 +41,7 @@ export async function getReports(
   userId: string,
   anchorMonth: CompetenceMonth,
 ): Promise<ReportsData> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
 
   const months: MonthBar[] = [];
   for (let i = TRAILING_MONTHS - 1; i >= 0; i--) {

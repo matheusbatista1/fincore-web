@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { env } from "@/infrastructure/config/env";
 
 /**
@@ -28,11 +29,15 @@ export async function createSupabaseServerClient() {
   });
 }
 
-/** The authenticated user, or null. Always verified against the Supabase auth server. */
-export async function getCurrentUser() {
+/**
+ * The authenticated user, or null. Verified against the Supabase auth server.
+ * Memoized per request with React `cache()` so the layout and the page share a
+ * single `getUser()` round-trip instead of one each.
+ */
+export const getCurrentUser = cache(async () => {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});

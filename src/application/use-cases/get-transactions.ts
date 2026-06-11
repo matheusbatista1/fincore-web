@@ -7,6 +7,7 @@ import type {
 import { isExpense, isIncome, isTransfer } from "@/domain/entities/transaction";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
 /** pt-BR labels for the non-card/account expense sources. */
@@ -161,7 +162,7 @@ export async function getTransactions(
   userId: string,
   options: GetTransactionsOptions = {},
 ): Promise<TransactionListItem[]> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
   const map = createTransactionMapper(ws);
   const source = options.month
     ? ws.transactions.filter((tx) => monthOf(tx.date) === options.month)

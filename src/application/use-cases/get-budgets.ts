@@ -1,5 +1,6 @@
 import { computeBudgetStatuses } from "@/domain/services/budget.calculator";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
 /** A budget enriched with its category and month usage — serializable for RSC. */
@@ -31,7 +32,7 @@ export async function getBudgets(
   userId: string,
   month: CompetenceMonth,
 ): Promise<BudgetsData> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
   const statuses = computeBudgetStatuses(ws.budgets, ws.transactions, month);
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const budgetedCategoryIds = new Set(ws.budgets.map((b) => b.categoryId));

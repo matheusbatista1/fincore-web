@@ -1,4 +1,5 @@
 import { goalProgress } from "@/domain/services/goal.calculator";
+import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
 /** A goal enriched with its progress — serializable for RSC. */
@@ -20,7 +21,7 @@ export interface GoalsData {
 
 /** Load the user's savings goals with computed progress. */
 export async function getGoals(repo: FinanceRepository, userId: string): Promise<GoalsData> {
-  const ws = await repo.loadWorkspace(userId);
+  const ws = await loadWorkspaceCached(repo, userId);
 
   const goals: GoalView[] = ws.goals
     .map((goal) => {
