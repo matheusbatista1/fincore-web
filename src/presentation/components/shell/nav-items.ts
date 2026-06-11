@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Settings,
+  Target,
   Users,
   Wallet,
 } from "lucide-react";
@@ -24,6 +25,7 @@ export const NAV: readonly NavItem[] = [
   { href: "/transactions", label: "Lançamentos", icon: ArrowLeftRight },
   { href: "/monthly", label: "Visão mensal", icon: CalendarRange },
   { href: "/people", label: "Pessoas", icon: Users },
+  { href: "/budgets", label: "Orçamentos", icon: Target },
   { href: "/reports", label: "Relatórios", icon: ChartPie },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];

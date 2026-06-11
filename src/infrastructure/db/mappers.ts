@@ -3,6 +3,7 @@
  * (user_id, audit columns) out of the domain.
  */
 import type { Account } from "@/domain/entities/account";
+import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
@@ -10,6 +11,7 @@ import type { Settlement } from "@/domain/entities/settlement";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
 import type {
   accounts,
+  budgets,
   categories,
   creditCards,
   people,
@@ -25,6 +27,7 @@ type CategoryRow = typeof categories.$inferSelect;
 type TransactionRow = typeof transactions.$inferSelect;
 type SplitRow = typeof transactionSplits.$inferSelect;
 type SettlementRow = typeof settlements.$inferSelect;
+type BudgetRow = typeof budgets.$inferSelect;
 
 /** Throw on a NULL column that a transaction kind guarantees to be present. */
 function required<T>(value: T | null | undefined, field: string): T {
@@ -75,6 +78,14 @@ export function toCategory(row: CategoryRow): Category {
     name: row.name,
     color: row.color,
     icon: row.icon,
+  };
+}
+
+export function toBudget(row: BudgetRow): Budget {
+  return {
+    id: row.id,
+    categoryId: row.categoryId,
+    limitCents: row.limitCents,
   };
 }
 
