@@ -46,7 +46,6 @@ export default async function BudgetsPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-text-hi">Orçamentos</h1>
           <p className="mt-1 text-text-mid">Limites por categoria · {monthLabel(month, { long: true })}.</p>
         </div>
         {canCreate && newButton}

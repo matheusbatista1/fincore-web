@@ -13,7 +13,6 @@ export default async function ImportPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-3xl font-semibold text-text-hi">Importar extrato</h1>
         <p className="mt-1 text-text-mid">
           Traga lançamentos de um arquivo CSV ou OFX do seu banco. Revise antes de confirmar.
         </p>
