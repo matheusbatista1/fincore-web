@@ -2,6 +2,7 @@ import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
+import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type {
@@ -16,6 +17,7 @@ import type {
   BudgetInput,
   CategoryInput,
   CreditCardInput,
+  GoalInput,
   PersonInput,
 } from "@/shared/schemas/entities";
 
@@ -32,6 +34,7 @@ export interface Workspace {
   readonly transactions: Transaction[];
   readonly settlements: Settlement[];
   readonly budgets: Budget[];
+  readonly goals: Goal[];
 }
 
 /** One transaction row to persist (a single tx, or one parcela of an installment). */
@@ -101,6 +104,12 @@ export interface FinanceRepository {
   createBudget(userId: string, input: BudgetInput): Promise<Budget>;
   updateBudget(userId: string, id: string, input: BudgetInput): Promise<void>;
   deleteBudget(userId: string, id: string): Promise<void>;
+
+  createGoal(userId: string, input: GoalInput): Promise<Goal>;
+  updateGoal(userId: string, id: string, input: GoalInput): Promise<void>;
+  deleteGoal(userId: string, id: string): Promise<void>;
+  /** Add `amountCents` to a goal's saved total atomically. */
+  contributeToGoal(userId: string, id: string, amountCents: number): Promise<void>;
 
   /** Persist a transaction (single or installment schedule) atomically. */
   createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;

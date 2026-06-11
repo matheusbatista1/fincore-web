@@ -42,3 +42,16 @@ export const budgetInputSchema = z.object({
   limitCents: centsSchema.positive("Informe um limite maior que zero."),
 });
 export type BudgetInput = z.infer<typeof budgetInputSchema>;
+
+export const goalInputSchema = z.object({
+  name: z.string().trim().min(1, "Informe um nome.").max(80),
+  targetCents: centsSchema.positive("Informe um alvo maior que zero."),
+  savedCents: centsSchema.nonnegative("Valor inválido.").default(0),
+});
+export type GoalInput = z.infer<typeof goalInputSchema>;
+
+/** A contribution added to a goal's saved amount. */
+export const goalContributionSchema = z.object({
+  amountCents: centsSchema.positive("Informe um valor maior que zero."),
+});
+export type GoalContributionInput = z.infer<typeof goalContributionSchema>;

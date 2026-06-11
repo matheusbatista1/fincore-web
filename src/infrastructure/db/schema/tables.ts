@@ -269,6 +269,27 @@ export const budgets = pgTable(
   ],
 );
 
+/** A savings goal (meta de economia) with a target and the amount saved so far. */
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    targetCents: bigint("target_cents", { mode: "number" }).notNull(),
+    savedCents: bigint("saved_cents", { mode: "number" }).notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("idx_goals_user").on(t.userId).where(sql`deleted_at IS NULL`),
+    check("chk_goal_target_positive", sql`target_cents > 0`),
+    check("chk_goal_saved_nonneg", sql`saved_cents >= 0`),
+    ownerPolicy("goals_owner"),
+  ],
+);
+
 /** Partial/full payment that settles a person's debt. */
 export const settlements = pgTable(
   "settlements",

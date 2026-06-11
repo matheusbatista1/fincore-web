@@ -10,6 +10,8 @@ import {
   budgetInputSchema,
   categoryInputSchema,
   creditCardInputSchema,
+  goalContributionSchema,
+  goalInputSchema,
   personInputSchema,
 } from "@/shared/schemas/entities";
 import {
@@ -135,4 +137,20 @@ export async function updateBudgetAction(id: string, raw: unknown): Promise<Acti
 }
 export async function deleteBudgetAction(id: string): Promise<ActionState> {
   return withUser((u) => financeRepository.deleteBudget(u, id));
+}
+
+// --- goals ---
+export async function createGoalAction(raw: unknown): Promise<ActionState> {
+  return withParsed(goalInputSchema, raw, (u, i) => financeRepository.createGoal(u, i));
+}
+export async function updateGoalAction(id: string, raw: unknown): Promise<ActionState> {
+  return withParsed(goalInputSchema, raw, (u, i) => financeRepository.updateGoal(u, id, i));
+}
+export async function deleteGoalAction(id: string): Promise<ActionState> {
+  return withUser((u) => financeRepository.deleteGoal(u, id));
+}
+export async function contributeToGoalAction(id: string, raw: unknown): Promise<ActionState> {
+  return withParsed(goalContributionSchema, raw, (u, i) =>
+    financeRepository.contributeToGoal(u, id, i.amountCents),
+  );
 }

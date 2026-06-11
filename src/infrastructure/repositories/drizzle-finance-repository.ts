@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type {
   CreateTransactionCommand,
   FinanceRepository,
@@ -10,12 +10,14 @@ import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
+import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type {
   AccountInput,
   BudgetInput,
   CategoryInput,
   CreditCardInput,
+  GoalInput,
   PersonInput,
 } from "@/shared/schemas/entities";
 import type { Database } from "../db/client";
@@ -24,6 +26,7 @@ import {
   toBudget,
   toCategory,
   toCreditCard,
+  toGoal,
   toPerson,
   toSettlement,
   toTransaction,
@@ -99,6 +102,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       const splitRows = await tx.select().from(schema.transactionSplits);
       const settlementRows = await tx.select().from(schema.settlements);
       const budgetRows = await tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt));
+      const goalRows = await tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt));
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
       for (const split of splitRows) {
@@ -115,6 +119,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         transactions: txRows.map((row) => toTransaction(row, splitsByTx.get(row.id) ?? [])),
         settlements: settlementRows.map(toSettlement),
         budgets: budgetRows.map(toBudget),
+        goals: goalRows.map(toGoal),
       };
     });
   }
@@ -256,6 +261,43 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   async deleteBudget(userId: string, id: string): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.update(schema.budgets).set({ deletedAt: new Date() }).where(eq(schema.budgets.id, id));
+    });
+  }
+
+  async createGoal(userId: string, input: GoalInput): Promise<Goal> {
+    return this.run(userId, async (tx) =>
+      toGoal(
+        one(
+          await tx
+            .insert(schema.goals)
+            .values({ userId, ...input })
+            .returning(),
+        ),
+      ),
+    );
+  }
+
+  async updateGoal(userId: string, id: string, input: GoalInput): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.goals)
+        .set({ ...input, updatedAt: new Date() })
+        .where(eq(schema.goals.id, id));
+    });
+  }
+
+  async deleteGoal(userId: string, id: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx.update(schema.goals).set({ deletedAt: new Date() }).where(eq(schema.goals.id, id));
+    });
+  }
+
+  async contributeToGoal(userId: string, id: string, amountCents: number): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.goals)
+        .set({ savedCents: sql`${schema.goals.savedCents} + ${amountCents}`, updatedAt: new Date() })
+        .where(eq(schema.goals.id, id));
     });
   }
 

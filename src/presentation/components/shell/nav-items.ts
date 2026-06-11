@@ -5,6 +5,7 @@ import {
   CreditCard,
   LayoutDashboard,
   type LucideIcon,
+  PiggyBank,
   Settings,
   Target,
   Users,
@@ -26,6 +27,7 @@ export const NAV: readonly NavItem[] = [
   { href: "/monthly", label: "Visão mensal", icon: CalendarRange },
   { href: "/people", label: "Pessoas", icon: Users },
   { href: "/budgets", label: "Orçamentos", icon: Target },
+  { href: "/goals", label: "Metas", icon: PiggyBank },
   { href: "/reports", label: "Relatórios", icon: ChartPie },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
