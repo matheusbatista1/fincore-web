@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation";
-import { deleteGoalAction } from "@/app/_actions/finance";
 import { getGoals } from "@/application/use-cases/get-goals";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
-import { DeleteButton } from "@/presentation/components/forms/delete-button";
 import { GoalContributeDialog } from "@/presentation/components/forms/goal-contribute-dialog";
 import { GoalFormDialog } from "@/presentation/components/forms/goal-form-dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -110,11 +108,6 @@ export default async function GoalsPage() {
                             <Icon name="pencil" size={15} />
                           </button>
                         }
-                      />
-                      <DeleteButton
-                        id={goal.id}
-                        action={deleteGoalAction}
-                        confirmMessage={`Excluir a meta ${goal.name}?`}
                       />
                     </div>
                   </div>

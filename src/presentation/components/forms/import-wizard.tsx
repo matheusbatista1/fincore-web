@@ -1,12 +1,10 @@
 "use client";
 
-import { CheckCircle2, FileUp, Upload } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { importTransactionsAction } from "@/app/_actions/finance";
-import { Button } from "@/presentation/components/ui/button";
-import { Select } from "@/presentation/components/ui/field";
-import { cn } from "@/presentation/lib/cn";
+import { Icon } from "@/presentation/components/ui/icon";
+import { toast } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
 import {
   detectFormat,
@@ -27,9 +25,7 @@ interface WizardCategory {
 
 type Row = ParsedEntry & { id: string; categoryId: string | null };
 
-const fieldClass =
-  "h-10 rounded-sm border border-line bg-surface-3 px-2 text-sm text-text-hi outline-none focus:border-purple-400";
-
+/** Import CSV/OFX wizard — prototype visual language (.card/.field/.input/.tbl/.btn). */
 export function ImportWizard({
   accounts,
   categories,
@@ -79,6 +75,7 @@ export function ImportWizard({
       setError(result.error);
       return;
     }
+    toast(`${rows.length} ${rows.length === 1 ? "lançamento importado" : "lançamentos importados"}`);
     setImportedCount(rows.length);
     setRows([]);
     setFileName("");
@@ -86,11 +83,15 @@ export function ImportWizard({
 
   if (accounts.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-line-2 bg-surface-1 p-10 text-center">
-        <p className="text-text-mid">
-          Crie uma carteira em{" "}
-          <Link href="/wallets" className="text-purple-300 hover:underline">
-            Carteiras
+      <div className="coming">
+        <div className="ci">
+          <Icon name="wallet" size={32} />
+        </div>
+        <h3>Crie uma carteira primeiro</h3>
+        <p>
+          Você precisa de uma{" "}
+          <Link href="/wallets" className="card-link">
+            carteira
           </Link>{" "}
           antes de importar um extrato.
         </p>
@@ -100,39 +101,55 @@ export function ImportWizard({
 
   if (importedCount !== null) {
     return (
-      <div className="rounded-lg border border-line bg-surface-1 p-10 text-center shadow-2">
-        <div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-mint-soft text-mint-500">
-          <CheckCircle2 size={26} />
+      <div className="coming">
+        <div className="ci" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
+          <Icon name="check-circle" size={32} />
         </div>
-        <h2 className="font-display text-xl font-semibold text-text-hi">
+        <h3>
           {importedCount} {importedCount === 1 ? "lançamento importado" : "lançamentos importados"}
-        </h2>
-        <div className="mt-4 flex justify-center gap-2">
-          <Link href="/transactions">
-            <Button>Ver lançamentos</Button>
+        </h3>
+        <p>Os lançamentos já aparecem no seu histórico e nos saldos.</p>
+        <div className="row gap-3" style={{ justifyContent: "center", marginTop: 20 }}>
+          <Link className="btn btn-primary" href="/transactions">
+            Ver lançamentos
           </Link>
-          <Button variant="ghost" onClick={() => setImportedCount(null)}>
+          <button type="button" className="btn btn-ghost" onClick={() => setImportedCount(null)}>
             Importar outro
-          </Button>
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-line-2 bg-surface-1 p-8 text-center transition hover:border-purple-400">
-        <span className="grid size-12 place-items-center rounded-full bg-purple-soft text-purple-300">
-          <FileUp size={24} />
+    <div className="col gap-4">
+      <label
+        className="card"
+        style={{
+          border: "1.5px dashed var(--line-3)",
+          background: "transparent",
+          padding: "32px 24px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 8,
+          textAlign: "center",
+          cursor: "pointer",
+        }}
+      >
+        <span className="kpi-ic purple" style={{ width: 48, height: 48 }}>
+          <Icon name="file-up" size={24} />
         </span>
-        <span className="font-medium text-text-hi">{fileName || "Escolher arquivo CSV ou OFX"}</span>
-        <span className="text-sm text-text-lo">
+        <span style={{ fontWeight: 600, color: "var(--text-hi)" }}>
+          {fileName || "Escolher arquivo CSV ou OFX"}
+        </span>
+        <span style={{ fontSize: 13.5, color: "var(--text-lo)" }}>
           Extrato do seu banco. Detectamos o formato automaticamente.
         </span>
         <input
           type="file"
           accept=".csv,.ofx,.txt,text/csv"
-          className="hidden"
+          style={{ display: "none" }}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void onFile(file);
@@ -140,16 +157,20 @@ export function ImportWizard({
         />
       </label>
 
-      {error && <p className="text-sm text-rose-500">{error}</p>}
+      {error && (
+        <div className="warn-text">
+          <Icon name="alert-triangle" size={14} />
+          {error}
+        </div>
+      )}
 
       {rows.length > 0 && (
-        <>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-text-lo">
-                Carteira de destino
-              </span>
-              <Select
+        <div className="card">
+          <div className="card-head">
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Carteira de destino</label>
+              <select
+                className="input"
                 aria-label="Carteira de destino"
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
@@ -159,68 +180,82 @@ export function ImportWizard({
                     {account.bank} · {account.name}
                   </option>
                 ))}
-              </Select>
+              </select>
             </div>
-            <p className="text-sm text-text-lo">
-              {rows.length} {rows.length === 1 ? "lançamento" : "lançamentos"} encontrados
-            </p>
+            <div className="ch-sub">
+              {rows.length} {rows.length === 1 ? "lançamento encontrado" : "lançamentos encontrados"}
+            </div>
           </div>
-
-          <div className="overflow-x-auto rounded-lg border border-line bg-surface-1">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line text-left text-xs uppercase tracking-wider text-text-faint">
-                  <th className="p-3 font-semibold">Data</th>
-                  <th className="p-3 font-semibold">Descrição</th>
-                  <th className="p-3 text-right font-semibold">Valor</th>
-                  <th className="p-3 font-semibold">Categoria</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={row.id} className="border-b border-line last:border-0">
-                    <td className="whitespace-nowrap p-3 text-text-mid tabular-nums">{row.date}</td>
-                    <td className="max-w-[18rem] truncate p-3 text-text-hi">{row.description}</td>
-                    <td
-                      className={cn(
-                        "p-3 text-right font-semibold tabular-nums",
-                        row.amountCents < 0 ? "text-text-hi" : "text-mint-500",
-                      )}
-                    >
-                      {formatBRL(row.amountCents)}
-                    </td>
-                    <td className="p-3">
-                      {row.amountCents < 0 ? (
-                        <select
-                          aria-label="Categoria"
-                          value={row.categoryId ?? ""}
-                          onChange={(e) => setRowCategory(index, e.target.value || null)}
-                          className={fieldClass}
-                        >
-                          <option value="">Sem categoria</option>
-                          {categories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-text-lo">Receita</span>
-                      )}
-                    </td>
+          <div style={{ padding: "8px 12px 12px" }}>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Descrição</th>
+                    <th className="r">Valor</th>
+                    <th>Categoria</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={row.id}>
+                      <td className="tnum" style={{ color: "var(--text-lo)", whiteSpace: "nowrap" }}>
+                        {row.date}
+                      </td>
+                      <td>
+                        <span className="t-strong">{row.description}</span>
+                      </td>
+                      <td className="r">
+                        <span
+                          className="tnum t-strong"
+                          style={{ color: row.amountCents < 0 ? "var(--rose-500)" : "var(--mint-500)" }}
+                        >
+                          {formatBRL(row.amountCents)}
+                        </span>
+                      </td>
+                      <td>
+                        {row.amountCents < 0 ? (
+                          <select
+                            className="input"
+                            aria-label="Categoria"
+                            style={{ height: 38, fontSize: 13.5 }}
+                            value={row.categoryId ?? ""}
+                            onChange={(e) => setRowCategory(index, e.target.value || null)}
+                          >
+                            <option value="">Sem categoria</option>
+                            {categories.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="pill mint">Receita</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-
-          <div className="flex justify-end">
-            <Button onClick={confirm} disabled={submitting || !accountId}>
-              <Upload size={17} />
+          <div className="modal-foot" style={{ borderTop: "1px solid var(--line)" }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={submitting || !accountId}
+              style={{
+                opacity: submitting || !accountId ? 0.45 : 1,
+                pointerEvents: submitting || !accountId ? "none" : "auto",
+              }}
+              onClick={confirm}
+            >
+              <Icon name="file-up" size={17} />
               {submitting ? "Importando…" : `Importar ${rows.length}`}
-            </Button>
+            </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

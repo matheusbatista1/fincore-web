@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { deleteBudgetAction } from "@/app/_actions/finance";
 import { type BudgetView, getBudgets } from "@/application/use-cases/get-budgets";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { BudgetFormDialog } from "@/presentation/components/forms/budget-form-dialog";
-import { DeleteButton } from "@/presentation/components/forms/delete-button";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
@@ -106,31 +104,24 @@ export default async function BudgetsPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="row gap-2">
-                      <BudgetFormDialog
-                        budget={{
-                          id: budget.id,
-                          categoryId: budget.categoryId,
-                          categoryName: budget.categoryName,
-                          limitCents: budget.limitCents,
-                        }}
-                        trigger={
-                          <button
-                            type="button"
-                            className="icon-btn btn-sm"
-                            style={{ width: 34, height: 34 }}
-                            title="Editar"
-                          >
-                            <Icon name="pencil" size={15} />
-                          </button>
-                        }
-                      />
-                      <DeleteButton
-                        id={budget.id}
-                        action={deleteBudgetAction}
-                        confirmMessage={`Remover o orçamento de ${budget.categoryName}?`}
-                      />
-                    </div>
+                    <BudgetFormDialog
+                      budget={{
+                        id: budget.id,
+                        categoryId: budget.categoryId,
+                        categoryName: budget.categoryName,
+                        limitCents: budget.limitCents,
+                      }}
+                      trigger={
+                        <button
+                          type="button"
+                          className="icon-btn btn-sm"
+                          style={{ width: 34, height: 34 }}
+                          title="Editar"
+                        >
+                          <Icon name="pencil" size={15} />
+                        </button>
+                      }
+                    />
                   </div>
                   <div className={`meter ${meterClass(budget)}`} style={{ marginTop: 10 }}>
                     <span style={{ width: `${pct}%` }} />

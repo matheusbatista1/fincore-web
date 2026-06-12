@@ -1,13 +1,11 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { type ReactNode, useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { createBudgetAction, updateBudgetAction } from "@/app/_actions/finance";
-import { Button } from "@/presentation/components/ui/button";
-import { Dialog, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
-import { Field, Select, TextInput } from "@/presentation/components/ui/field";
+import { type ReactNode, useId, useState } from "react";
+import { createBudgetAction, deleteBudgetAction, updateBudgetAction } from "@/app/_actions/finance";
+import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
+import { FormModal } from "@/presentation/components/ui/form-modal";
+import { toast } from "@/presentation/stores/ui-store";
+import { reaisToCents } from "@/shared/formatting/parse-reais";
 
 interface BudgetCategory {
   readonly id: string;
@@ -21,18 +19,7 @@ interface EditableBudget {
   readonly limitCents: number;
 }
 
-const formSchema = z.object({
-  categoryId: z.string().min(1, "Selecione uma categoria."),
-  limitReais: z.string(),
-});
-type FormValues = z.infer<typeof formSchema>;
-
-function reaisToCents(value: string): number {
-  const normalized = value.replace(/\./g, "").replace(",", ".").trim();
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
-}
-
+/** Novo/editar orçamento — prototype form language (.field/.input). */
 export function BudgetFormDialog({
   budget,
   availableCategories = [],
@@ -43,70 +30,114 @@ export function BudgetFormDialog({
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
-  const editing = budget !== undefined;
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      categoryId: budget?.categoryId ?? availableCategories[0]?.id ?? "",
-      limitReais: budget ? (budget.limitCents / 100).toFixed(2) : "",
-    },
-  });
-
-  async function onSubmit(values: FormValues) {
-    setServerError(null);
-    const input = { categoryId: values.categoryId, limitCents: reaisToCents(values.limitReais) };
-    if (input.limitCents <= 0) {
-      setServerError("Informe um limite maior que zero.");
-      return;
-    }
-    const result = editing ? await updateBudgetAction(budget.id, input) : await createBudgetAction(input);
-    if (!result.ok) {
-      setServerError(result.error);
-      return;
-    }
-    setOpen(false);
-  }
+  const formId = useId();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent title={editing ? "Editar orçamento" : "Novo orçamento"}>
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-          {editing ? (
-            <Field label="Categoria">
-              <TextInput value={budget.categoryName} disabled readOnly />
-              <input type="hidden" {...register("categoryId")} />
-            </Field>
-          ) : (
-            <Field label="Categoria" error={errors.categoryId?.message}>
-              <Select {...register("categoryId")} autoFocus>
-                {availableCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-          <Field label="Limite mensal (R$)">
-            <TextInput {...register("limitReais")} inputMode="decimal" placeholder="0,00" />
-          </Field>
-
-          {serverError && <p className="text-sm text-rose-500">{serverError}</p>}
-
-          <div className="mt-2 flex justify-end">
-            <Button type="submit" disabled={isSubmitting}>
-              {editing ? "Salvar" : "Criar orçamento"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
+      {open && (
+        <BudgetForm
+          key={formId}
+          budget={budget}
+          availableCategories={availableCategories}
+          onDone={() => setOpen(false)}
+        />
+      )}
     </Dialog>
+  );
+}
+
+function BudgetForm({
+  budget,
+  availableCategories,
+  onDone,
+}: {
+  budget?: EditableBudget | undefined;
+  availableCategories: BudgetCategory[];
+  onDone: () => void;
+}) {
+  const editing = budget !== undefined;
+  const [categoryId, setCategoryId] = useState(budget?.categoryId ?? availableCategories[0]?.id ?? "");
+  const [limit, setLimit] = useState(budget ? (budget.limitCents / 100).toFixed(2).replace(".", ",") : "");
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canSubmit = categoryId.length > 0 && reaisToCents(limit) > 0;
+
+  async function save() {
+    if (!canSubmit || submitting) return;
+    setServerError(null);
+    const input = { categoryId, limitCents: reaisToCents(limit) };
+    setSubmitting(true);
+    const result = editing ? await updateBudgetAction(budget.id, input) : await createBudgetAction(input);
+    setSubmitting(false);
+    if (!result.ok) {
+      setServerError(result.error);
+      return;
+    }
+    toast("Orçamento salvo");
+    onDone();
+  }
+
+  async function remove() {
+    if (!editing || submitting) return;
+    setSubmitting(true);
+    const result = await deleteBudgetAction(budget.id);
+    setSubmitting(false);
+    if (!result.ok) {
+      setServerError(result.error);
+      return;
+    }
+    toast(`Orçamento de ${budget.categoryName} removido`);
+    onDone();
+  }
+
+  return (
+    <FormModal
+      title={editing ? "Editar orçamento" : "Novo orçamento"}
+      submitLabel={editing ? "Salvar" : "Adicionar"}
+      canSubmit={canSubmit}
+      submitting={submitting}
+      onSubmit={save}
+      maxWidth={440}
+      {...(editing ? { onDelete: remove } : {})}
+    >
+      <div className="field">
+        <label>Categoria</label>
+        {editing ? (
+          <div className="input" style={{ display: "flex", alignItems: "center", color: "var(--text-lo)" }}>
+            {budget.categoryName}
+          </div>
+        ) : (
+          <select
+            className="input"
+            aria-label="Categoria"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            {availableCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label>Limite mensal (R$)</label>
+        <input
+          className="input tnum"
+          inputMode="decimal"
+          value={limit}
+          onChange={(e) => setLimit(e.target.value)}
+          placeholder="0,00"
+        />
+      </div>
+      {serverError && (
+        <div className="warn-text" style={{ marginTop: 12 }}>
+          {serverError}
+        </div>
+      )}
+    </FormModal>
   );
 }

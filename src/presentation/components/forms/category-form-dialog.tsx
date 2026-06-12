@@ -1,19 +1,16 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { type ReactNode, useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { createCategoryAction, updateCategoryAction } from "@/app/_actions/finance";
-import { Button } from "@/presentation/components/ui/button";
+import { type ReactNode, useId, useState } from "react";
+import { createCategoryAction, deleteCategoryAction, updateCategoryAction } from "@/app/_actions/finance";
 import {
   CATEGORY_ICON_NAMES,
   CategoryIcon,
   DEFAULT_CATEGORY_ICON,
 } from "@/presentation/components/ui/category-icon";
-import { Dialog, DialogContent, DialogTrigger } from "@/presentation/components/ui/dialog";
-import { Field, TextInput } from "@/presentation/components/ui/field";
-import { cn } from "@/presentation/lib/cn";
+import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
+import { FormModal } from "@/presentation/components/ui/form-modal";
+import { toast } from "@/presentation/stores/ui-store";
+import { PERSON_COLORS } from "@/shared/theme/person-colors";
 
 interface CategoryView {
   readonly id: string;
@@ -22,95 +19,125 @@ interface CategoryView {
   readonly icon: string;
 }
 
-const formSchema = z.object({
-  name: z.string().trim().min(1, "Informe um nome."),
-  color: z.string(),
-  icon: z.string(),
-});
-type FormValues = z.infer<typeof formSchema>;
-
+/** Nova/editar categoria — prototype form language (.field/.swatches/.chip-select). */
 export function CategoryFormDialog({ category, trigger }: { category?: CategoryView; trigger: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
-  const editing = category !== undefined;
-
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: category?.name ?? "",
-      color: category?.color || "#7c5cff",
-      icon: category?.icon || DEFAULT_CATEGORY_ICON,
-    },
-  });
-  const icon = watch("icon");
-
-  async function onSubmit(values: FormValues) {
-    setServerError(null);
-    const input = { name: values.name, color: values.color, icon: values.icon };
-    const result = editing
-      ? await updateCategoryAction(category.id, input)
-      : await createCategoryAction(input);
-    if (!result.ok) {
-      setServerError(result.error);
-      return;
-    }
-    setOpen(false);
-  }
+  const formId = useId();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent title={editing ? "Editar categoria" : "Nova categoria"}>
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-          <Field label="Nome" error={errors.name?.message}>
-            <TextInput {...register("name")} placeholder="Alimentação" autoFocus />
-          </Field>
-          <Field label="Cor">
-            <input
-              type="color"
-              {...register("color")}
-              className="h-11 w-20 rounded-sm border border-line bg-surface-3"
-            />
-          </Field>
-          <div>
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-text-lo">
-              Ícone
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_ICON_NAMES.map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => setValue("icon", name)}
-                  aria-label={name}
-                  className={cn(
-                    "grid size-10 place-items-center rounded-md border transition",
-                    icon === name
-                      ? "border-purple-400 bg-purple-soft text-text-hi"
-                      : "border-line bg-surface-2 text-text-mid hover:text-text-hi",
-                  )}
-                >
-                  <CategoryIcon name={name} />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {serverError && <p className="text-sm text-rose-500">{serverError}</p>}
-
-          <div className="mt-2 flex justify-end">
-            <Button type="submit" disabled={isSubmitting}>
-              {editing ? "Salvar" : "Criar categoria"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
+      {open && <CategoryForm key={formId} category={category} onDone={() => setOpen(false)} />}
     </Dialog>
+  );
+}
+
+function CategoryForm({ category, onDone }: { category?: CategoryView | undefined; onDone: () => void }) {
+  const editing = category !== undefined;
+  const [name, setName] = useState(category?.name ?? "");
+  const [color, setColor] = useState(category?.color || PERSON_COLORS[4]);
+  const [icon, setIcon] = useState(category?.icon || DEFAULT_CATEGORY_ICON);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canSubmit = name.trim().length > 0;
+
+  async function save() {
+    if (!canSubmit || submitting) return;
+    setServerError(null);
+    const input = { name: name.trim(), color, icon };
+    setSubmitting(true);
+    const result = editing
+      ? await updateCategoryAction(category.id, input)
+      : await createCategoryAction(input);
+    setSubmitting(false);
+    if (!result.ok) {
+      setServerError(result.error);
+      return;
+    }
+    toast(`Categoria ${name.trim()} salva`);
+    onDone();
+  }
+
+  async function remove() {
+    if (!editing || submitting) return;
+    setSubmitting(true);
+    const result = await deleteCategoryAction(category.id);
+    setSubmitting(false);
+    if (!result.ok) {
+      setServerError(result.error);
+      return;
+    }
+    toast(`Categoria ${category.name} removida`);
+    onDone();
+  }
+
+  return (
+    <FormModal
+      title={editing ? "Editar categoria" : "Nova categoria"}
+      submitLabel={editing ? "Salvar" : "Adicionar"}
+      canSubmit={canSubmit}
+      submitting={submitting}
+      onSubmit={save}
+      {...(editing ? { onDelete: remove } : {})}
+    >
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+        <span
+          className="l-ic"
+          style={{ width: 56, height: 56, borderRadius: 16, background: `${color}22`, color }}
+        >
+          <CategoryIcon name={icon} size={26} />
+        </span>
+      </div>
+      <div className="field">
+        <label>Nome</label>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Alimentação"
+          // biome-ignore lint/a11y/noAutofocus: name is the primary field of the modal (prototype parity).
+          autoFocus
+        />
+      </div>
+      <div className="field">
+        <label>Cor</label>
+        <div className="swatches">
+          {PERSON_COLORS.map((c) => (
+            <button
+              type="button"
+              key={c}
+              className={`swatch${color === c ? " on" : ""}`}
+              style={{ background: c }}
+              aria-label={`Cor ${c}`}
+              onClick={() => setColor(c)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label>Ícone</label>
+        <div className="chip-select">
+          {CATEGORY_ICON_NAMES.map((n) => (
+            <button
+              type="button"
+              key={n}
+              className={`person-chip${icon === n ? " on" : ""}`}
+              aria-label={n}
+              onClick={() => setIcon(n)}
+            >
+              <span className="pa" style={{ background: color, width: 24, height: 24 }}>
+                <CategoryIcon name={n} size={13} />
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {serverError && (
+        <div className="warn-text" style={{ marginTop: 12 }}>
+          {serverError}
+        </div>
+      )}
+    </FormModal>
   );
 }
