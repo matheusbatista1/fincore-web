@@ -1,13 +1,17 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useState } from "react";
+import { deleteTransactionAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { byDateDesc } from "@/application/use-cases/get-transactions";
+import { SwipeRow } from "@/presentation/components/gestures/swipe-row";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
-import { openTxDetail } from "@/presentation/stores/tx-ui-store";
-import { useUIStore } from "@/presentation/stores/ui-store";
+import { useIsMobile } from "@/presentation/lib/use-is-mobile";
+import { openTxDetail, useTxUIStore } from "@/presentation/stores/tx-ui-store";
+import { toast as fireToast, useUIStore } from "@/presentation/stores/ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
 type Filter = "all" | "out" | "in" | "xfer";
@@ -19,7 +23,12 @@ const FILTERS: ReadonlyArray<[Filter, string]> = [
   ["xfer", "Transferências"],
 ];
 
-/** Transações — ported 1:1 from the prototype (more.jsx TransactionsScreen, desktop table). */
+async function removeDirect(item: TransactionListItem) {
+  const result = await deleteTransactionAction({ id: item.id, scope: "one" });
+  fireToast(result.ok ? "Lançamento excluído" : result.error, result.ok ? "success" : "error");
+}
+
+/** Transações — ported 1:1 from the prototype (more.jsx TransactionsScreen): desktop table + mobile swipe list. */
 export function TransactionsView({
   transactions,
   today,
@@ -28,6 +37,9 @@ export function TransactionsView({
   today: string;
 }) {
   const toast = useUIStore((s) => s.toast);
+  const openEdit = useTxUIStore((s) => s.openEdit);
+  const openDelete = useTxUIStore((s) => s.openDelete);
+  const isMobile = useIsMobile();
   const [filter, setFilter] = useState<Filter>("all");
   const rows = transactions
     .filter((t) =>
@@ -41,30 +53,94 @@ export function TransactionsView({
     )
     .sort(byDateDesc);
 
+  const filtersHead = (
+    <div className="card-head">
+      <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+        {FILTERS.map(([k, l]) => (
+          <button
+            type="button"
+            key={k}
+            className={`person-chip${filter === k ? " on" : ""}`}
+            onClick={() => setFilter(k)}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={() => toast(`Exportando ${rows.length} transações para CSV…`)}
+      >
+        <Icon name="download" size={16} />
+        Exportar
+      </button>
+    </div>
+  );
+
+  // ---- mobile: swipe-to-action list (more.jsx:23-46) ----
+  if (isMobile) {
+    return (
+      <div className="card">
+        {filtersHead}
+        <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
+          {rows.map((t) => {
+            const isTransfer = t.kind === "transfer";
+            const cat = t.category;
+            const icStyle: CSSProperties = isTransfer
+              ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
+              : cat
+                ? { background: `${cat.color}22`, color: cat.color }
+                : { background: "var(--mint-soft)", color: "var(--mint-500)" };
+            return (
+              <SwipeRow
+                key={t.id}
+                onOpen={() => openTxDetail(t)}
+                onEdit={isTransfer ? null : () => openEdit(t)}
+                onDelete={() => (t.parcela ? openDelete(t) : void removeDirect(t))}
+              >
+                <div className="lrow" style={{ background: "var(--surface-1)" }}>
+                  <span className="l-ic" style={icStyle}>
+                    <Icon
+                      name={isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left"}
+                      size={18}
+                    />
+                  </span>
+                  <div className="l-main">
+                    <div className="l-title">
+                      {t.description || (isTransfer ? "Transferência" : "Lançamento")}
+                    </div>
+                    <div className="l-sub">
+                      {relativeDateLabel(t.date, today)}
+                      {t.note ? ` · ${t.note}` : cat ? ` · ${cat.name}` : ""}
+                    </div>
+                  </div>
+                  {isTransfer ? (
+                    <div className="l-amt" style={{ color: "var(--sky-500)" }}>
+                      <Money cents={t.transferValueCents ?? 0} withSign={false} />
+                    </div>
+                  ) : (
+                    <div className={`l-amt ${t.amountCents < 0 ? "neg" : "pos"}`}>
+                      <Money cents={t.amountCents} />
+                    </div>
+                  )}
+                </div>
+              </SwipeRow>
+            );
+          })}
+          {rows.length === 0 && (
+            <div style={{ color: "var(--text-lo)", padding: "20px 0", textAlign: "center" }}>
+              Nenhuma transação.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card">
-      <div className="card-head">
-        <div className="row gap-2" style={{ flexWrap: "wrap" }}>
-          {FILTERS.map(([k, l]) => (
-            <button
-              type="button"
-              key={k}
-              className={`person-chip${filter === k ? " on" : ""}`}
-              onClick={() => setFilter(k)}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => toast(`Exportando ${rows.length} transações para CSV…`)}
-        >
-          <Icon name="download" size={16} />
-          Exportar
-        </button>
-      </div>
+      {filtersHead}
       <div style={{ padding: "8px 12px 12px" }}>
         <div className="tbl-wrap">
           <table className="tbl">

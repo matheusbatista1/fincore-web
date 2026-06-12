@@ -4,6 +4,7 @@ import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { PullToRefresh } from "@/presentation/components/gestures/pull-to-refresh";
 import { AppHeader } from "@/presentation/components/shell/app-header";
 import { MobileNav } from "@/presentation/components/shell/mobile-nav";
 import { PageHead } from "@/presentation/components/shell/page-head";
@@ -108,7 +109,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         />
         <div className="page">
           <PageHead firstName={firstName} todayLabel={todayLabel} monthChip={monthChip} />
-          <PageTransition>{children}</PageTransition>
+          <PullToRefresh>
+            <PageTransition>{children}</PageTransition>
+          </PullToRefresh>
         </div>
       </main>
       <MobileNav {...formData} pendingCount={pendingCount} />
