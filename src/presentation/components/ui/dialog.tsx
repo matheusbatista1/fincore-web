@@ -25,7 +25,7 @@ export function DialogModal({
   /** Extra buttons placed in the header, before the close button. */
   actions?: ReactNode;
   /** Override the modal max-width (px), matching the prototype's per-modal sizing. */
-  maxWidth?: number;
+  maxWidth?: number | undefined;
   children: ReactNode;
 }) {
   return (

@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
-import { deleteCategoryAction } from "@/app/_actions/finance";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
-import { DeleteButton } from "@/presentation/components/forms/delete-button";
 import { SettingsView } from "@/presentation/components/settings/settings-view";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -70,26 +68,19 @@ export default async function SettingsPage() {
               <div className="l-main">
                 <div className="l-title">{category.name}</div>
               </div>
-              <div className="row gap-2">
-                <CategoryFormDialog
-                  category={category}
-                  trigger={
-                    <button
-                      type="button"
-                      className="icon-btn btn-sm"
-                      style={{ width: 34, height: 34 }}
-                      title="Editar"
-                    >
-                      <Icon name="pencil" size={15} />
-                    </button>
-                  }
-                />
-                <DeleteButton
-                  id={category.id}
-                  action={deleteCategoryAction}
-                  confirmMessage={`Excluir a categoria ${category.name}? As transações não são afetadas.`}
-                />
-              </div>
+              <CategoryFormDialog
+                category={category}
+                trigger={
+                  <button
+                    type="button"
+                    className="icon-btn btn-sm"
+                    style={{ width: 34, height: 34 }}
+                    title="Editar"
+                  >
+                    <Icon name="pencil" size={15} />
+                  </button>
+                }
+              />
             </div>
           ))}
         </div>
