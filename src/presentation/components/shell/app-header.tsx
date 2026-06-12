@@ -61,7 +61,13 @@ export function AppHeader({
     <header className="topbar">
       <span className="tb-title">{titleForPath(pathname)}</span>
 
-      <button type="button" className="search" aria-label="Buscar" onClick={() => setSearchOpen(true)}>
+      <button
+        type="button"
+        className="search"
+        aria-label="Buscar"
+        style={{ cursor: "text" }}
+        onClick={() => setSearchOpen(true)}
+      >
         <Icon name="search" size={17} />
         <span style={{ flex: 1, textAlign: "left", color: "var(--text-lo)", fontSize: 14 }}>
           Buscar transações, pessoas, cartões…
@@ -85,6 +91,7 @@ export function AppHeader({
         <button
           type="button"
           className="icon-btn"
+          title="Notificações"
           aria-label="Notificações"
           onClick={() => setNotifOpen((o) => !o)}
         >

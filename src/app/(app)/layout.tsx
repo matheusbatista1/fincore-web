@@ -115,7 +115,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </main>
       <MobileNav {...formData} pendingCount={pendingCount} />
-      <TxModalsHost {...formData} today={today} />
+      <TxModalsHost {...formData} transactions={transactions} today={today} />
     </div>
   );
 }

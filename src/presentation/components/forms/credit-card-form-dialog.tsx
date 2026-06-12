@@ -31,19 +31,35 @@ function parseDay(value: string, fallback: number): number {
 }
 
 /** Novo/editar cartão — ported 1:1 from the prototype (forms.jsx CardForm). */
-export function CreditCardFormDialog({ card, trigger }: { card?: CardView; trigger: ReactNode }) {
+export function CreditCardFormDialog({
+  card,
+  holder,
+  trigger,
+}: {
+  card?: CardView;
+  holder?: string;
+  trigger: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const formId = useId();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      {open && <CardForm key={formId} card={card} onDone={() => setOpen(false)} />}
+      {open && <CardForm key={formId} card={card} holder={holder} onDone={() => setOpen(false)} />}
     </Dialog>
   );
 }
 
-function CardForm({ card, onDone }: { card?: CardView | undefined; onDone: () => void }) {
+function CardForm({
+  card,
+  holder,
+  onDone,
+}: {
+  card?: CardView | undefined;
+  holder?: string | undefined;
+  onDone: () => void;
+}) {
   const editing = card !== undefined;
   const [bank, setBank] = useState(card?.bank ?? "");
   const [product, setProduct] = useState(card?.product ?? "");
@@ -120,6 +136,7 @@ function CardForm({ card, onDone }: { card?: CardView | undefined; onDone: () =>
           flag={flag}
           themeKey={theme}
           maskedNumber={maskedPreview}
+          {...(holder ? { holder } : {})}
         />
       </div>
 

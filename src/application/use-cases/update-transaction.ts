@@ -24,7 +24,7 @@ function buildCommand(
       description: input.description || "Transferência",
       date: input.date,
       amountCents: 0,
-      note: input.note ?? null,
+      note: input.note || null,
       transferFromAccountId: input.fromAccountId,
       transferToAccountId: input.toAccountId,
       transferValueCents: input.valueCents,
@@ -38,7 +38,7 @@ function buildCommand(
       description: input.description || (input.fromPersonId ? "Pagamento recebido" : "Receita"),
       date: input.date,
       amountCents: input.amountCents,
-      note: input.note ?? null,
+      note: input.note || null,
       accountId: input.accountId,
       fromPersonId: input.fromPersonId,
       isReimbursement: input.fromPersonId !== null,
@@ -71,14 +71,17 @@ function buildCommand(
     description: input.description || "Despesa",
     date: input.date,
     amountCents: -input.amountCents,
-    note: input.note ?? null,
+    note: input.note || null,
     categoryId: input.categoryId,
     source: input.source,
     cardId: input.source === "card" ? input.cardId : null,
     accountId: input.source === "account" ? input.accountId : null,
     linkedAccountId: input.source === "card" || input.source === "account" ? null : input.linkedAccountId,
     myShareCents: split.myShare.cents,
-    splits: [...split.shares].map(([personId, share]) => ({ personId, shareCents: share.cents })),
+    // Zero shares carry no debt and would violate the DB's share > 0 CHECK.
+    splits: [...split.shares]
+      .filter(([, share]) => share.cents > 0)
+      .map(([personId, share]) => ({ personId, shareCents: share.cents })),
   });
 }
 

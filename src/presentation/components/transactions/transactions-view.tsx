@@ -25,7 +25,12 @@ const FILTERS: ReadonlyArray<[Filter, string]> = [
 
 async function removeDirect(item: TransactionListItem) {
   const result = await deleteTransactionAction({ id: item.id, scope: "one" });
-  fireToast(result.ok ? "Lançamento excluído" : result.error, result.ok ? "success" : "error");
+  if (!result.ok) {
+    fireToast(result.error, "error");
+    return;
+  }
+  const reverted = item.shares.length > 0 || item.kind === "income";
+  fireToast(`Transação excluída${reverted ? " · saldos revertidos" : ""}`);
 }
 
 /** Transações — ported 1:1 from the prototype (more.jsx TransactionsScreen): desktop table + mobile swipe list. */

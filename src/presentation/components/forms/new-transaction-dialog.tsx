@@ -210,8 +210,16 @@ function TransactionForm({
 }) {
   const editing = initial !== undefined;
   const initialShares = initial?.shares ?? [];
+  // "Equal" only when the person shares match each other AND my share fits the
+  // same even division (within rounding remainders) — otherwise saving an
+  // untouched form would silently re-equalize a custom split.
+  const firstShare = initialShares[0]?.shareCents ?? 0;
   const sharesEqual =
-    initialShares.length <= 1 || initialShares.every((s) => s.shareCents === initialShares[0]?.shareCents);
+    initialShares.length === 0 ||
+    (initialShares.every((s) => s.shareCents === firstShare) &&
+      (initial?.myShareCents == null ||
+        initial.myShareCents === 0 ||
+        Math.abs(initial.myShareCents - firstShare) <= initialShares.length + 1));
 
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [cents, setCents] = useState(
@@ -223,8 +231,10 @@ function TransactionForm({
   const [ymd, setYmd] = useState(initial?.date ?? todayIso());
   const [fixed, setFixed] = useState(false);
 
-  // expense
-  const [catId, setCatId] = useState<string | null>(initial?.categoryId ?? categories[0]?.id ?? null);
+  // expense — when editing, a null category stays null (no silent assignment on save).
+  const [catId, setCatId] = useState<string | null>(
+    editing ? (initial?.categoryId ?? null) : (categories[0]?.id ?? null),
+  );
   const [srcType, setSrcType] = useState<ExpenseSource>(initial?.source ?? "card");
   const [cardId, setCardId] = useState<string | null>(initial?.cardId ?? cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(initial?.accountId ?? accounts[0]?.id ?? null);
@@ -1117,7 +1127,8 @@ function TransactionForm({
                               placeholder="0,00"
                               value={custom[id] ?? ""}
                               onChange={(e) =>
-                                setCustom((c) => ({ ...c, [id]: e.target.value.replace(",", ".") }))
+                                // Keep the raw pt-BR text; reaisToCents treats "," as the decimal mark.
+                                setCustom((c) => ({ ...c, [id]: e.target.value }))
                               }
                             />
                           ) : (

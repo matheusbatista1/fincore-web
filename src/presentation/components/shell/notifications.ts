@@ -32,6 +32,15 @@ function daysUntilDue(dueDay: number, today: string): number {
   return dueDay >= day ? dueDay - day : 31 - day + dueDay;
 }
 
+/** Next occurrence of `dueDay` as "DD/MM" (prototype shows the date, e.g. "vence 10/06"). */
+function nextDueLabel(dueDay: number, today: string): string {
+  const [, monthStr, dayStr] = today.split("-");
+  const day = Number(dayStr ?? "1");
+  let month = Number(monthStr ?? "1");
+  if (dueDay < day) month = month === 12 ? 1 : month + 1;
+  return `${String(dueDay).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
+}
+
 /** Derive the notification items — mirrors the prototype (extras.jsx NotificationsPanel). */
 export function deriveNotifications(data: NotifData): NotifItem[] {
   const items: NotifItem[] = [];
@@ -43,7 +52,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
     items.push({
       ic: "calendar-clock",
       tone: "amber",
-      title: `Fatura ${c.bank} vence dia ${c.dueDay}`,
+      title: `Fatura ${c.bank} vence ${nextDueLabel(c.dueDay, data.today)}`,
       sub: formatBRLAbsolute(c.billCents),
       href: "/cards",
     });

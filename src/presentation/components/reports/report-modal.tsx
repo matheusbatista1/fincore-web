@@ -264,7 +264,8 @@ export function ReportModal({
                   <span className="v" style={{ color: "var(--purple-300)" }}>
                     {Math.round(
                       ((summary.personalIncomeCents - summary.personalExpenseCents) /
-                        (summary.personalIncomeCents || 1)) *
+                        // 100 = R$ 1,00 in cents — mirrors the prototype's `|| 1` (in reais).
+                        (summary.personalIncomeCents || 100)) *
                         100,
                     )}
                     %

@@ -34,7 +34,8 @@ export function TxDetailModal({ today }: { today: string }) {
       toast(result.error, "error");
       return;
     }
-    toast("Lançamento excluído");
+    const reverted = item.shares.length > 0 || item.kind === "income";
+    toast(`Transação excluída${reverted ? " · saldos revertidos" : ""}`);
     closeDetail();
   }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import {
   EditTransactionModal,
   type TxFormAccount,
@@ -19,18 +20,21 @@ export function TxModalsHost({
   cards,
   people,
   categories,
+  transactions,
   today,
 }: {
   accounts: TxFormAccount[];
   cards: TxFormCard[];
   people: TxFormPerson[];
   categories: TxFormCategory[];
+  /** Full list — used for live installment-group counts in the delete-scope modal. */
+  transactions: TransactionListItem[];
   today: string;
 }) {
   return (
     <>
       <TxDetailModal today={today} />
-      <DeleteScopeModal />
+      <DeleteScopeModal transactions={transactions} />
       <EditTransactionModal accounts={accounts} cards={cards} people={people} categories={categories} />
     </>
   );

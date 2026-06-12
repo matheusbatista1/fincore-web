@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { deleteTransactionAction } from "@/app/_actions/finance";
+import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
@@ -10,14 +11,24 @@ import { toast } from "@/presentation/stores/ui-store";
 type Scope = "one" | "forward" | "all";
 
 /** Excluir parcela (escopo one/forward/all) — ported 1:1 from the prototype (extras.jsx DeleteScopeModal). */
-export function DeleteScopeModal() {
+export function DeleteScopeModal({ transactions }: { transactions: TransactionListItem[] }) {
   const tx = useTxUIStore((s) => s.deleting);
   const closeDelete = useTxUIStore((s) => s.closeDelete);
   const [pending, setPending] = useState(false);
 
   if (tx && !tx.parcela) return null;
   const parcela = tx?.parcela ?? null;
-  const forwardCount = parcela ? parcela.total - parcela.number + 1 : 0;
+
+  // Live row counts (the prototype counts the rows actually present, app.jsx:226).
+  const groupRows =
+    tx?.installmentGroupId != null
+      ? transactions.filter((t) => t.installmentGroupId === tx.installmentGroupId)
+      : [];
+  const count = groupRows.length || (parcela?.total ?? 0);
+  const forwardCount = parcela
+    ? groupRows.filter((t) => (t.parcela?.number ?? 0) >= parcela.number).length ||
+      parcela.total - parcela.number + 1
+    : 0;
 
   async function choose(scope: Scope) {
     if (!tx || pending) return;
@@ -28,7 +39,8 @@ export function DeleteScopeModal() {
       toast(result.error, "error");
       return;
     }
-    toast(scope === "one" ? "Parcela excluída" : "Lançamentos excluídos");
+    const removed = result.count ?? 1;
+    toast(removed === 1 ? "Parcela excluída" : `${removed} parcelas excluídas`);
     closeDelete();
   }
 
@@ -77,8 +89,7 @@ export function DeleteScopeModal() {
               <span>
                 <b>Todas as parcelas</b>
                 <small>
-                  Remove o parcelamento inteiro ({parcela.total}{" "}
-                  {parcela.total === 1 ? "lançamento" : "lançamentos"})
+                  Remove o parcelamento inteiro ({count} {count === 1 ? "lançamento" : "lançamentos"})
                 </small>
               </span>
             </button>

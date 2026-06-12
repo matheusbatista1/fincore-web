@@ -115,10 +115,13 @@ function buildCommand(
       parcelaNo: input.installment ? parcela.number : null,
       parcelaTotal: input.installment ? parcela.total : null,
       parcelaStatus: input.installment ? parcela.status : null,
-      splits: [...split.shares].map(([personId, share]) => ({
-        personId,
-        shareCents: share.cents,
-      })),
+      // Zero shares carry no debt and would violate the DB's share > 0 CHECK.
+      splits: [...split.shares]
+        .filter(([, share]) => share.cents > 0)
+        .map(([personId, share]) => ({
+          personId,
+          shareCents: share.cents,
+        })),
     });
   }
 
