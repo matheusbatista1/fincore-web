@@ -9,10 +9,23 @@ import { LogoMark } from "@/presentation/components/ui/logo-mark";
 const isActive = (pathname: string, href: string): boolean =>
   pathname === href || pathname.startsWith(`${href}/`);
 
-export function Sidebar({ userEmail, pendingCount }: { userEmail: string; pendingCount: number }) {
+export function Sidebar({
+  userEmail,
+  pendingCount,
+  displayName,
+}: {
+  userEmail: string;
+  pendingCount: number;
+  displayName?: string;
+}) {
   const pathname = usePathname();
-  const name = userEmail.split("@")[0] || "Você";
-  const initials = name.slice(0, 2).toUpperCase();
+  const name = displayName || userEmail.split("@")[0] || "Você";
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase();
 
   return (
     <aside className="sidebar">

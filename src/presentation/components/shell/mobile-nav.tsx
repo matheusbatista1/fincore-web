@@ -31,7 +31,6 @@ export function MobileNav({
 }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const canCreate = accounts.length > 0 || cards.length > 0;
   const moreActive = MOBILE_MORE.some((i) => isActive(pathname, i.href));
 
   return (
@@ -58,19 +57,17 @@ export function MobileNav({
         </button>
       </nav>
 
-      {canCreate && (
-        <NewTransactionDialog
-          accounts={accounts}
-          cards={cards}
-          people={people}
-          categories={categories}
-          trigger={
-            <button type="button" className="fab" aria-label="Novo lançamento">
-              <Icon name="plus" size={26} />
-            </button>
-          }
-        />
-      )}
+      <NewTransactionDialog
+        accounts={accounts}
+        cards={cards}
+        people={people}
+        categories={categories}
+        trigger={
+          <button type="button" className="fab" aria-label="Novo lançamento">
+            <Icon name="plus" size={26} />
+          </button>
+        }
+      />
 
       {moreOpen && (
         // biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes the sheet (keyboard via Escape below).

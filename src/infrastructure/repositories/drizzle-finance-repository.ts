@@ -90,6 +90,26 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async getProfile(userId: string): Promise<{ displayName: string | null; email: string }> {
+    return this.run(userId, async (tx) =>
+      one(
+        await tx
+          .select({ displayName: schema.users.displayName, email: schema.users.email })
+          .from(schema.users)
+          .where(eq(schema.users.id, userId)),
+      ),
+    );
+  }
+
+  async updateProfile(userId: string, input: { displayName: string }): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
   async loadWorkspace(userId: string): Promise<Workspace> {
     return this.run(userId, async (tx) => {
       // Pipelined on the single RLS-scoped transaction connection (one network

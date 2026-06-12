@@ -5,6 +5,7 @@ import { settlePersonAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { PersonView } from "@/application/use-cases/get-workspace-view";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
+import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -27,14 +28,17 @@ export function PeopleView({
   people,
   transactions,
   today,
+  reportData,
 }: {
   people: PersonView[];
   transactions: TransactionListItem[];
   today: string;
+  reportData: ReportData;
 }) {
   const toast = useUIStore((s) => s.toast);
   const [openId, setOpenId] = useState<string | null>(null);
   const [settleId, setSettleId] = useState<string | null>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
 
   const totalReceber = people.filter((p) => p.balanceCents > 0).reduce((s, p) => s + p.balanceCents, 0);
   const totalPagar = people
@@ -176,7 +180,10 @@ export function PeopleView({
                   className="icon-btn btn-sm"
                   style={{ width: 36, height: 36 }}
                   title="Exportar relatório"
-                  onClick={() => toast(`Relatório de ${firstName(open.name)} exportado em PDF`)}
+                  onClick={() => {
+                    setOpenId(null);
+                    setReportId(open.id);
+                  }}
                 >
                   <Icon name="file-down" size={16} />
                 </button>
@@ -192,7 +199,10 @@ export function PeopleView({
                 setSettleId(open.id);
               }}
               onRemind={() => toast(`Lembrete enviado para ${firstName(open.name)} via WhatsApp`, "info")}
-              onReport={() => toast(`Relatório de ${firstName(open.name)} exportado em PDF`)}
+              onReport={() => {
+                setOpenId(null);
+                setReportId(open.id);
+              }}
             />
           </DialogModal>
         )}
@@ -202,6 +212,16 @@ export function PeopleView({
       <Dialog open={settle !== null} onOpenChange={(v) => !v && setSettleId(null)}>
         {settle && <SettleBody person={settle} onDone={() => setSettleId(null)} />}
       </Dialog>
+
+      {/* Relatório por pessoa */}
+      {reportId && (
+        <ReportModal
+          data={reportData}
+          initialMode="person"
+          initialPersonId={reportId}
+          onClose={() => setReportId(null)}
+        />
+      )}
     </div>
   );
 }

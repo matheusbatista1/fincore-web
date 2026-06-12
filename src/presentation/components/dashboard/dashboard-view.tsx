@@ -8,6 +8,7 @@ import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
 import { TxRow } from "@/presentation/components/transactions/tx-row";
 import { Avatar } from "@/presentation/components/ui/avatar";
+import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { useUIStore } from "@/presentation/stores/ui-store";
@@ -199,7 +200,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 lineHeight: 1,
               }}
             >
-              <Money cents={data.saldoTotalCents} withSign={false} />
+              <CountMoney cents={data.saldoTotalCents} />
             </div>
             <div className="row gap-3" style={{ marginTop: 12 }}>
               {data.deltaPct !== null && (

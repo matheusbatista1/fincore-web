@@ -1,23 +1,30 @@
 import { redirect } from "next/navigation";
+import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getReports } from "@/application/use-cases/get-reports";
+import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { BarList } from "@/presentation/components/charts/bar-list";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
+import { buildReportData } from "@/presentation/components/reports/report-data";
 import { ReportPickButtons } from "@/presentation/components/reports/report-pick-buttons";
 import { Icon } from "@/presentation/components/ui/icon";
-import { currentMonthInBrazil } from "@/shared/formatting/now";
+import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
 
 export default async function ReportsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [data, { cards }] = await Promise.all([
-    getReports(financeRepository, user.id, currentMonthInBrazil()),
+  const month = currentMonthInBrazil();
+  const [data, workspace, dash, transactions] = await Promise.all([
+    getReports(financeRepository, user.id, month),
     getWorkspaceView(financeRepository, user.id),
+    getDashboard(financeRepository, user.id, month),
+    getTransactions(financeRepository, user.id),
   ]);
+  const { cards } = workspace;
 
   const byCard = cards
     .map((c) => ({
@@ -29,6 +36,13 @@ export default async function ReportsPage() {
     .sort((a, b) => b.valueCents - a.valueCents);
 
   const topCategories = data.categories.slice(0, 5);
+  const reportData = buildReportData({
+    dash,
+    reports: data,
+    workspace,
+    transactions,
+    today: todayInBrazil(),
+  });
 
   return (
     <div className="reports-page">
@@ -89,7 +103,7 @@ export default async function ReportsPage() {
             </div>
           </div>
         </div>
-        <ReportPickButtons />
+        <ReportPickButtons data={reportData} />
       </div>
     </div>
   );
