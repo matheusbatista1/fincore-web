@@ -13,7 +13,7 @@ import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { FormModal } from "@/presentation/components/ui/form-modal";
 import { toast } from "@/presentation/stores/ui-store";
 import { reaisToCents } from "@/shared/formatting/parse-reais";
-import { BANK_THEME_TILES, THEME_LABEL } from "@/shared/theme/bank-themes";
+import { BANK_THEME_TILES } from "@/shared/theme/bank-themes";
 
 const FLAGS: ReadonlyArray<{ value: CardFlag; label: string }> = [
   { value: "mastercard", label: "Mastercard" },
@@ -74,11 +74,6 @@ function CardForm({
 
   const canSubmit = bank.trim().length > 0 && product.trim().length > 0 && reaisToCents(limit) > 0;
   const maskedPreview = `•••• ${(num || "0000").padStart(4, "0").slice(-4)}`;
-
-  function pickBank(id: string) {
-    setTheme(id);
-    if (!bank) setBank(THEME_LABEL[id] ?? "");
-  }
 
   async function save() {
     if (!canSubmit || submitting) return;
@@ -141,7 +136,7 @@ function CardForm({
       </div>
 
       <div className="field">
-        <label>Tema do banco</label>
+        <label>Cor</label>
         <div className="theme-tiles">
           {BANK_THEME_TILES.map((t) => (
             <button
@@ -149,7 +144,7 @@ function CardForm({
               key={t.id}
               className={`theme-tile${theme === t.id ? " on" : ""}`}
               style={{ background: t.bg }}
-              onClick={() => pickBank(t.id)}
+              onClick={() => setTheme(t.id)}
             >
               {t.label}
             </button>

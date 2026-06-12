@@ -9,6 +9,7 @@ import { SwipeRow } from "@/presentation/components/gestures/swipe-row";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { csvMoney, exportCSV } from "@/presentation/lib/export";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 import { openTxDetail, useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast as fireToast, useUIStore } from "@/presentation/stores/ui-store";
@@ -22,6 +23,18 @@ const FILTERS: ReadonlyArray<[Filter, string]> = [
   ["in", "Receitas"],
   ["xfer", "Transferências"],
 ];
+
+const KIND_LABEL: Record<TransactionListItem["kind"], string> = {
+  income: "Receita",
+  expense: "Despesa",
+  transfer: "Transferência",
+};
+
+/** `2026-07-02` → `02/07/2026`. */
+function brDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
 
 async function removeDirect(item: TransactionListItem) {
   const result = await deleteTransactionAction({ id: item.id, scope: "one" });
@@ -58,6 +71,27 @@ export function TransactionsView({
     )
     .sort(byDateDesc);
 
+  function onExport() {
+    const csvRows = rows.map((t) => [
+      brDate(t.date),
+      t.description || KIND_LABEL[t.kind],
+      t.category?.name ?? "",
+      t.kind === "transfer"
+        ? `${t.transferFromName ?? ""} -> ${t.transferToName ?? ""}`
+        : (t.sourceLabel ?? ""),
+      t.shares.map((s) => s.name).join(", "),
+      KIND_LABEL[t.kind],
+      t.parcela ? `${t.parcela.number}/${t.parcela.total}` : "",
+      csvMoney(t.kind === "transfer" ? (t.transferValueCents ?? 0) : t.amountCents),
+    ]);
+    exportCSV(
+      `transacoes-${filter}-${today}.csv`,
+      ["Data", "Descrição", "Categoria", "Origem", "Pessoas", "Tipo", "Parcela", "Valor (R$)"],
+      csvRows,
+    );
+    toast(`${rows.length} ${rows.length === 1 ? "transação exportada" : "transações exportadas"} em CSV`);
+  }
+
   const filtersHead = (
     <div className="card-head">
       <div className="row gap-2" style={{ flexWrap: "wrap" }}>
@@ -72,11 +106,7 @@ export function TransactionsView({
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={() => toast(`Exportando ${rows.length} transações para CSV…`)}
-      >
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onExport}>
         <Icon name="download" size={16} />
         Exportar
       </button>

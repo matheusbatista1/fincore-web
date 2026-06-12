@@ -9,6 +9,7 @@ allowBuilds:
   '@biomejs/biome': true
   '@parcel/watcher': true
   '@swc/core': true
+  core-js: false
   esbuild: true
   lefthook: true
   sharp: true

@@ -1887,7 +1887,7 @@ textarea.input {
   gap: 7px;
 }
 .lb-foot::before {
-  content: "ðŸ”’";
+  content: "🔒";
   font-size: 12px;
 }
 
@@ -2063,7 +2063,7 @@ textarea.input {
   border-color: var(--purple-400);
 }
 .theme-tile.on::after {
-  content: "âœ“";
+  content: "✓";
   position: absolute;
   top: 4px;
   right: 7px;

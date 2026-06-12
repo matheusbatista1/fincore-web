@@ -8,7 +8,7 @@ import { FormModal } from "@/presentation/components/ui/form-modal";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { reaisToCents } from "@/shared/formatting/parse-reais";
-import { BANK_THEME_TILES, THEME_LABEL } from "@/shared/theme/bank-themes";
+import { BANK_THEME_TILES } from "@/shared/theme/bank-themes";
 
 /** Nova/editar carteira — ported 1:1 from the prototype (forms.jsx AccountForm). */
 export function AccountFormDialog({ account, trigger }: { account?: AccountView; trigger: ReactNode }) {
@@ -38,11 +38,6 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
 
   const canSubmit = bank.trim().length > 0 && name.trim().length > 0;
   const previewCents = editing ? account.balanceCents : reaisToCents(balance);
-
-  function pickBank(id: string) {
-    setTheme(id);
-    if (!bank) setBank(THEME_LABEL[id] ?? "");
-  }
 
   async function save() {
     if (!canSubmit || submitting) return;
@@ -110,7 +105,7 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
       </div>
 
       <div className="field">
-        <label>Banco / instituição</label>
+        <label>Cor</label>
         <div className="theme-tiles">
           {BANK_THEME_TILES.map((t) => (
             <button
@@ -118,7 +113,7 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
               key={t.id}
               className={`theme-tile${theme === t.id ? " on" : ""}`}
               style={{ background: t.bg }}
-              onClick={() => pickBank(t.id)}
+              onClick={() => setTheme(t.id)}
             >
               {t.label}
             </button>

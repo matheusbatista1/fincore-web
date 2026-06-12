@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOutAction } from "@/app/_actions/auth";
 import { NAV_GROUPS, SETTINGS_ITEM } from "@/presentation/components/shell/nav-items";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
@@ -29,12 +30,12 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <Link href="/dashboard" className="brand">
         <LogoMark size={34} />
         <span className="word">
           Fin<b>Core</b>
         </span>
-      </div>
+      </Link>
 
       <Link href="/settings" className="acct-switch">
         <span className="ava">{initials}</span>
@@ -73,16 +74,16 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-foot">
-        <Link href="/reports" className="insight">
-          <span className="ii" style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}>
-            <Icon name="sparkles" size={16} />
-          </span>
-          <p>
-            <b>FinCore Plus</b>
-            <br />
-            Relatórios ilimitados e IA financeira.
-          </p>
-        </Link>
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="nav-item"
+            style={{ width: "100%", background: "none", border: 0, cursor: "pointer", textAlign: "left" }}
+          >
+            <Icon name="log-out" size={19} />
+            Sair da conta
+          </button>
+        </form>
       </div>
     </aside>
   );
