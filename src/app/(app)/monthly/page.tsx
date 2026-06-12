@@ -95,6 +95,34 @@ export default async function MonthlyPage({
         ]
       : [];
 
+  const incomeGroup: StmtGroup = {
+    key: "income",
+    name: "Receitas",
+    countText: `${incomes.length} ${incomes.length === 1 ? "entrada" : "entradas"}`,
+    accent: "var(--mint-500)",
+    icon: "arrow-down-left",
+    items: incomes,
+    totalCents: totIn,
+  };
+  const transferGroup: StmtGroup = {
+    key: "transfer",
+    name: "Transferências",
+    countText: `${transfers.length} entre contas · não afetam o patrimônio`,
+    accent: "var(--sky-500)",
+    icon: "arrow-left-right",
+    items: transfers,
+    totalCents: sumAbs(transfers),
+  };
+
+  // Export order mirrors the on-screen layout (left column then right column).
+  const exportGroups: StmtGroup[] = [
+    ...(incomes.length > 0 ? [incomeGroup] : []),
+    ...cardGroups,
+    ...acctGroups,
+    ...compromissos,
+    ...(transfers.length > 0 ? [transferGroup] : []),
+  ];
+
   return (
     <MonthlySwipe
       prevHref={`/monthly?m=${addMonths(month, -1)}`}
@@ -165,7 +193,13 @@ export default async function MonthlyPage({
               </span>
             </div>
           </div>
-          <MonthExportButtons monthLabel={label} />
+          <MonthExportButtons
+            monthLabel={label}
+            month={month}
+            groups={exportGroups}
+            inCents={totIn}
+            outCents={totOut}
+          />
         </div>
 
         {data.items.length === 0 && (
@@ -183,20 +217,7 @@ export default async function MonthlyPage({
         <div className="month-cols">
           {/* coluna esquerda: receitas + cartões */}
           <div className="col gap-4">
-            {incomes.length > 0 && (
-              <StmtCard
-                today={today}
-                group={{
-                  key: "income",
-                  name: "Receitas",
-                  countText: `${incomes.length} ${incomes.length === 1 ? "entrada" : "entradas"}`,
-                  accent: "var(--mint-500)",
-                  icon: "arrow-down-left",
-                  items: incomes,
-                  totalCents: totIn,
-                }}
-              />
-            )}
+            {incomes.length > 0 && <StmtCard today={today} group={incomeGroup} />}
             {cardGroups.map((g) => (
               <StmtCard key={g.key} group={g} today={today} />
             ))}
@@ -206,20 +227,7 @@ export default async function MonthlyPage({
             {[...acctGroups, ...compromissos].map((g) => (
               <StmtCard key={g.key} group={g} today={today} />
             ))}
-            {transfers.length > 0 && (
-              <StmtCard
-                today={today}
-                group={{
-                  key: "transfer",
-                  name: "Transferências",
-                  countText: `${transfers.length} entre contas · não afetam o patrimônio`,
-                  accent: "var(--sky-500)",
-                  icon: "arrow-left-right",
-                  items: transfers,
-                  totalCents: sumAbs(transfers),
-                }}
-              />
-            )}
+            {transfers.length > 0 && <StmtCard today={today} group={transferGroup} />}
           </div>
         </div>
       </div>

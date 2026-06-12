@@ -47,19 +47,23 @@ export const BANK_THEMES: Record<string, BankTheme> = {
 export const BANK_THEME_KEYS = Object.keys(BANK_THEMES);
 export const DEFAULT_BANK_THEME = "grafite";
 
-/** Theme-picker tiles — ported 1:1 from the prototype (forms.jsx BANK_THEMES). */
+/**
+ * Color-picker tiles — the gradient palette from the prototype, but labelled by
+ * COLOR name (not bank) so the picker reads as "choose a color", and the bank
+ * name comes only from the free-text field next to it.
+ */
 export const BANK_THEME_TILES: ReadonlyArray<{ id: string; label: string; bg: string }> = [
-  { id: "nubank", label: "Nubank", bg: "linear-gradient(135deg,#8A05BE,#5B0B86)" },
-  { id: "itau", label: "Itaú", bg: "linear-gradient(135deg,#003B8E,#00255C)" },
-  { id: "c6", label: "C6", bg: "linear-gradient(135deg,#2B2B2E,#0E0E10)" },
-  { id: "santander", label: "Santander", bg: "linear-gradient(135deg,#D11414,#8A0606)" },
-  { id: "mp", label: "Merc. Pago", bg: "linear-gradient(135deg,#2B7BE4,#134B97)" },
-  { id: "inter", label: "Inter", bg: "linear-gradient(135deg,#FF7A00,#C24F00)" },
-  { id: "bb", label: "Banco do Brasil", bg: "linear-gradient(135deg,#1B3F8B,#0A2452)" },
-  { id: "caixa", label: "Caixa", bg: "linear-gradient(135deg,#1B7FC4,#0A3F66)" },
-  { id: "picpay", label: "PicPay", bg: "linear-gradient(135deg,#16C95B,#0A8F4F)" },
-  { id: "btg", label: "BTG", bg: "linear-gradient(135deg,#1C2A3A,#070D15)" },
-  { id: "xp", label: "XP", bg: "linear-gradient(135deg,#232323,#050505)" },
+  { id: "nubank", label: "Violeta", bg: "linear-gradient(135deg,#8A05BE,#5B0B86)" },
+  { id: "itau", label: "Cobalto", bg: "linear-gradient(135deg,#003B8E,#00255C)" },
+  { id: "c6", label: "Ônix", bg: "linear-gradient(135deg,#2B2B2E,#0E0E10)" },
+  { id: "santander", label: "Vermelho", bg: "linear-gradient(135deg,#D11414,#8A0606)" },
+  { id: "mp", label: "Azul", bg: "linear-gradient(135deg,#2B7BE4,#134B97)" },
+  { id: "inter", label: "Laranja", bg: "linear-gradient(135deg,#FF7A00,#C24F00)" },
+  { id: "bb", label: "Marinho", bg: "linear-gradient(135deg,#1B3F8B,#0A2452)" },
+  { id: "caixa", label: "Petróleo", bg: "linear-gradient(135deg,#1B7FC4,#0A3F66)" },
+  { id: "picpay", label: "Verde", bg: "linear-gradient(135deg,#16C95B,#0A8F4F)" },
+  { id: "btg", label: "Ardósia", bg: "linear-gradient(135deg,#1C2A3A,#070D15)" },
+  { id: "xp", label: "Carvão", bg: "linear-gradient(135deg,#232323,#050505)" },
   { id: "roxo", label: "Roxo", bg: "linear-gradient(135deg,#7C5CFF,#4B2DB3)" },
   { id: "grafite", label: "Grafite", bg: "linear-gradient(135deg,#2B2B30,#0E0E12)" },
   { id: "esmeralda", label: "Esmeralda", bg: "linear-gradient(135deg,#1FB57A,#0C7A50)" },
@@ -69,29 +73,6 @@ export const BANK_THEME_TILES: ReadonlyArray<{ id: string; label: string; bg: st
   { id: "rosa", label: "Rosa", bg: "linear-gradient(135deg,#E36FD0,#9C2C8C)" },
   { id: "cinza", label: "Cinza", bg: "linear-gradient(135deg,#9AA1AC,#5A6068)" },
 ];
-
-/** Default bank name applied when picking a theme tile (forms.jsx THEME_LABEL). */
-export const THEME_LABEL: Record<string, string> = {
-  nubank: "Nubank",
-  itau: "Itaú",
-  c6: "C6 Bank",
-  santander: "Santander",
-  mp: "Mercado Pago",
-  inter: "Inter",
-  bb: "Banco do Brasil",
-  caixa: "Caixa",
-  picpay: "PicPay",
-  btg: "BTG Pactual",
-  xp: "XP",
-  roxo: "Carteira",
-  grafite: "Carteira",
-  esmeralda: "Carteira",
-  oceano: "Carteira",
-  carmim: "Carteira",
-  dourado: "Carteira",
-  rosa: "Carteira",
-  cinza: "Carteira",
-};
 
 const FALLBACK_THEME: BankTheme = {
   gradient: "linear-gradient(150deg, #2B2B30 0%, #0E0E12 100%)",

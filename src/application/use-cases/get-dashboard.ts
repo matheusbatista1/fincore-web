@@ -5,6 +5,7 @@ import { computePersonBalances } from "@/domain/services/person-ledger.calculato
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { addMonths, type CompetenceMonth, dateInMonth } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
@@ -66,8 +67,10 @@ export async function getDashboard(
   month: CompetenceMonth,
 ): Promise<DashboardData> {
   const ws = await loadWorkspaceCached(repo, userId);
+  const today = todayInBrazil();
 
-  const balances = computeAccountBalances(ws.accounts, ws.transactions);
+  // Headline balances are "live" (as of today), independent of the browsed month.
+  const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
   const general = computeViewTotals(ws.transactions, "general", month);
@@ -105,14 +108,12 @@ export async function getDashboard(
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
 
-  // Trailing 6-month cumulative balance: re-run the balance calculator over the
-  // transactions up to each month-end (small in-memory volumes).
+  // Trailing 6-month cumulative balance: re-run the balance calculator with the
+  // cutoff at each month-end (small in-memory volumes).
   const trend: TrendPoint[] = [];
   for (let i = 5; i >= 0; i--) {
     const m = addMonths(month, -i);
-    const cutoff = dateInMonth(m, 31);
-    const upTo = ws.transactions.filter((tx) => tx.date <= cutoff);
-    const monthBalances = computeAccountBalances(ws.accounts, upTo);
+    const monthBalances = computeAccountBalances(ws.accounts, ws.transactions, dateInMonth(m, 31));
     let total = 0;
     for (const value of monthBalances.values()) total += value.cents;
     trend.push({ label: monthLabel(m), valueCents: total });

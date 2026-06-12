@@ -34,26 +34,23 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
       : ""
     : (item.sourceLabel ?? (cat ? cat.name : ""));
 
-  // Projections aren't persisted rows — they can't open the detail modal (prototype parity).
-  const clickable = !item.projected;
+  // A projected ("previsto") row opens its real anchor so the rule can be edited/deleted.
+  const target = item.anchor ?? item;
+  const open = () => openTxDetail(target);
 
   return (
     <div
-      {...(clickable
-        ? {
-            role: "button" as const,
-            tabIndex: 0,
-            onClick: () => openTxDetail(item),
-            onKeyDown: (e: KeyboardEvent) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                openTxDetail(item);
-              }
-            },
-          }
-        : {})}
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
       className="lrow"
-      style={{ cursor: clickable ? "pointer" : "default" }}
+      style={{ cursor: "pointer" }}
     >
       <span className="l-ic" style={icStyle}>
         <Icon name={iconName} size={18} />

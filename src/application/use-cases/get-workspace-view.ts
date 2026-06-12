@@ -6,6 +6,7 @@ import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import { cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 
@@ -23,7 +24,8 @@ export interface WorkspaceView {
 /** A user's entities enriched with derived balances/bills/ledger — serializable for RSC. */
 export async function getWorkspaceView(repo: FinanceRepository, userId: string): Promise<WorkspaceView> {
   const ws = await loadWorkspaceCached(repo, userId);
-  const balances = computeAccountBalances(ws.accounts, ws.transactions);
+  // Live balances exclude future-dated entries (e.g. a salary booked for next month).
+  const balances = computeAccountBalances(ws.accounts, ws.transactions, todayInBrazil());
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
 

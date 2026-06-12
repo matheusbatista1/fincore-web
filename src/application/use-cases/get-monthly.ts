@@ -5,7 +5,15 @@ import type { FinanceRepository } from "../ports/finance-repository";
 import { byDateDesc, createTransactionMapper, type TransactionListItem } from "./get-transactions";
 
 /** A month-view row: a display transaction plus whether it is a (non-persisted) projection. */
-export type MonthlyItem = TransactionListItem & { readonly projected: boolean };
+export type MonthlyItem = TransactionListItem & {
+  readonly projected: boolean;
+  /**
+   * For a projected ("previsto") row, the real anchor transaction the projection
+   * derives from — so clicking it can open/edit/delete the recurring rule. Null
+   * on real rows.
+   */
+  readonly anchor: TransactionListItem | null;
+};
 
 export interface MonthlyTotals {
   readonly incomeCents: number;
@@ -43,15 +51,20 @@ export async function getMonthly(
   const map = createTransactionMapper(ws);
   const { real, projected } = transactionsForMonth(ws.transactions, month);
 
-  const realItems: MonthlyItem[] = real.map((tx) => ({ ...map(tx), projected: false }));
-  const projectedItems: MonthlyItem[] = projected.map((p) => ({
-    ...map(p.source),
-    id: `proj:${p.source.id}:${month}`,
-    date: p.date,
-    parcela: null,
-    shares: [],
-    projected: true,
-  }));
+  const realItems: MonthlyItem[] = real.map((tx) => ({ ...map(tx), projected: false, anchor: null }));
+  const projectedItems: MonthlyItem[] = projected.map((p) => {
+    const anchor = map(p.source);
+    return {
+      ...anchor,
+      id: `proj:${p.source.id}:${month}`,
+      date: p.date,
+      parcela: null,
+      shares: [],
+      projected: true,
+      // The real, persisted source row — opening this lets the user edit/delete the rule.
+      anchor,
+    };
+  });
 
   const items = [...realItems, ...projectedItems].sort(byDateDesc);
 

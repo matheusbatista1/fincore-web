@@ -262,9 +262,8 @@ describe("projectRecurring — invariants", () => {
   it("a real recurring transaction in the month hides its own projection", () => {
     fc.assert(
       fc.property(recurringExpenseArb(), monthArb(), (tx, month) => {
-        // Re-anchor the source so it is NOT already in the target month, ensuring
-        // it would otherwise project there.
-        fc.pre(monthOf(tx.date) !== month);
+        // Anchor strictly before the target month, so it would otherwise project there.
+        fc.pre(monthOf(tx.date) < month);
 
         // Build a real transaction of the SAME identity living in the target month.
         const realInMonth: ExpenseTransaction = {
@@ -284,26 +283,48 @@ describe("projectRecurring — invariants", () => {
     );
   });
 
-  it("never projects into the anchor month; projection count matches eligible sources", () => {
+  it("only projects into months after the anchor; count matches eligible sources", () => {
     fc.assert(
       fc.property(fc.array(recurringExpenseArb(), { maxLength: 10 }), monthArb(), (txs, month) => {
         const projections = projectRecurring(txs, month);
-        // No projection may carry a source anchored in the target month.
+        // Every projection's source must be anchored strictly before the target month.
         for (const p of projections as readonly ProjectedTransaction[]) {
-          expect(monthOf(p.source.date)).not.toBe(month);
+          expect(monthOf(p.source.date) < month).toBe(true);
         }
-        // Faithful to the prototype loop: a projection is emitted for every
-        // recurring source that is (a) not in its anchor month and (b) whose
-        // identity is not already booked as a real recurring entry this month.
+        // A projection is emitted for every recurring source that is (a) anchored
+        // before the target month and (b) whose identity is not already booked as
+        // a real recurring entry this month.
         const realIdentities = new Set(
           txs.filter((t) => monthOf(t.date) === month).map((t) => `${t.source}|${t.cardId}|${t.description}`),
         );
         const eligible = txs.filter(
-          (t) => monthOf(t.date) !== month && !realIdentities.has(`${t.source}|${t.cardId}|${t.description}`),
+          (t) => monthOf(t.date) < month && !realIdentities.has(`${t.source}|${t.cardId}|${t.description}`),
         );
         expect(projections.length).toBe(eligible.length);
       }),
     );
+  });
+
+  it("never projects into a month before the anchor (salary anchored 2026-07-02)", () => {
+    const salary: IncomeTransaction = {
+      id: "salary",
+      kind: "income",
+      description: "Salário",
+      date: "2026-07-02",
+      amountCents: 920_000,
+      accountId: "it",
+      fromPersonId: null,
+      isReimbursement: false,
+      recurrence: { dayOfMonth: 2 },
+    };
+    // June (before the anchor) must have NO projection — the bug the user hit.
+    expect(projectRecurring([salary], "2026-06")).toHaveLength(0);
+    // The anchor month itself is covered by the real row — no projection.
+    expect(projectRecurring([salary], "2026-07")).toHaveLength(0);
+    // August (after the anchor) projects on day 2.
+    const aug = projectRecurring([salary], "2026-08");
+    expect(aug).toHaveLength(1);
+    expect(aug[0]?.date).toBe("2026-08-02");
   });
 
   it("transactionsForMonth.real is exactly the transactions dated in the month", () => {

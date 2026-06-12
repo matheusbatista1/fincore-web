@@ -32,12 +32,12 @@ function makeAccount(id: string, openingBalanceCents: number): Account {
 let txSeq = 0;
 const nextId = (): string => `tx-${++txSeq}`;
 
-function income(accountId: string, amountCents: number): IncomeTransaction {
+function income(accountId: string, amountCents: number, date = "2026-06-01"): IncomeTransaction {
   return {
     id: nextId(),
     kind: "income",
     description: "income",
-    date: "2026-06-01",
+    date,
     amountCents,
     accountId,
     fromPersonId: null,
@@ -52,6 +52,7 @@ interface ExpenseOpts {
   readonly cardId?: string | null;
   readonly linkedAccountId?: string | null;
   readonly installmentStatus?: ParcelaStatus;
+  readonly date?: string;
 }
 
 function expense(amountCents: number, opts: ExpenseOpts): ExpenseTransaction {
@@ -59,7 +60,7 @@ function expense(amountCents: number, opts: ExpenseOpts): ExpenseTransaction {
     id: nextId(),
     kind: "expense",
     description: "expense",
-    date: "2026-06-01",
+    date: opts.date ?? "2026-06-01",
     amountCents,
     categoryId: null,
     source: opts.source,
@@ -76,12 +77,17 @@ function expense(amountCents: number, opts: ExpenseOpts): ExpenseTransaction {
   };
 }
 
-function transfer(fromAccountId: string, toAccountId: string, valueCents: number): TransferTransaction {
+function transfer(
+  fromAccountId: string,
+  toAccountId: string,
+  valueCents: number,
+  date = "2026-06-01",
+): TransferTransaction {
   return {
     id: nextId(),
     kind: "transfer",
     description: "transfer",
-    date: "2026-06-01",
+    date,
     fromAccountId,
     toAccountId,
     valueCents,
@@ -170,6 +176,54 @@ describe("computeAccountBalances — prototype seed examples", () => {
     const balances = computeAccountBalances(accounts, [transfer("it", "nu", 5_000)]);
     expect(balances.size).toBe(1);
     expect(balances.get("nu")?.cents).toBe(5_000);
+  });
+});
+
+describe("computeAccountBalances — date cutoff (upToDate)", () => {
+  it("excludes a future-dated income (the salary-booked-for-next-month bug)", () => {
+    const accounts = [makeAccount("it", 100_000)];
+    const salary = income("it", 920_000, "2026-07-02");
+    // As of 2026-06-11 the July salary must NOT be in the balance yet.
+    expect(computeAccountBalances(accounts, [salary], "2026-06-11").get("it")?.cents).toBe(100_000);
+    // Once its date arrives it counts.
+    expect(computeAccountBalances(accounts, [salary], "2026-07-02").get("it")?.cents).toBe(1_020_000);
+  });
+
+  it("includes a transaction dated exactly on the cutoff (inclusive)", () => {
+    const accounts = [makeAccount("nu", 0)];
+    const txs = [income("nu", 5_000, "2026-06-11")];
+    expect(computeAccountBalances(accounts, txs, "2026-06-11").get("nu")?.cents).toBe(5_000);
+  });
+
+  it("excludes future transfers and future account expenses", () => {
+    const accounts = [makeAccount("a", 100_000), makeAccount("b", 0)];
+    const txs: Transaction[] = [
+      transfer("a", "b", 30_000, "2026-07-01"),
+      expense(-10_000, { source: "account", accountId: "a", date: "2026-07-05" }),
+    ];
+    const balances = computeAccountBalances(accounts, txs, "2026-06-30");
+    expect(balances.get("a")?.cents).toBe(100_000);
+    expect(balances.get("b")?.cents).toBe(0);
+  });
+
+  it("equals filtering the input by the cutoff (property)", () => {
+    const dateArb = () => fc.constantFrom("2026-05-10", "2026-06-11", "2026-07-02", "2026-08-20");
+    fc.assert(
+      fc.property(
+        fc.array(fc.record({ amount: smallCents(), date: dateArb() }), { maxLength: 20 }),
+        dateArb(),
+        (items, cutoff) => {
+          const accounts = [makeAccount("a", 50_000)];
+          const txs = items.map((i) => income("a", i.amount, i.date));
+          const withParam = computeAccountBalances(accounts, txs, cutoff).get("a")?.cents;
+          const preFiltered = computeAccountBalances(
+            accounts,
+            txs.filter((t) => t.date <= cutoff),
+          ).get("a")?.cents;
+          expect(withParam).toBe(preFiltered);
+        },
+      ),
+    );
   });
 });
 

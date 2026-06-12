@@ -23,6 +23,7 @@ import type { Account } from "../entities/account";
 import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome, isTransfer } from "../entities/transaction";
 import { Money } from "../money/money";
+import type { IsoDate } from "../value-objects/competence-month";
 
 /**
  * Whether a transaction affects account balances at all.
@@ -86,11 +87,15 @@ export function accountDeltas(tx: Transaction): Map<string, Money> {
  *
  * @param accounts All accounts to report on (each seeded from `openingBalanceCents`).
  * @param transactions The full transaction history to apply.
+ * @param upToDate Inclusive cutoff (`YYYY-MM-DD`): transactions dated *after* it
+ *   are ignored, so a future-dated entry (e.g. a salary booked for next month)
+ *   only moves the balance once its date arrives. Omit to apply the full history.
  * @returns A `Map` keyed by account id; every input account is present.
  */
 export function computeAccountBalances(
   accounts: readonly Account[],
   transactions: readonly Transaction[],
+  upToDate?: IsoDate,
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
 
@@ -102,7 +107,8 @@ export function computeAccountBalances(
   // Apply each transaction's deltas. Deltas referencing an unknown account id
   // (e.g. an account not in `accounts`) are ignored, matching the prototype's
   // `commitTx`, which only updates accounts that exist in its list.
-  for (const tx of transactions) {
+  const applicable = upToDate === undefined ? transactions : transactions.filter((tx) => tx.date <= upToDate);
+  for (const tx of applicable) {
     for (const [accountId, delta] of accountDeltas(tx)) {
       const current = balances.get(accountId);
       if (current !== undefined) {
@@ -116,9 +122,13 @@ export function computeAccountBalances(
 
 /**
  * Convenience helper: the live balance of a single account. Returns the opening
- * balance when no transaction touches it.
+ * balance when no transaction touches it. `upToDate` mirrors {@link computeAccountBalances}.
  */
-export function computeAccountBalance(account: Account, transactions: readonly Transaction[]): Money {
-  const balances = computeAccountBalances([account], transactions);
+export function computeAccountBalance(
+  account: Account,
+  transactions: readonly Transaction[],
+  upToDate?: IsoDate,
+): Money {
+  const balances = computeAccountBalances([account], transactions, upToDate);
   return balances.get(account.id) ?? Money.fromCents(account.openingBalanceCents);
 }

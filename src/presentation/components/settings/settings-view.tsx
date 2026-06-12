@@ -3,28 +3,45 @@
 import { useState } from "react";
 import { ProfileFormDialog } from "@/presentation/components/settings/profile-form-dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 
 type PrefKey = "notif" | "biometric" | "hideOnOpen";
 
-const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: string }> = [
-  { key: "notif", icon: "bell", title: "Notificações push", sub: "Vencimentos, pendências e alertas" },
-  { key: "biometric", icon: "fingerprint", title: "Login por biometria", sub: "Face ID / impressão digital" },
-  {
-    key: "hideOnOpen",
-    icon: "eye-off",
-    title: "Ocultar valores ao abrir",
-    sub: "Privacidade extra em locais públicos",
-  },
-];
+/** `mobileOnly` prefs (push notifications, biometric login) are device features — hidden on desktop. */
+const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: string; mobileOnly?: boolean }> =
+  [
+    {
+      key: "notif",
+      icon: "bell",
+      title: "Notificações push",
+      sub: "Vencimentos, pendências e alertas",
+      mobileOnly: true,
+    },
+    {
+      key: "biometric",
+      icon: "fingerprint",
+      title: "Login por biometria",
+      sub: "Face ID / impressão digital",
+      mobileOnly: true,
+    },
+    {
+      key: "hideOnOpen",
+      icon: "eye-off",
+      title: "Ocultar valores ao abrir",
+      sub: "Privacidade extra em locais públicos",
+    },
+  ];
 
 /** Settings — profile header + preferences toggles, ported 1:1 from the prototype (more.jsx SettingsScreen). */
 export function SettingsView({ name, email, initials }: { name: string; email: string; initials: string }) {
+  const isMobile = useIsMobile();
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
     notif: true,
     biometric: true,
     hideOnOpen: false,
   });
   const toggle = (k: PrefKey) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
+  const visiblePrefs = PREFS.filter((p) => isMobile || !p.mobileOnly);
 
   return (
     <>
@@ -71,7 +88,7 @@ export function SettingsView({ name, email, initials }: { name: string; email: s
           </div>
         </div>
         <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-          {PREFS.map((p) => (
+          {visiblePrefs.map((p) => (
             <div
               role="button"
               tabIndex={0}

@@ -5,6 +5,7 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { csvMoney, exportCSV, exportPDF, pdfMoney } from "@/presentation/lib/export";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { relativeDateLabel } from "@/shared/formatting/dates";
@@ -117,6 +118,132 @@ export function ReportModal({
       : mode === "mine"
         ? "pessoal"
         : "geral do mês";
+
+  const savingsRate = Math.round(
+    ((summary.personalIncomeCents - summary.personalExpenseCents) / (summary.personalIncomeCents || 100)) *
+      100,
+  );
+  const fileSlug =
+    mode === "person" && person
+      ? `relatorio-${(person.name.split(" ")[0] ?? "pessoa").toLowerCase()}-${data.today}`
+      : mode === "mine"
+        ? `relatorio-pessoal-${data.today}`
+        : `relatorio-mes-${data.today}`;
+
+  function onCsv() {
+    if (mode === "month") {
+      const rows: string[][] = [
+        ["Resumo", "Receitas", csvMoney(summary.generalIncomeCents)],
+        ["Resumo", "Despesas", csvMoney(summary.generalExpenseCents)],
+        ["Resumo", "Resultado", csvMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
+        ...data.categories.map((c) => ["Por categoria", c.name, csvMoney(c.totalCents)]),
+        ...data.byCard.map((c) => ["Por cartão", c.name, csvMoney(c.valueCents)]),
+        ["Pessoas", "A receber", csvMoney(summary.aReceberCents)],
+        ["Pessoas", "Você deve", csvMoney(summary.aPagarCents)],
+      ];
+      exportCSV(`${fileSlug}.csv`, ["Seção", "Item", "Valor (R$)"], rows);
+    } else if (mode === "mine") {
+      exportCSV(
+        `${fileSlug}.csv`,
+        ["Item", "Valor"],
+        [
+          ["Minha renda (sem reembolsos)", csvMoney(summary.personalIncomeCents)],
+          ["Meu gasto real (só minha parte)", csvMoney(summary.personalExpenseCents)],
+          ["Minha sobra real", csvMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
+          ["Taxa de poupança", `${savingsRate}%`],
+        ],
+      );
+    } else {
+      const rows = grpList.flatMap((g) =>
+        g.items.map((it) => [
+          g.label,
+          it.date,
+          it.desc,
+          it.income ? "pagamento" : "parte",
+          csvMoney(it.shareCents),
+        ]),
+      );
+      rows.push(["", "", "Saldo", "", csvMoney(grandTotal)]);
+      exportCSV(`${fileSlug}.csv`, ["Origem", "Data", "Descrição", "Tipo", "Valor (R$)"], rows);
+    }
+    toast(`Relatório (${exportName}) exportado em CSV`);
+  }
+
+  async function onPdf() {
+    const title = TITLES[mode];
+    if (mode === "month") {
+      await exportPDF({
+        filename: `${fileSlug}.pdf`,
+        title,
+        subtitle: `Resultado do mês ${pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)}`,
+        sections: [
+          {
+            heading: "Resumo",
+            head: ["Item", "Valor"],
+            body: [
+              ["Receitas", pdfMoney(summary.generalIncomeCents)],
+              ["Despesas", pdfMoney(summary.generalExpenseCents)],
+            ],
+            foot: ["Resultado", pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
+          },
+          {
+            heading: "Por categoria",
+            head: ["Categoria", "Valor"],
+            body: data.categories.map((c) => [c.name, pdfMoney(c.totalCents)]),
+          },
+          {
+            heading: "Por cartão",
+            head: ["Cartão", "Valor"],
+            body: data.byCard.map((c) => [c.name, pdfMoney(c.valueCents)]),
+          },
+          {
+            heading: "Pessoas",
+            head: ["Item", "Valor"],
+            body: [
+              ["A receber de pessoas", pdfMoney(summary.aReceberCents)],
+              ["Você deve", pdfMoney(summary.aPagarCents)],
+            ],
+          },
+        ],
+      });
+    } else if (mode === "mine") {
+      await exportPDF({
+        filename: `${fileSlug}.pdf`,
+        title,
+        sections: [
+          {
+            heading: "Resumo pessoal",
+            head: ["Item", "Valor"],
+            body: [
+              ["Minha renda (sem reembolsos)", pdfMoney(summary.personalIncomeCents)],
+              ["Meu gasto real (só minha parte)", pdfMoney(summary.personalExpenseCents)],
+              ["Taxa de poupança", `${savingsRate}%`],
+            ],
+            foot: ["Minha sobra real", pdfMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
+          },
+        ],
+      });
+    } else {
+      await exportPDF({
+        filename: `${fileSlug}.pdf`,
+        title: `${title}${person ? ` — ${person.name}` : ""}`,
+        sections: [
+          ...grpList.map((g) => ({
+            heading: `${g.label} — ${pdfMoney(g.totalCents)}`,
+            head: ["Data", "Descrição", "Tipo", "Valor"],
+            body: g.items.map((it) => [
+              it.date,
+              it.desc,
+              it.income ? "pagamento" : "parte",
+              pdfMoney(it.shareCents),
+            ]),
+          })),
+          { heading: "", head: ["", ""], body: [["Saldo", pdfMoney(grandTotal)]] },
+        ],
+      });
+    }
+    toast(`Relatório (${exportName}) exportado em PDF`);
+  }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -262,13 +389,7 @@ export function ReportModal({
                 <div className="sb-row">
                   <span className="k">Taxa de poupança</span>
                   <span className="v" style={{ color: "var(--purple-300)" }}>
-                    {Math.round(
-                      ((summary.personalIncomeCents - summary.personalExpenseCents) /
-                        // 100 = R$ 1,00 in cents — mirrors the prototype's `|| 1` (in reais).
-                        (summary.personalIncomeCents || 100)) *
-                        100,
-                    )}
-                    %
+                    {savingsRate}%
                   </span>
                 </div>
               </div>
@@ -367,19 +488,11 @@ export function ReportModal({
           )}
         </div>
         <div className="modal-foot">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => toast(`Relatório (${exportName}) exportado em CSV`)}
-          >
+          <button type="button" className="btn btn-ghost" onClick={onCsv}>
             <Icon name="file-spreadsheet" size={16} />
             CSV
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => toast(`Relatório (${exportName}) exportado em PDF`)}
-          >
+          <button type="button" className="btn btn-primary" onClick={onPdf}>
             <Icon name="file-down" size={16} />
             Exportar PDF
           </button>
