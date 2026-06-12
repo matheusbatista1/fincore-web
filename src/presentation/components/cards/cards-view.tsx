@@ -27,11 +27,13 @@ export function CardsView({
   transactions,
   today,
   currentMonth,
+  holderName,
 }: {
   cards: CardView[];
   transactions: TransactionListItem[];
   today: string;
   currentMonth: string;
+  holderName: string;
 }) {
   const toast = useUIStore((s) => s.toast);
   const [sel, setSel] = useState<string | undefined>(cards[0]?.id);
@@ -86,6 +88,7 @@ export function CardsView({
         <h3>Nenhum cartão</h3>
         <p>Adicione seu primeiro cartão para acompanhar faturas e limites.</p>
         <CreditCardFormDialog
+          holder={holderName}
           trigger={
             <button type="button" className="btn btn-primary" style={{ marginTop: 20 }}>
               <Icon name="plus" size={17} />
@@ -133,10 +136,12 @@ export function CardsView({
               flag={c.flag}
               themeKey={c.themeKey}
               maskedNumber={c.maskedNumber}
+              holder={holderName}
             />
           </button>
         ))}
         <CreditCardFormDialog
+          holder={holderName}
           trigger={
             <button
               type="button"
@@ -170,6 +175,7 @@ export function CardsView({
             </div>
             <CreditCardFormDialog
               card={card}
+              holder={holderName}
               trigger={
                 <button
                   type="button"

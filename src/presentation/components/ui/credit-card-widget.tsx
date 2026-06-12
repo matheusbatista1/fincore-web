@@ -36,6 +36,24 @@ function CardBrand({ flag, size = 30 }: { flag: string; size?: number }) {
       </svg>
     );
   }
+  if (f === "amex" || f === "hipercard") {
+    // No bespoke mark in the prototype — show the brand word instead of a wrong logo.
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "#fff",
+          opacity: 0.9,
+        }}
+      >
+        {f === "amex" ? "AMEX" : "Hipercard"}
+      </span>
+    );
+  }
+  if (f === "other") return null;
   return (
     <svg height={size * 0.72} viewBox="0 0 48 30" fill="none" role="img" aria-label="Mastercard">
       <circle cx="18" cy="15" r="13" fill="#EB001B" />

@@ -5,15 +5,18 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CardsView } from "@/presentation/components/cards/cards-view";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
+import { nameFromEmail } from "@/shared/formatting/profile-name";
 
 export default async function CardsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [{ cards }, transactions] = await Promise.all([
+  const [{ cards }, transactions, profile] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
+    financeRepository.getProfile(user.id),
   ]);
+  const holderName = profile.displayName ?? nameFromEmail(user.email ?? "");
 
   return (
     <CardsView
@@ -21,6 +24,7 @@ export default async function CardsPage() {
       transactions={transactions}
       today={todayInBrazil()}
       currentMonth={currentMonthInBrazil()}
+      holderName={holderName}
     />
   );
 }

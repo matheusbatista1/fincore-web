@@ -24,7 +24,7 @@ import {
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
 
-export type ActionState = { ok: true } | { ok: false; error: string };
+export type ActionState = { ok: true; count?: number } | { ok: false; error: string };
 
 const UNAUTHORIZED: ActionState = { ok: false, error: "Sessão expirada. Entre novamente." };
 const INVALID: ActionState = { ok: false, error: "Dados inválidos." };
@@ -78,7 +78,8 @@ export async function updateTransactionAction(raw: unknown): Promise<ActionState
   try {
     const result = await updateTransaction(financeRepository, userId, parsed.data);
     if (!result.ok) return { ok: false, error: result.error.message };
-  } catch {
+  } catch (error) {
+    console.error("updateTransactionAction failed", error);
     return { ok: false, error: "Não foi possível atualizar o lançamento." };
   }
   revalidatePath("/", "layout");
@@ -86,9 +87,13 @@ export async function updateTransactionAction(raw: unknown): Promise<ActionState
 }
 
 export async function deleteTransactionAction(raw: unknown): Promise<ActionState> {
-  return withParsed(deleteTransactionSchema, raw, (userId, input) =>
-    financeRepository.deleteTransaction(userId, input.id, input.scope),
-  );
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = deleteTransactionSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const count = await financeRepository.deleteTransaction(userId, parsed.data.id, parsed.data.scope);
+  revalidatePath("/", "layout");
+  return { ok: true, count };
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {
