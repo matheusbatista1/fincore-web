@@ -1,9 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/infrastructure/auth/server";
+import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 
 /** The request's public origin (works on localhost, Vercel preview and prod). */
@@ -56,6 +57,22 @@ export async function signUpAction(_prev: AuthFormState, formData: FormData): Pr
     redirect("/dashboard");
   }
   return { error: "Conta criada. Confirme o e-mail para entrar." };
+}
+
+const profileSchema = z.object({
+  displayName: z.string().trim().min(2, "Informe seu nome.").max(80),
+});
+
+export async function updateProfileAction(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = profileSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  await financeRepository.updateProfile(user.id, parsed.data);
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function signOutAction(): Promise<void> {

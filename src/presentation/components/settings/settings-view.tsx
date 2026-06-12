@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ProfileFormDialog } from "@/presentation/components/settings/profile-form-dialog";
 import { Icon } from "@/presentation/components/ui/icon";
-import { useUIStore } from "@/presentation/stores/ui-store";
 
 type PrefKey = "notif" | "biometric" | "hideOnOpen";
 
@@ -19,7 +19,6 @@ const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: str
 
 /** Settings — profile header + preferences toggles, ported 1:1 from the prototype (more.jsx SettingsScreen). */
 export function SettingsView({ name, email, initials }: { name: string; email: string; initials: string }) {
-  const toast = useUIStore((s) => s.toast);
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
     notif: true,
     biometric: true,
@@ -53,14 +52,16 @@ export function SettingsView({ name, email, initials }: { name: string; email: s
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600 }}>{name}</h3>
           <div style={{ color: "var(--text-lo)", marginTop: 2 }}>{email}</div>
         </div>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={() => toast("Edição de perfil em breve.", "info")}
-        >
-          <Icon name="pencil" size={16} />
-          Editar perfil
-        </button>
+        <ProfileFormDialog
+          name={name}
+          email={email}
+          trigger={
+            <button type="button" className="btn btn-ghost">
+              <Icon name="pencil" size={16} />
+              Editar perfil
+            </button>
+          }
+        />
       </div>
 
       <div className="card">

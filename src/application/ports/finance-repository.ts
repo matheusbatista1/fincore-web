@@ -109,6 +109,9 @@ export interface SettlementData {
  */
 export interface FinanceRepository {
   ensureProfile(userId: string, email: string): Promise<void>;
+  /** The user's display profile (name is editable via settings). */
+  getProfile(userId: string): Promise<{ displayName: string | null; email: string }>;
+  updateProfile(userId: string, input: { displayName: string }): Promise<void>;
   loadWorkspace(userId: string): Promise<Workspace>;
 
   createAccount(userId: string, input: AccountInput): Promise<Account>;

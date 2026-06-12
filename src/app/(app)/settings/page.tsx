@@ -30,9 +30,20 @@ export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { categories } = await getWorkspaceView(financeRepository, user.id);
+  const [{ categories }, profile] = await Promise.all([
+    getWorkspaceView(financeRepository, user.id),
+    financeRepository.getProfile(user.id),
+  ]);
   const email = user.email ?? "";
-  const { name, initials } = profileFromEmail(email);
+  const fallback = profileFromEmail(email);
+  const name = profile.displayName ?? fallback.name;
+  const initials =
+    name
+      .split(" ")
+      .slice(0, 2)
+      .map((w) => w[0] ?? "")
+      .join("")
+      .toUpperCase() || fallback.initials;
 
   return (
     <div className="settings-page" style={{ maxWidth: 720 }}>

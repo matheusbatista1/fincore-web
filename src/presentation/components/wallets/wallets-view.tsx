@@ -5,6 +5,7 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { monthOf } from "@/domain/value-objects/competence-month";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
+import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { useUIStore } from "@/presentation/stores/ui-store";
@@ -76,7 +77,7 @@ export function WalletsView({
                 lineHeight: 1,
               }}
             >
-              <Money cents={total} withSign={false} />
+              <CountMoney cents={total} />
             </div>
             <div className="row gap-3" style={{ marginTop: 12 }}>
               <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
