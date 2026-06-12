@@ -68,6 +68,32 @@ export interface CreateTransactionCommand {
   readonly entries: NewTransactionEntry[];
 }
 
+/**
+ * An in-place update of a single transaction row. The kind is immutable and the
+ * installment/recurrence linkage is preserved (editing a parcela touches only
+ * that row). Splits are replaced atomically with the provided set.
+ */
+export interface UpdateTransactionCommand {
+  readonly id: string;
+  readonly kind: TransactionKind;
+  readonly description: string;
+  readonly date: IsoDate;
+  readonly amountCents: number;
+  readonly note?: string | null;
+  readonly categoryId?: string | null;
+  readonly source?: ExpenseSource | null;
+  readonly cardId?: string | null;
+  readonly accountId?: string | null;
+  readonly linkedAccountId?: string | null;
+  readonly myShareCents?: number | null;
+  readonly fromPersonId?: string | null;
+  readonly isReimbursement?: boolean;
+  readonly transferFromAccountId?: string | null;
+  readonly transferToAccountId?: string | null;
+  readonly transferValueCents?: number | null;
+  readonly splits?: ReadonlyArray<{ personId: string; shareCents: number }>;
+}
+
 export interface SettlementData {
   readonly personId: string;
   readonly amountCents: number;
@@ -113,6 +139,8 @@ export interface FinanceRepository {
 
   /** Persist a transaction (single or installment schedule) atomically. */
   createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;
+  /** Update a single transaction row (kind immutable) and replace its splits atomically. */
+  updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
 

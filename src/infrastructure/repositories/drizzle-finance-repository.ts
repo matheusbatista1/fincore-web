@@ -4,6 +4,7 @@ import type {
   FinanceRepository,
   NewTransactionEntry,
   SettlementData,
+  UpdateTransactionCommand,
   Workspace,
 } from "@/application/ports/finance-repository";
 import type { Account } from "@/domain/entities/account";
@@ -342,6 +343,60 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       });
       if (splitValues.length > 0) {
         await tx.insert(schema.transactionSplits).values(splitValues);
+      }
+    });
+  }
+
+  async updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void> {
+    await this.run(userId, async (tx) => {
+      const existing = one(
+        await tx
+          .select({
+            kind: schema.transactions.kind,
+            recurrenceDayOfMonth: schema.transactions.recurrenceDayOfMonth,
+          })
+          .from(schema.transactions)
+          .where(and(eq(schema.transactions.id, command.id), isNull(schema.transactions.deletedAt))),
+      );
+      if (existing.kind !== command.kind) {
+        throw new Error("Transaction kind cannot change on update");
+      }
+
+      await tx
+        .update(schema.transactions)
+        .set({
+          description: command.description,
+          occurredOn: command.date,
+          amountCents: command.amountCents,
+          note: command.note ?? null,
+          categoryId: command.categoryId ?? null,
+          source: command.source ?? null,
+          cardId: command.cardId ?? null,
+          accountId: command.accountId ?? null,
+          linkedAccountId: command.linkedAccountId ?? null,
+          myShareCents: command.myShareCents ?? null,
+          fromPersonId: command.fromPersonId ?? null,
+          isReimbursement: command.isReimbursement ?? false,
+          transferFromAccountId: command.transferFromAccountId ?? null,
+          transferToAccountId: command.transferToAccountId ?? null,
+          transferValueCents: command.transferValueCents ?? null,
+          // A fixed transaction stays fixed, re-anchored to the new date's day.
+          recurrenceDayOfMonth:
+            existing.recurrenceDayOfMonth === null ? null : Number.parseInt(command.date.slice(8, 10), 10),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.transactions.id, command.id));
+
+      await tx.delete(schema.transactionSplits).where(eq(schema.transactionSplits.transactionId, command.id));
+      if (command.splits && command.splits.length > 0) {
+        await tx.insert(schema.transactionSplits).values(
+          command.splits.map((split) => ({
+            userId,
+            transactionId: command.id,
+            personId: split.personId,
+            shareCents: split.shareCents,
+          })),
+        );
       }
     });
   }

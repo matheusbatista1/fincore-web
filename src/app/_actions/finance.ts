@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
+import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import {
@@ -20,6 +21,7 @@ import {
   createTransactionSchema,
   deleteTransactionSchema,
   settlementInputSchema,
+  updateTransactionSchema,
 } from "@/shared/schemas/transaction";
 
 export type ActionState = { ok: true } | { ok: false; error: string };
@@ -64,6 +66,21 @@ export async function createTransactionAction(raw: unknown): Promise<ActionState
   if (!parsed.success) return INVALID;
   const result = await createTransaction(financeRepository, userId, parsed.data);
   if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function updateTransactionAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = updateTransactionSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  try {
+    const result = await updateTransaction(financeRepository, userId, parsed.data);
+    if (!result.ok) return { ok: false, error: result.error.message };
+  } catch {
+    return { ok: false, error: "Não foi possível atualizar o lançamento." };
+  }
   revalidatePath("/", "layout");
   return { ok: true };
 }

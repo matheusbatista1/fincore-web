@@ -38,12 +38,18 @@ export interface TransactionListItem {
   readonly amountCents: number;
   readonly note: string | null;
   readonly category: { readonly name: string; readonly color: string; readonly icon: string } | null;
+  /** Raw category id (edit-form prefill). */
+  readonly categoryId: string | null;
   /** "Cartão Nubank", "Itaú · Conta principal", "Boleto", … */
   readonly sourceLabel: string | null;
+  /** Expense payment source (edit-form prefill); null for income/transfer. */
+  readonly source: ExpenseSource | null;
   /** Card this expense was charged to (for per-card bill filtering). */
   readonly cardId: string | null;
   /** Account that moved (expense debit / income credit) — null for card-source and transfers. */
   readonly accountId: string | null;
+  /** Organizational bank link for boleto/loan/financing/overdraft. */
+  readonly linkedAccountId: string | null;
   readonly parcela: {
     readonly number: number;
     readonly total: number;
@@ -55,7 +61,8 @@ export interface TransactionListItem {
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
-  /** When an income is a payment from a person, their first name. */
+  /** When an income is a payment from a person, their id + first name. */
+  readonly fromPersonId: string | null;
   readonly fromPersonName: string | null;
   readonly transferFromName: string | null;
   readonly transferToName: string | null;
@@ -93,12 +100,16 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       date: tx.date,
       note: tx.note ?? null,
       category: null,
+      categoryId: null,
       sourceLabel: null,
+      source: null,
       cardId: null,
       accountId: null,
+      linkedAccountId: null,
       parcela: null,
       installmentGroupId: null,
       isFixed: false,
+      fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
       fromPersonName: null,
@@ -132,9 +143,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         kind: "expense" as const,
         amountCents: tx.amountCents,
         category: category ? { name: category.name, color: category.color, icon: category.icon } : null,
+        categoryId: tx.categoryId,
         sourceLabel,
+        source: tx.source,
         cardId: tx.cardId,
         accountId: tx.accountId,
+        linkedAccountId: tx.linkedAccountId,
         parcela: tx.installment
           ? { number: tx.installment.number, total: tx.installment.total, status: tx.installment.status }
           : null,
@@ -154,6 +168,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         sourceLabel: accountName.get(tx.accountId) ?? null,
         accountId: tx.accountId,
         isFixed: tx.recurrence !== null,
+        fromPersonId: tx.fromPersonId,
         fromPersonName: person ? firstName(person.name) : null,
       };
     }

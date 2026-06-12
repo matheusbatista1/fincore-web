@@ -5,9 +5,10 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
-/** Transaction list row — ported 1:1 from the prototype's TxRow (.lrow). */
+/** Transaction list row — ported 1:1 from the prototype's TxRow (.lrow); click opens the detail. */
 export function TxRow({ item, today }: { item: TransactionListItem; today: string }) {
   const isTransfer = item.kind === "transfer";
   const cat = item.category;
@@ -35,7 +36,19 @@ export function TxRow({ item, today }: { item: TransactionListItem; today: strin
         : "");
 
   return (
-    <div className="lrow">
+    <div
+      role="button"
+      tabIndex={0}
+      className="lrow"
+      style={{ cursor: "pointer" }}
+      onClick={() => openTxDetail(item)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openTxDetail(item);
+        }
+      }}
+    >
       <span className="l-ic" style={icStyle}>
         <Icon name={iconName} size={18} />
       </span>

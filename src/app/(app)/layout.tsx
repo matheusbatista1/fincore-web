@@ -7,7 +7,9 @@ import { AppHeader } from "@/presentation/components/shell/app-header";
 import { MobileNav } from "@/presentation/components/shell/mobile-nav";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
 import { Sidebar } from "@/presentation/components/shell/sidebar";
+import { TxModalsHost } from "@/presentation/components/transactions/tx-modals-host";
 import { Toaster } from "@/presentation/components/ui/toaster";
+import { todayInBrazil } from "@/shared/formatting/now";
 
 /** Authenticated app shell — 1:1 with the prototype: .shell grid (sidebar + main) + mobile nav. */
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -45,6 +47,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </main>
       <MobileNav {...formData} pendingCount={pendingCount} />
+      <TxModalsHost {...formData} today={todayInBrazil()} />
       <Toaster />
     </div>
   );
