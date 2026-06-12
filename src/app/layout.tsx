@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { ServiceWorkerRegister } from "@/presentation/components/pwa/service-worker-register";
+import { Toaster } from "@/presentation/components/ui/toaster";
 import { clashDisplay, satoshi } from "./_fonts";
 import "./globals.css";
 import "./prototype.css";
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="app-aura" aria-hidden="true" />
         <div className="app-grain" aria-hidden="true" />
         {children}
+        <Toaster />
         <ServiceWorkerRegister />
       </body>
     </html>

@@ -10,7 +10,6 @@ import { PageHead } from "@/presentation/components/shell/page-head";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
 import { Sidebar } from "@/presentation/components/shell/sidebar";
 import { TxModalsHost } from "@/presentation/components/transactions/tx-modals-host";
-import { Toaster } from "@/presentation/components/ui/toaster";
 import { LONG_MONTHS, monthLabel } from "@/shared/formatting/dates";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
 
@@ -114,7 +113,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       </main>
       <MobileNav {...formData} pendingCount={pendingCount} />
       <TxModalsHost {...formData} today={today} />
-      <Toaster />
     </div>
   );
 }
