@@ -8,6 +8,7 @@ import { CreditCardFormDialog } from "@/presentation/components/forms/credit-car
 import { CreditCardWidget } from "@/presentation/components/ui/credit-card-widget";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
@@ -312,7 +313,20 @@ export function CardsView({
               {compras.map((t) => {
                 const cat = t.category;
                 return (
-                  <div className="lrow" key={t.id}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="lrow"
+                    key={t.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => openTxDetail(t)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openTxDetail(t);
+                      }
+                    }}
+                  >
                     <span
                       className="l-ic"
                       style={cat ? { background: `${cat.color}22`, color: cat.color } : {}}

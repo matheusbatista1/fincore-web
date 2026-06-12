@@ -69,6 +69,61 @@ export const createTransactionSchema = z.discriminatedUnion("kind", [
 ]);
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 
+/**
+ * Editing updates a SINGLE row (for installments, only that parcela — the group
+ * stays intact) and cannot change the kind, mirroring the prototype's edit mode
+ * (no intent tabs, no installment/fixed toggles).
+ */
+const expenseUpdateSchema = z.object({
+  kind: z.literal("expense"),
+  id: idSchema,
+  description: z.string().trim().max(120).default(""),
+  date: isoDateSchema,
+  note: z.string().max(280).optional(),
+  /** This row's amount in cents (positive); the server stores it as negative. */
+  amountCents: centsSchema.positive("Informe um valor maior que zero."),
+  categoryId: idSchema.nullable().default(null),
+  source: z.enum(["card", "account", "boleto", "loan", "financing", "overdraft"]),
+  cardId: idSchema.nullable().default(null),
+  accountId: idSchema.nullable().default(null),
+  linkedAccountId: idSchema.nullable().default(null),
+  split: splitParamsSchema.default({ method: "equal", meIn: true, selected: [], custom: {} }),
+});
+
+const incomeUpdateSchema = z.object({
+  kind: z.literal("income"),
+  id: idSchema,
+  description: z.string().trim().max(120).default(""),
+  date: isoDateSchema,
+  note: z.string().max(280).optional(),
+  amountCents: centsSchema.positive("Informe um valor maior que zero."),
+  accountId: idSchema,
+  fromPersonId: idSchema.nullable().default(null),
+});
+
+const transferUpdateSchema = z
+  .object({
+    kind: z.literal("transfer"),
+    id: idSchema,
+    description: z.string().trim().max(120).default("Transferência"),
+    date: isoDateSchema,
+    note: z.string().max(280).optional(),
+    fromAccountId: idSchema,
+    toAccountId: idSchema,
+    valueCents: centsSchema.positive("Informe um valor maior que zero."),
+  })
+  .refine((t) => t.fromAccountId !== t.toAccountId, {
+    message: "Escolha carteiras diferentes.",
+    path: ["toAccountId"],
+  });
+
+export const updateTransactionSchema = z.discriminatedUnion("kind", [
+  expenseUpdateSchema,
+  incomeUpdateSchema,
+  transferUpdateSchema,
+]);
+export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
+
 export const deleteTransactionSchema = z.object({
   id: idSchema,
   /** For installments: just this one, this + future, or the whole group. */

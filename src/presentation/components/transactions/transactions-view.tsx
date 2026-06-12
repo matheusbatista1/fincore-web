@@ -6,6 +6,7 @@ import { byDateDesc } from "@/application/use-cases/get-transactions";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
@@ -93,7 +94,7 @@ export function TransactionsView({
                     : (t.note ?? "—")
                   : (t.sourceLabel ?? "—");
                 return (
-                  <tr key={t.id}>
+                  <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openTxDetail(t)}>
                     <td>
                       <div className="row gap-3">
                         <span className="tx-ava" style={avaStyle}>

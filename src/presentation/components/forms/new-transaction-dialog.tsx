@@ -1,15 +1,17 @@
 "use client";
 
 import { type CSSProperties, type ReactNode, useId, useState } from "react";
-import { createTransactionAction } from "@/app/_actions/finance";
+import { createTransactionAction, updateTransactionAction } from "@/app/_actions/finance";
+import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { ExpenseSource } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { calculateSplit } from "@/domain/services/split.calculator";
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { createTransactionSchema } from "@/shared/schemas/transaction";
+import { createTransactionSchema, updateTransactionSchema } from "@/shared/schemas/transaction";
 import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
 export interface TxFormAccount {
@@ -149,12 +151,52 @@ export function NewTransactionDialog({
   );
 }
 
+/**
+ * Editar lançamento — the prototype reuses NovaTransacao with `initial` (split.jsx):
+ * no intent tabs, no fixed/installment toggles, prefilled state, "Salvar" submit.
+ * Controlled by the tx-ui-store (opened from the transaction-detail modal).
+ */
+export function EditTransactionModal({
+  accounts,
+  cards,
+  people,
+  categories,
+}: {
+  accounts: TxFormAccount[];
+  cards: TxFormCard[];
+  people: TxFormPerson[];
+  categories: TxFormCategory[];
+}) {
+  const editing = useTxUIStore((s) => s.editing);
+  const closeEdit = useTxUIStore((s) => s.closeEdit);
+
+  return (
+    <Dialog open={editing !== null} onOpenChange={(v) => !v && closeEdit()}>
+      {editing && (
+        <DialogModal title="Editar lançamento">
+          <TransactionForm
+            key={editing.id}
+            accounts={accounts}
+            cards={cards}
+            people={people}
+            categories={categories}
+            defaultTab={editing.kind}
+            initial={editing}
+            onDone={closeEdit}
+          />
+        </DialogModal>
+      )}
+    </Dialog>
+  );
+}
+
 function TransactionForm({
   accounts,
   cards,
   people,
   categories,
   defaultTab,
+  initial,
   onDone,
 }: {
   accounts: TxFormAccount[];
@@ -162,41 +204,64 @@ function TransactionForm({
   people: TxFormPerson[];
   categories: TxFormCategory[];
   defaultTab: Tab;
+  /** Edit mode (prototype: NovaTransacao with `initial`) — kind locked, no fixed/installment. */
+  initial?: TransactionListItem;
   onDone: () => void;
 }) {
+  const editing = initial !== undefined;
+  const initialShares = initial?.shares ?? [];
+  const sharesEqual =
+    initialShares.length <= 1 || initialShares.every((s) => s.shareCents === initialShares[0]?.shareCents);
+
   const [tab, setTab] = useState<Tab>(defaultTab);
-  const [cents, setCents] = useState(0);
-  const [desc, setDesc] = useState("");
-  const [ymd, setYmd] = useState(todayIso());
+  const [cents, setCents] = useState(
+    initial
+      ? Math.abs(initial.kind === "transfer" ? (initial.transferValueCents ?? 0) : initial.amountCents)
+      : 0,
+  );
+  const [desc, setDesc] = useState(initial?.description ?? "");
+  const [ymd, setYmd] = useState(initial?.date ?? todayIso());
   const [fixed, setFixed] = useState(false);
 
   // expense
-  const [catId, setCatId] = useState<string | null>(categories[0]?.id ?? null);
-  const [srcType, setSrcType] = useState<ExpenseSource>("card");
-  const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
-  const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
-  const [linkedAccount, setLinkedAccount] = useState<string | null>(null);
+  const [catId, setCatId] = useState<string | null>(initial?.categoryId ?? categories[0]?.id ?? null);
+  const [srcType, setSrcType] = useState<ExpenseSource>(initial?.source ?? "card");
+  const [cardId, setCardId] = useState<string | null>(initial?.cardId ?? cards[0]?.id ?? null);
+  const [acctId, setAcctId] = useState<string | null>(initial?.accountId ?? accounts[0]?.id ?? null);
+  const [linkedAccount, setLinkedAccount] = useState<string | null>(initial?.linkedAccountId ?? null);
   const [parcelado, setParcelado] = useState(false);
   const [parcN, setParcN] = useState("2");
   const [parcCur, setParcCur] = useState("1");
   const [parcNext, setParcNext] = useState(true);
   const [parcPrev, setParcPrev] = useState(false);
-  const [method, setMethod] = useState<"equal" | "custom">("equal");
-  const [meIn, setMeIn] = useState(true);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [custom, setCustom] = useState<Record<string, string>>({});
+  const [method, setMethod] = useState<"equal" | "custom">(editing && !sharesEqual ? "custom" : "equal");
+  const [meIn, setMeIn] = useState(
+    initial ? initial.myShareCents === null || initial.myShareCents > 0 || initialShares.length === 0 : true,
+  );
+  const [selected, setSelected] = useState<string[]>(initialShares.map((s) => s.personId));
+  const [custom, setCustom] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const share of initialShares) {
+      map[share.personId] = (share.shareCents / 100).toFixed(2).replace(".", ",");
+    }
+    return map;
+  });
 
   // income
-  const [fromPerson, setFromPerson] = useState<string | null>(null);
+  const [fromPerson, setFromPerson] = useState<string | null>(initial?.fromPersonId ?? null);
 
   // transfer
-  const [fromAcct, setFromAcct] = useState<string | null>(accounts[0]?.id ?? null);
-  const [toAcct, setToAcct] = useState<string | null>(accounts[1]?.id ?? accounts[0]?.id ?? null);
+  const [fromAcct, setFromAcct] = useState<string | null>(
+    initial?.transferFromAccountId ?? accounts[0]?.id ?? null,
+  );
+  const [toAcct, setToAcct] = useState<string | null>(
+    initial?.transferToAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? null,
+  );
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const canParcel = tab === "expense" && !fixed && PARCELABLE.has(srcType);
+  const canParcel = tab === "expense" && !editing && !fixed && PARCELABLE.has(srcType);
   const n = parcelado && canParcel ? Math.max(2, Number.parseInt(parcN, 10) || 2) : 1;
   const cur = Math.min(n, Math.max(1, Number.parseInt(parcCur, 10) || 1));
   const totalMoney = Money.fromCents(cents);
@@ -232,11 +297,15 @@ function TransactionForm({
         : Boolean(fromAcct) && Boolean(toAcct) && fromAcct !== toAcct);
 
   function buildPayload(): unknown {
+    // Preserve an existing note on edit (the form has no note field).
+    const noteField = editing && initial?.note ? { note: initial.note } : {};
     if (tab === "transfer") {
       return {
         kind: "transfer",
+        ...(editing && initial ? { id: initial.id } : {}),
         description: desc || "Transferência",
         date: ymd,
+        ...noteField,
         fromAccountId: fromAcct,
         toAccountId: toAcct,
         valueCents: cents,
@@ -245,17 +314,35 @@ function TransactionForm({
     if (tab === "income") {
       return {
         kind: "income",
+        ...(editing && initial ? { id: initial.id } : {}),
         description: desc,
         date: ymd,
+        ...noteField,
         amountCents: cents,
         accountId: acctId,
         fromPersonId: fromPerson,
-        fixed,
+        ...(editing ? {} : { fixed }),
       };
     }
     const customCents: Record<string, number> = {};
     if (method === "custom") {
       for (const id of selected) customCents[id] = reaisToCents(custom[id] ?? "");
+    }
+    if (editing && initial) {
+      return {
+        kind: "expense",
+        id: initial.id,
+        description: desc,
+        date: ymd,
+        ...noteField,
+        amountCents: cents,
+        categoryId: catId,
+        source: srcType,
+        cardId: srcType === "card" ? cardId : null,
+        accountId: srcType === "account" ? acctId : null,
+        linkedAccountId: LINKABLE.has(srcType) ? linkedAccount : null,
+        split: { method, meIn, selected, custom: customCents },
+      };
     }
     return {
       kind: "expense",
@@ -279,24 +366,29 @@ function TransactionForm({
   async function submit() {
     if (!canSubmit || submitting) return;
     setServerError(null);
-    const parsed = createTransactionSchema.safeParse(buildPayload());
+    const schema = editing ? updateTransactionSchema : createTransactionSchema;
+    const parsed = schema.safeParse(buildPayload());
     if (!parsed.success) {
       setServerError("Revise os campos do lançamento.");
       return;
     }
     setSubmitting(true);
-    const result = await createTransactionAction(parsed.data);
+    const result = editing
+      ? await updateTransactionAction(parsed.data)
+      : await createTransactionAction(parsed.data);
     setSubmitting(false);
     if (!result.ok) {
       setServerError(result.error);
       return;
     }
     toast(
-      tab === "income"
-        ? "Receita adicionada."
-        : tab === "transfer"
-          ? "Transferência feita."
-          : "Despesa adicionada.",
+      editing
+        ? "Lançamento atualizado."
+        : tab === "income"
+          ? "Receita adicionada."
+          : tab === "transfer"
+            ? "Transferência feita."
+            : "Despesa adicionada.",
     );
     onDone();
   }
@@ -308,25 +400,35 @@ function TransactionForm({
   return (
     <>
       <div className="modal-body">
-        {/* despesa / receita / transferência */}
-        <div className="seg intent" style={{ marginBottom: 18 }}>
-          <button
-            type="button"
-            className={tab === "expense" ? "on exp" : ""}
-            onClick={() => setTab("expense")}
-          >
-            <Icon name="arrow-up-right" size={15} style={{ marginRight: 6 }} />
-            Despesa
-          </button>
-          <button type="button" className={tab === "income" ? "on inc" : ""} onClick={() => setTab("income")}>
-            <Icon name="arrow-down-left" size={15} style={{ marginRight: 6 }} />
-            Receita
-          </button>
-          <button type="button" className={tab === "transfer" ? "on" : ""} onClick={() => setTab("transfer")}>
-            <Icon name="arrow-left-right" size={15} style={{ marginRight: 6 }} />
-            Transferência
-          </button>
-        </div>
+        {/* despesa / receita / transferência (locked while editing, like the prototype) */}
+        {!editing && (
+          <div className="seg intent" style={{ marginBottom: 18 }}>
+            <button
+              type="button"
+              className={tab === "expense" ? "on exp" : ""}
+              onClick={() => setTab("expense")}
+            >
+              <Icon name="arrow-up-right" size={15} style={{ marginRight: 6 }} />
+              Despesa
+            </button>
+            <button
+              type="button"
+              className={tab === "income" ? "on inc" : ""}
+              onClick={() => setTab("income")}
+            >
+              <Icon name="arrow-down-left" size={15} style={{ marginRight: 6 }} />
+              Receita
+            </button>
+            <button
+              type="button"
+              className={tab === "transfer" ? "on" : ""}
+              onClick={() => setTab("transfer")}
+            >
+              <Icon name="arrow-left-right" size={15} style={{ marginRight: 6 }} />
+              Transferência
+            </button>
+          </div>
+        )}
 
         {/* valor */}
         <input
@@ -371,35 +473,37 @@ function TransactionForm({
           />
         </div>
 
-        {/* recorrência */}
-        <div className="field">
-          <SwitchRow
-            on={fixed}
-            onToggle={() => {
-              setFixed((v) => !v);
-              if (!fixed) setParcelado(false);
-            }}
-            style={{ justifyContent: "space-between" }}
-          >
-            <span className="row gap-2">
-              <Icon name="repeat" size={15} style={{ color: "var(--purple-300)" }} />
-              Lançamento fixo (todo mês)
-            </span>
-          </SwitchRow>
-          {fixed && (
-            <div style={INFO_STYLE}>
-              <Icon
-                name="info"
-                size={14}
-                style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
-              />
-              <span>
-                Repete automaticamente <b style={{ color: "var(--text-hi)" }}>todo dia {fixedDay}</b> nos
-                próximos meses. Ideal para salário, aluguel, assinaturas e contas fixas.
+        {/* recorrência (hidden while editing, like the prototype) */}
+        {!editing && (
+          <div className="field">
+            <SwitchRow
+              on={fixed}
+              onToggle={() => {
+                setFixed((v) => !v);
+                if (!fixed) setParcelado(false);
+              }}
+              style={{ justifyContent: "space-between" }}
+            >
+              <span className="row gap-2">
+                <Icon name="repeat" size={15} style={{ color: "var(--purple-300)" }} />
+                Lançamento fixo (todo mês)
               </span>
-            </div>
-          )}
-        </div>
+            </SwitchRow>
+            {fixed && (
+              <div style={INFO_STYLE}>
+                <Icon
+                  name="info"
+                  size={14}
+                  style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                />
+                <span>
+                  Repete automaticamente <b style={{ color: "var(--text-hi)" }}>todo dia {fixedDay}</b> nos
+                  próximos meses. Ideal para salário, aluguel, assinaturas e contas fixas.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TRANSFERÊNCIA */}
         {tab === "transfer" && (
@@ -1106,11 +1210,13 @@ function TransactionForm({
           <Icon name="check" size={17} />
           {submitting
             ? "Salvando…"
-            : tab === "income"
-              ? "Adicionar receita"
-              : tab === "transfer"
-                ? "Transferir"
-                : "Adicionar despesa"}
+            : editing
+              ? "Salvar"
+              : tab === "income"
+                ? "Adicionar receita"
+                : tab === "transfer"
+                  ? "Transferir"
+                  : "Adicionar despesa"}
         </button>
       </div>
     </>
