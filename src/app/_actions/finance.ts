@@ -166,6 +166,21 @@ export async function deletePersonAction(id: string): Promise<ActionState> {
 export async function createCategoryAction(raw: unknown): Promise<ActionState> {
   return withParsed(categoryInputSchema, raw, (u, i) => financeRepository.createCategory(u, i));
 }
+/** Like createCategoryAction but returns the created category (to select it inline at point of use). */
+export async function createCategoryReturningAction(
+  raw: unknown,
+): Promise<
+  | { ok: true; category: { id: string; name: string; color: string; icon: string } }
+  | { ok: false; error: string }
+> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = categoryInputSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Dados inválidos." };
+  const cat = await financeRepository.createCategory(userId, parsed.data);
+  revalidatePath("/", "layout");
+  return { ok: true, category: { id: cat.id, name: cat.name, color: cat.color, icon: cat.icon } };
+}
 export async function updateCategoryAction(id: string, raw: unknown): Promise<ActionState> {
   return withParsed(categoryInputSchema, raw, (u, i) => financeRepository.updateCategory(u, id, i));
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
+import { createSupabaseServerClient, getCurrentUser, verifyPassword } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { sanitizeModules } from "@/shared/modules";
 
@@ -260,6 +260,28 @@ export async function updatePasswordAction(_prev: AuthFormState, formData: FormD
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: "Não foi possível atualizar a senha. Abra o link do e-mail novamente." };
   redirect("/dashboard");
+}
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Informe a senha atual."),
+  newPassword: z.string().min(6, "A nova senha precisa de ao menos 6 caracteres."),
+});
+
+/** Change the password while logged in — validates the current password first. */
+export async function changePasswordAction(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user?.email) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = changePasswordSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  if (!(await verifyPassword(user.email, parsed.data.currentPassword))) {
+    return { ok: false, error: "Senha atual incorreta." };
+  }
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.newPassword });
+  if (error) return { ok: false, error: "Não foi possível atualizar a senha." };
+  return { ok: true };
 }
 
 export async function signOutAction(): Promise<void> {

@@ -6,6 +6,7 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import type { ExpenseSource } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { calculateSplit } from "@/domain/services/split.calculator";
+import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { InfoHint } from "@/presentation/components/ui/info-hint";
@@ -240,6 +241,8 @@ function TransactionForm({
   const [catId, setCatId] = useState<string | null>(
     editing ? (initial?.categoryId ?? null) : (categories[0]?.id ?? null),
   );
+  // Local copy so a category created inline ("+ Nova categoria") shows + selects immediately.
+  const [cats, setCats] = useState<TxFormCategory[]>(categories);
   const [srcType, setSrcType] = useState<ExpenseSource>(initial?.source ?? "card");
   const [cardId, setCardId] = useState<string | null>(initial?.cardId ?? cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(initial?.accountId ?? accounts[0]?.id ?? null);
@@ -710,7 +713,7 @@ function TransactionForm({
             <div className="field">
               <label>Categoria</label>
               <div className="chip-select">
-                {categories.map((c) => (
+                {cats.map((c) => (
                   <button
                     type="button"
                     key={c.id}
@@ -723,6 +726,18 @@ function TransactionForm({
                     {c.name}
                   </button>
                 ))}
+                <CategoryFormDialog
+                  onCreated={(c) => {
+                    setCats((prev) => [...prev, c]);
+                    setCatId(c.id);
+                  }}
+                  trigger={
+                    <button type="button" className="person-chip" style={{ borderStyle: "dashed" }}>
+                      <Icon name="plus" size={14} />
+                      Nova categoria
+                    </button>
+                  }
+                />
               </div>
             </div>
 
