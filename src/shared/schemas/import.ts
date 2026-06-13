@@ -9,8 +9,14 @@ export const importEntrySchema = z.object({
   categoryId: idSchema.nullable().default(null),
 });
 
+/** Where the reviewed lines land: a wallet (bank statement) or a card (bill). */
+const importTargetSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("account"), accountId: idSchema }),
+  z.object({ type: z.literal("card"), cardId: idSchema }),
+]);
+
 export const importStatementSchema = z.object({
-  accountId: idSchema,
+  target: importTargetSchema,
   entries: z
     .array(importEntrySchema)
     .min(1, "Nenhum lançamento para importar.")

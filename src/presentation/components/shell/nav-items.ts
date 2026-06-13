@@ -46,6 +46,9 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Pushed to the sidebar footer. */
 export const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Configurações", icon: "settings" };
 
+/** Discreet entry just below Settings (import a bank statement or a card bill). */
+export const IMPORT_ITEM: NavItem = { href: "/import", label: "Importar", icon: "file-up" };
+
 /** Mobile bottom-nav: 4 primary tabs (+ a "Mais" sheet for the rest). */
 export const MOBILE_TABS: NavItem[] = [
   { href: "/dashboard", label: "Início", icon: "house" },
@@ -62,14 +65,11 @@ export const MOBILE_MORE: NavItem[] = [
   { href: "/goals", label: "Metas", icon: "piggy-bank" },
   { href: "/reports", label: "Relatórios", icon: "chart-pie" },
   { href: "/settings", label: "Configurações", icon: "settings" },
+  { href: "/import", label: "Importar", icon: "file-up" },
 ];
 
 /** All routes flattened, for resolving the topbar title from the pathname. */
-const ALL: NavItem[] = [
-  ...NAV_GROUPS.flatMap((g) => g.items),
-  SETTINGS_ITEM,
-  { href: "/import", label: "Importar extrato", icon: "file-down" },
-];
+const ALL: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), SETTINGS_ITEM, IMPORT_ITEM];
 
 export function titleForPath(pathname: string): string {
   const item = ALL.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
