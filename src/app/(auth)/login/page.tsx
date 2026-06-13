@@ -4,7 +4,6 @@ import { useActionState, useState } from "react";
 import { type AuthFormState, authenticateAction } from "@/app/_actions/auth";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
-import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 import { toast } from "@/presentation/stores/ui-store";
 
 const INITIAL: AuthFormState = {};
@@ -15,7 +14,6 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [state, formAction, pending] = useActionState(authenticateAction, INITIAL);
   const isSignup = mode === "signup";
-  const isMobile = useIsMobile();
 
   return (
     <div className="login">
@@ -165,23 +163,6 @@ export default function LoginPage() {
                 </span>
               )}
             </button>
-
-            {isMobile && (
-              <>
-                <div className="lf-or">
-                  <span>ou</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ width: "100%" }}
-                  onClick={() => toast("Biometria disponível no app instalado.", "info")}
-                >
-                  <Icon name="fingerprint" size={18} />
-                  Biometria
-                </button>
-              </>
-            )}
 
             <p className="lf-foot">
               {isSignup ? "Já tem conta? " : "Não tem conta? "}
