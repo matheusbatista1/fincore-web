@@ -75,7 +75,9 @@ export function ModulesCard({ enabled }: { enabled: ModuleKey[] }) {
             </span>
             <div className="l-main">
               <div className="l-title">{m.label}</div>
-              <div className="l-sub">{m.blurb}</div>
+              <div className="l-sub" style={{ whiteSpace: "normal", lineHeight: 1.45 }}>
+                {m.description}
+              </div>
             </div>
             <span className={`fc-switch${on.has(m.key) ? " on" : ""}`}>
               <span />

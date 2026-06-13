@@ -17,9 +17,7 @@ export interface OptionalModule {
   readonly label: string;
   /** Icon name for the <Icon> registry (matches the nav icon). */
   readonly icon: string;
-  /** One-line summary for compact UI (settings rows). */
-  readonly blurb: string;
-  /** Full explanation shown in the onboarding picker. */
+  /** Full explanation shown in the onboarding picker and settings. */
   readonly description: string;
 }
 
@@ -29,7 +27,6 @@ export const OPTIONAL_MODULES: readonly OptionalModule[] = [
     key: "people",
     label: "Pessoas",
     icon: "users",
-    blurb: "Rateios e quem te deve",
     description:
       "Divida despesas e acompanhe quem te deve ou a quem você deve. Ideal para contas compartilhadas, rateios e empréstimos entre amigos. Ativa a divisão de despesas no lançamento.",
   },
@@ -37,7 +34,6 @@ export const OPTIONAL_MODULES: readonly OptionalModule[] = [
     key: "budgets",
     label: "Orçamentos",
     icon: "target",
-    blurb: "Limites por categoria",
     description:
       "Defina um limite de gasto por categoria e acompanhe, ao longo do mês, quanto você já comprometeu de cada um.",
   },
@@ -45,7 +41,6 @@ export const OPTIONAL_MODULES: readonly OptionalModule[] = [
     key: "goals",
     label: "Metas",
     icon: "piggy-bank",
-    blurb: "Metas de economia",
     description:
       "Crie metas de economia (uma viagem, uma reserva de emergência) com um valor-alvo e acompanhe o progresso das suas contribuições.",
   },
@@ -53,7 +48,6 @@ export const OPTIONAL_MODULES: readonly OptionalModule[] = [
     key: "reports",
     label: "Relatórios",
     icon: "chart-pie",
-    blurb: "Gráficos e exportações",
     description:
       "Relatórios detalhados do seu fluxo de caixa, gastos por categoria e por cartão, com exportação em CSV e PDF.",
   },
