@@ -21,6 +21,7 @@ import {
   createTransactionSchema,
   deleteTransactionSchema,
   settlementInputSchema,
+  stopRecurringSchema,
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
 
@@ -94,6 +95,16 @@ export async function deleteTransactionAction(raw: unknown): Promise<ActionState
   const count = await financeRepository.deleteTransaction(userId, parsed.data.id, parsed.data.scope);
   revalidatePath("/", "layout");
   return { ok: true, count };
+}
+
+export async function stopRecurringAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = stopRecurringSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  await financeRepository.stopRecurrence(userId, parsed.data.id);
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {

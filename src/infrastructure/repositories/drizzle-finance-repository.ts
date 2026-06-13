@@ -495,6 +495,15 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async stopRecurrence(userId: string, id: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ recurrenceDayOfMonth: null, updatedAt: new Date() })
+        .where(eq(schema.transactions.id, id));
+    });
+  }
+
   async createSettlement(userId: string, input: SettlementData): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.insert(schema.settlements).values({

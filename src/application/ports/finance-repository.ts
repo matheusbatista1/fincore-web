@@ -162,6 +162,8 @@ export interface FinanceRepository {
   updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
+  /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */
+  stopRecurrence(userId: string, id: string): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
 }
