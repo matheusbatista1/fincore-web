@@ -75,6 +75,17 @@ export function TxDetailModal({ today }: { today: string }) {
               >
                 {tx.description || (tx.kind === "transfer" ? "Transferência" : "Lançamento")}
               </div>
+              {tx.isFixed && (
+                <div style={{ marginTop: 6 }}>
+                  <span
+                    className="parc-badge"
+                    style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}
+                  >
+                    <Icon name="repeat" size={11} />
+                    fixo
+                  </span>
+                </div>
+              )}
               {tx.kind === "transfer" ? (
                 <div className="balance-big" style={{ fontSize: 32, marginTop: 4, color: "var(--sky-500)" }}>
                   <Money cents={tx.transferValueCents ?? 0} withSign={false} />
@@ -195,7 +206,7 @@ export function TxDetailModal({ today }: { today: string }) {
               type="button"
               className="btn btn-quiet"
               style={{ color: "var(--rose-500)" }}
-              onClick={() => (tx.parcela ? openDelete(tx) : removeDirect(tx))}
+              onClick={() => (tx.parcela || tx.isFixed ? openDelete(tx) : removeDirect(tx))}
             >
               <Icon name="trash-2" size={16} />
               Excluir
