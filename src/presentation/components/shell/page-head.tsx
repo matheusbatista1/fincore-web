@@ -63,7 +63,7 @@ export function PageHead({
             <Icon name="calendar" size={17} />
             {monthChip}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={togglePrivacy}>
+          <button type="button" className="btn btn-ghost" data-tour="privacy" onClick={togglePrivacy}>
             <Icon name={privacy ? "eye-off" : "eye"} size={17} />
             {privacy ? "Mostrar" : "Ocultar"}
           </button>

@@ -48,8 +48,8 @@ export function Sidebar({
         </span>
       </Link>
 
-      {navGroups.map((group) => (
-        <div className="nav-group" key={group.label}>
+      {navGroups.map((group, gi) => (
+        <div className="nav-group" key={group.label} data-tour={gi === 0 ? "nav" : undefined}>
           <div className="nav-label">{group.label}</div>
           {group.items.map((item) => (
             <Link
@@ -68,6 +68,7 @@ export function Sidebar({
       <div className="nav-group" style={{ marginTop: "auto" }}>
         <Link
           href={SETTINGS_ITEM.href}
+          data-tour="settings"
           className={`nav-item${isActive(pathname, SETTINGS_ITEM.href) ? " active" : ""}`}
         >
           <Icon name={SETTINGS_ITEM.icon} size={19} />
