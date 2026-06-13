@@ -1,14 +1,18 @@
 "use client";
 
 import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/presentation/components/ui/icon";
 
 const WIDTH = 248;
 
 /**
  * An "(i)" info button that reveals a short explanation balloon on hover
- * (desktop) and on click/focus (touch + keyboard). Closes on Escape, outside
- * click, scroll or resize. Positioned `fixed` so it escapes the modal's overflow.
+ * (desktop) and on click/focus (touch + keyboard). The balloon is rendered in a
+ * portal on <body> so it isn't clipped — and isn't mis-positioned — by a modal
+ * ancestor that creates a containing block via `transform` (a `position: fixed`
+ * child would otherwise anchor to the modal, not the viewport). Closes on
+ * Escape, outside click, scroll or resize.
  */
 export function InfoHint({ children, label = "Mais informações" }: { children: ReactNode; label?: string }) {
   const [open, setOpen] = useState(false);
@@ -26,7 +30,8 @@ export function InfoHint({ children, label = "Mais informações" }: { children:
       if (!el) return;
       const r = el.getBoundingClientRect();
       const left = Math.max(10, Math.min(r.left + r.width / 2 - WIDTH / 2, window.innerWidth - WIDTH - 10));
-      setPos({ top: r.bottom + 8, left });
+      const top = Math.min(r.bottom + 8, window.innerHeight - 12);
+      setPos({ top, left });
     }
     place();
     function onKey(e: KeyboardEvent) {
@@ -48,25 +53,23 @@ export function InfoHint({ children, label = "Mais informações" }: { children:
     };
   }, [open]);
 
-  const balloon: CSSProperties = pos
-    ? {
-        position: "fixed",
-        top: pos.top,
-        left: pos.left,
-        width: WIDTH,
-        zIndex: 1100,
-        background: "var(--surface-1)",
-        border: "1px solid var(--line-2)",
-        borderRadius: "var(--r-sm)",
-        boxShadow: "var(--sh-3, 0 12px 36px rgba(0,0,0,0.4))",
-        padding: "10px 12px",
-        fontSize: 12.5,
-        lineHeight: 1.5,
-        color: "var(--text-mid)",
-        fontWeight: 400,
-        animation: "fc-pop 0.16s cubic-bezier(0.2, 0.7, 0.3, 1) both",
-      }
-    : {};
+  const balloon: CSSProperties = {
+    position: "fixed",
+    top: pos?.top ?? 0,
+    left: pos?.left ?? 0,
+    width: WIDTH,
+    zIndex: 1200,
+    background: "var(--surface-1)",
+    border: "1px solid var(--line-2)",
+    borderRadius: "var(--r-sm)",
+    boxShadow: "var(--sh-3, 0 12px 36px rgba(0,0,0,0.45))",
+    padding: "10px 12px",
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    color: "var(--text-mid)",
+    fontWeight: 400,
+    animation: "fc-pop 0.16s cubic-bezier(0.2, 0.7, 0.3, 1) both",
+  };
 
   return (
     <span style={{ display: "inline-flex", verticalAlign: "middle" }}>
@@ -90,17 +93,20 @@ export function InfoHint({ children, label = "Mais informações" }: { children:
           border: 0,
           borderRadius: "50%",
           background: "transparent",
-          color: "var(--text-lo)",
+          color: "var(--purple-300)",
           cursor: "help",
         }}
       >
         <Icon name="info" size={15} />
       </button>
-      {open && pos && (
-        <span id={tipId} role="tooltip" style={balloon}>
-          {children}
-        </span>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <span id={tipId} role="tooltip" style={balloon}>
+            {children}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }
