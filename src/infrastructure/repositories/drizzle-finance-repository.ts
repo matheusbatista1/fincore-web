@@ -146,6 +146,24 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async deactivateAccount(userId: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ deactivatedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async reactivateAccount(userId: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ deactivatedAt: null, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
   async loadWorkspace(userId: string): Promise<Workspace> {
     return this.run(userId, async (tx) => {
       // Pipelined on the single RLS-scoped transaction connection (one network

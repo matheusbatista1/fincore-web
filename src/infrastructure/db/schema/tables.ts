@@ -50,6 +50,8 @@ export const users = pgTable(
     enabledModules: jsonb("enabled_modules").$type<ModuleKey[]>().notNull().default(sql`'[]'::jsonb`),
     /** Set when the first-run onboarding has been completed; null = not onboarded yet. */
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
+    /** Set when the user requested deletion; a cron purges the account 30 days later. Login clears it. */
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     ...timestamps,
   },
   () => [

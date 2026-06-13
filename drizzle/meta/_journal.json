@@ -43,6 +43,13 @@
       "when": 1781321688101,
       "tag": "0005_swift_the_santerians",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781332475301,
+      "tag": "0006_curvy_sprite",
+      "breakpoints": true
     }
   ]
 }

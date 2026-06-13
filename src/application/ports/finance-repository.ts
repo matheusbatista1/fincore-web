@@ -128,6 +128,10 @@ export interface FinanceRepository {
   updateEnabledModules(userId: string, modules: ModuleKey[]): Promise<void>;
   /** Stamp the first-run onboarding as completed. */
   markOnboarded(userId: string): Promise<void>;
+  /** Mark the account for deletion (a cron purges it after the grace period). */
+  deactivateAccount(userId: string): Promise<void>;
+  /** Clear the deletion mark (called on login — "logged in within the window, keep it"). */
+  reactivateAccount(userId: string): Promise<void>;
   loadWorkspace(userId: string): Promise<Workspace>;
 
   createAccount(userId: string, input: AccountInput): Promise<Account>;

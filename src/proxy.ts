@@ -45,6 +45,9 @@ export async function proxy(request: NextRequest) {
     path === "/forgot-password" ||
     path === "/privacy" ||
     path === "/terms" ||
+    // API routes authenticate themselves (e.g. the purge cron checks CRON_SECRET);
+    // they must not be redirected to the login page.
+    path.startsWith("/api/") ||
     // PWA + icon surfaces must be reachable without a session (otherwise the
     // login page can't load the favicon / apple-touch icon and shows a stale one).
     path === "/offline" ||
