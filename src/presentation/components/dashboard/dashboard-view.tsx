@@ -11,6 +11,7 @@ import { Avatar } from "@/presentation/components/ui/avatar";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { resolveThemeKey } from "@/shared/theme/bank-themes";
 
@@ -135,7 +136,11 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
   const setView = useUIStore((s) => s.setView);
-  const isPersonal = view === "personal";
+  const peopleOn = useModuleEnabled("people");
+  const reportsOn = useModuleEnabled("reports");
+  // Without the People module there are no shares to discount, so the
+  // general/personal lens is meaningless — force the general view.
+  const isPersonal = peopleOn && view === "personal";
 
   const personalInc = Math.max(0, data.personal.incomeCents);
   const personalExp = Math.max(0, data.personal.expenseCents);
@@ -147,36 +152,38 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   return (
     <div className="dash-page">
-      <div
-        className="row"
-        style={{ justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}
-      >
-        <div className="view-toggle">
-          <button type="button" className={!isPersonal ? "on" : ""} onClick={() => setView("general")}>
-            <Icon name="users" size={15} />
-            Geral
-          </button>
-          <button type="button" className={isPersonal ? "on" : ""} onClick={() => setView("personal")}>
-            <Icon name="user" size={15} />
-            Apenas meu
-          </button>
-        </div>
-        <span
-          style={{
-            fontSize: 13,
-            color: "var(--text-lo)",
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            maxWidth: 460,
-          }}
+      {peopleOn && (
+        <div
+          className="row"
+          style={{ justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}
         >
-          <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
-          {isPersonal
-            ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
-            : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
-        </span>
-      </div>
+          <div className="view-toggle">
+            <button type="button" className={!isPersonal ? "on" : ""} onClick={() => setView("general")}>
+              <Icon name="users" size={15} />
+              Geral
+            </button>
+            <button type="button" className={isPersonal ? "on" : ""} onClick={() => setView("personal")}>
+              <Icon name="user" size={15} />
+              Apenas meu
+            </button>
+          </div>
+          <span
+            style={{
+              fontSize: 13,
+              color: "var(--text-lo)",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              maxWidth: 460,
+            }}
+          >
+            <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
+            {isPersonal
+              ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
+              : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
+          </span>
+        </div>
+      )}
 
       {/* HERO */}
       <div className="card rise" style={{ overflow: "hidden", marginBottom: 16 }}>
@@ -217,7 +224,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateColumns: peopleOn ? "1fr 1fr 1fr" : "1fr 1fr",
                 gap: 14,
                 marginTop: 26,
                 paddingTop: 22,
@@ -236,17 +243,19 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   <Money cents={data.investedCents} withSign={false} />
                 </div>
               </div>
-              <div>
-                <div
-                  className="row gap-2"
-                  style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
-                >
-                  <Icon name="hand-coins" size={14} />A receber
+              {peopleOn && (
+                <div>
+                  <div
+                    className="row gap-2"
+                    style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
+                  >
+                    <Icon name="hand-coins" size={14} />A receber
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: "var(--mint-500)" }}>
+                    <Money cents={data.aReceberCents} withSign={false} />
+                  </div>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 18, color: "var(--mint-500)" }}>
-                  <Money cents={data.aReceberCents} withSign={false} />
-                </div>
-              </div>
+              )}
               <div>
                 <div
                   className="row gap-2"
@@ -346,7 +355,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
       {/* INSIGHTS */}
       <div
         className="insight-grid"
-        style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26 }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: peopleOn ? "repeat(4,1fr)" : "repeat(2,1fr)",
+          gap: 14,
+          marginBottom: 26,
+        }}
       >
         <div className="insight">
           <span className="ii" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
@@ -356,29 +370,33 @@ export function DashboardView({ data }: { data: DashboardData }) {
             Sua taxa de poupança é <b>{savingsPct}%</b> da renda do mês.
           </p>
         </div>
-        <div className="insight">
-          <span className="ii" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
-            <Icon name="handshake" size={17} />
-          </span>
-          <p>
-            Você tem{" "}
-            <b>
-              <Money cents={data.aReceberCents} withSign={false} />
-            </b>{" "}
-            a receber de outras pessoas.
-          </p>
-        </div>
-        <div className="insight">
-          <span className="ii" style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}>
-            <Icon name="wallet" size={17} />
-          </span>
-          <p>
-            <b>
-              <Money cents={data.othersCents} withSign={false} />
-            </b>{" "}
-            dos gastos são partes de outras pessoas.
-          </p>
-        </div>
+        {peopleOn && (
+          <>
+            <div className="insight">
+              <span className="ii" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
+                <Icon name="handshake" size={17} />
+              </span>
+              <p>
+                Você tem{" "}
+                <b>
+                  <Money cents={data.aReceberCents} withSign={false} />
+                </b>{" "}
+                a receber de outras pessoas.
+              </p>
+            </div>
+            <div className="insight">
+              <span className="ii" style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}>
+                <Icon name="wallet" size={17} />
+              </span>
+              <p>
+                <b>
+                  <Money cents={data.othersCents} withSign={false} />
+                </b>{" "}
+                dos gastos são partes de outras pessoas.
+              </p>
+            </div>
+          </>
+        )}
         <div className="insight">
           <span className="ii" style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}>
             <Icon name="chart-pie" size={17} />
@@ -440,10 +458,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
               <div>
                 <h3>Gastos por categoria</h3>
               </div>
-              <Link className="card-link" href="/reports">
-                Relatório
-                <Icon name="arrow-right" size={14} />
-              </Link>
+              {reportsOn && (
+                <Link className="card-link" href="/reports">
+                  Relatório
+                  <Icon name="arrow-right" size={14} />
+                </Link>
+              )}
             </div>
             <div className="card-pad">
               {data.totalExpenseCents > 0 ? (
@@ -492,37 +512,39 @@ export function DashboardView({ data }: { data: DashboardData }) {
             </div>
           )}
 
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h3>Pessoas com pendências</h3>
-              </div>
-              <Link className="card-link" href="/people">
-                Ver todas
-                <Icon name="arrow-right" size={14} />
-              </Link>
-            </div>
-            <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-              {data.debtors.length === 0 ? (
-                <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
-                  Ninguém te deve no momento.
+          {peopleOn && (
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h3>Pessoas com pendências</h3>
                 </div>
-              ) : (
-                data.debtors.map((p) => (
-                  <Link className="lrow" href="/people" key={p.id}>
-                    <Avatar name={p.name} color={p.color} size={40} radius={12} />
-                    <div className="l-main">
-                      <div className="l-title">{p.name}</div>
-                      <div className="l-sub">{p.relationship || "te deve"}</div>
-                    </div>
-                    <div className="l-amt pos">
-                      <Money cents={p.balanceCents} withSign={false} />
-                    </div>
-                  </Link>
-                ))
-              )}
+                <Link className="card-link" href="/people">
+                  Ver todas
+                  <Icon name="arrow-right" size={14} />
+                </Link>
+              </div>
+              <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                {data.debtors.length === 0 ? (
+                  <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
+                    Ninguém te deve no momento.
+                  </div>
+                ) : (
+                  data.debtors.map((p) => (
+                    <Link className="lrow" href="/people" key={p.id}>
+                      <Avatar name={p.name} color={p.color} size={40} radius={12} />
+                      <div className="l-main">
+                        <div className="l-title">{p.name}</div>
+                        <div className="l-sub">{p.relationship || "te deve"}</div>
+                      </div>
+                      <div className="l-amt pos">
+                        <Money cents={p.balanceCents} withSign={false} />
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

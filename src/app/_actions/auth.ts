@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { sanitizeModules } from "@/shared/modules";
 
 /** The request's public origin (works on localhost, Vercel preview and prod). */
 async function requestOrigin(): Promise<string> {
@@ -71,6 +72,37 @@ export async function updateProfileAction(
   const parsed = profileSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   await financeRepository.updateProfile(user.id, parsed.data);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+const modulesSchema = z.object({ modules: z.array(z.string()) });
+
+/** Persist the set of optional modules the user has turned on (settings toggle). */
+export async function updateModulesAction(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = modulesSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Dados inválidos." };
+  await financeRepository.updateEnabledModules(user.id, sanitizeModules(parsed.data.modules));
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Finish first-run onboarding: save the chosen modules and stamp the flag. */
+export async function markOnboardedAction(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = modulesSchema.safeParse(raw);
+  await financeRepository.updateEnabledModules(
+    user.id,
+    parsed.success ? sanitizeModules(parsed.data.modules) : [],
+  );
+  await financeRepository.markOnboarded(user.id);
   revalidatePath("/", "layout");
   return { ok: true };
 }

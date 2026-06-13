@@ -1,5 +1,5 @@
 import { cache } from "react";
-import type { FinanceRepository, Workspace } from "./ports/finance-repository";
+import type { FinanceRepository, UserProfile, Workspace } from "./ports/finance-repository";
 
 /**
  * Per-request memoized workspace load. React's `cache()` dedupes calls with the
@@ -9,4 +9,9 @@ import type { FinanceRepository, Workspace } from "./ports/finance-repository";
  */
 export const loadWorkspaceCached = cache(
   (repo: FinanceRepository, userId: string): Promise<Workspace> => repo.loadWorkspace(userId),
+);
+
+/** Per-request memoized profile/settings load, shared between the layout and route guards. */
+export const getProfileCached = cache(
+  (repo: FinanceRepository, userId: string): Promise<UserProfile> => repo.getProfile(userId),
 );

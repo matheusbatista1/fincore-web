@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
+import { getProfileCached } from "@/application/loaders";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
+import { ModulesCard } from "@/presentation/components/settings/modules-card";
 import { SettingsView } from "@/presentation/components/settings/settings-view";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -32,7 +34,7 @@ export default async function SettingsPage() {
 
   const [{ categories }, profile] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
-    financeRepository.getProfile(user.id),
+    getProfileCached(financeRepository, user.id),
   ]);
   const email = user.email ?? "";
   const fallback = profileFromEmail(email);
@@ -48,6 +50,8 @@ export default async function SettingsPage() {
   return (
     <div className="settings-page" style={{ maxWidth: 720 }}>
       <SettingsView name={name} email={email} initials={initials} />
+
+      <ModulesCard enabled={profile.enabledModules} />
 
       {/* Categorias (feature real, mesma linguagem visual) */}
       <div className="card" style={{ marginTop: 16 }}>

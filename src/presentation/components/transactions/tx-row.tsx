@@ -5,6 +5,7 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
@@ -12,6 +13,7 @@ import { relativeDateLabel } from "@/shared/formatting/dates";
 export function TxRow({ item, today }: { item: TransactionListItem; today: string }) {
   const isTransfer = item.kind === "transfer";
   const cat = item.category;
+  const peopleOn = useModuleEnabled("people");
 
   const icStyle: CSSProperties = isTransfer
     ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
@@ -31,7 +33,7 @@ export function TxRow({ item, today }: { item: TransactionListItem; today: strin
     item.sourceLabel ??
     (item.transferFromName && item.transferToName
       ? `${item.transferFromName} → ${item.transferToName}`
-      : item.fromPersonName
+      : peopleOn && item.fromPersonName
         ? `Pagamento de ${item.fromPersonName}`
         : "");
 
@@ -60,7 +62,7 @@ export function TxRow({ item, today }: { item: TransactionListItem; today: strin
         </div>
       </div>
       <div className="row gap-3">
-        {item.shares.length > 0 && (
+        {peopleOn && item.shares.length > 0 && (
           <div className="row" style={{ marginRight: 2 }}>
             {item.shares.slice(0, 3).map((p, i) => (
               <span

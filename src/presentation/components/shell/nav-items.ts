@@ -1,3 +1,5 @@
+import { isHrefEnabled, type ModuleKey } from "@/shared/modules";
+
 export interface NavItem {
   readonly href: string;
   readonly label: string;
@@ -70,4 +72,23 @@ const ALL: NavItem[] = [
 export function titleForPath(pathname: string): string {
   const item = ALL.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
   return item?.label ?? "FinCore";
+}
+
+/** Sidebar groups with module-gated items removed (and empty groups dropped). */
+export function visibleNavGroups(enabled: readonly ModuleKey[]): NavGroup[] {
+  return NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => isHrefEnabled(enabled, i.href)),
+  })).filter((g) => g.items.length > 0);
+}
+
+/** Mobile "Mais" sheet items with module-gated routes removed. */
+export function visibleMobileMore(enabled: readonly ModuleKey[]): NavItem[] {
+  return MOBILE_MORE.filter((i) => isHrefEnabled(enabled, i.href));
+}
+
+/** Mobile bottom tabs — People is pinned, so when off it falls back to a core route. */
+export function visibleMobileTabs(enabled: readonly ModuleKey[]): NavItem[] {
+  const fallback: NavItem = { href: "/transactions", label: "Transações", icon: "arrow-left-right" };
+  return MOBILE_TABS.map((t) => (isHrefEnabled(enabled, t.href) ? t : fallback));
 }

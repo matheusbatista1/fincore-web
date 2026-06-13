@@ -10,8 +10,9 @@ import {
   type TxFormCategory,
   type TxFormPerson,
 } from "@/presentation/components/forms/new-transaction-dialog";
-import { MOBILE_MORE, MOBILE_TABS } from "@/presentation/components/shell/nav-items";
+import { visibleMobileMore, visibleMobileTabs } from "@/presentation/components/shell/nav-items";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useModules } from "@/presentation/providers/modules-provider";
 
 const isActive = (pathname: string, href: string): boolean =>
   pathname === href || pathname.startsWith(`${href}/`);
@@ -30,13 +31,16 @@ export function MobileNav({
   pendingCount: number;
 }) {
   const pathname = usePathname();
+  const enabled = useModules();
+  const tabs = visibleMobileTabs(enabled);
+  const more = visibleMobileMore(enabled);
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = MOBILE_MORE.some((i) => isActive(pathname, i.href));
+  const moreActive = more.some((i) => isActive(pathname, i.href));
 
   return (
     <>
       <nav className="bottom-nav">
-        {MOBILE_TABS.map((tab) => (
+        {tabs.map((tab) => (
           <Link
             key={tab.href}
             href={tab.href}
@@ -83,7 +87,7 @@ export function MobileNav({
             <div className="sheet-grip" />
             <h3 className="sheet-title">Mais</h3>
             <div className="more-grid">
-              {MOBILE_MORE.map((item) => (
+              {more.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}

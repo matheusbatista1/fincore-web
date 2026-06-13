@@ -29,6 +29,13 @@
       "when": 1781137771946,
       "tag": "0003_giant_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781318427214,
+      "tag": "0004_worthless_rictor",
+      "breakpoints": true
     }
   ]
 }

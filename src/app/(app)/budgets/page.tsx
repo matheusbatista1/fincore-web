@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { type BudgetView, getBudgets } from "@/application/use-cases/get-budgets";
-import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { BudgetFormDialog } from "@/presentation/components/forms/budget-form-dialog";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
@@ -9,6 +7,7 @@ import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { monthLabel } from "@/shared/formatting/dates";
 import { currentMonthInBrazil } from "@/shared/formatting/now";
+import { requireModule } from "../_guards";
 
 function meterClass(budget: BudgetView): string {
   if (budget.over) return "danger";
@@ -17,8 +16,7 @@ function meterClass(budget: BudgetView): string {
 }
 
 export default async function BudgetsPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireModule("budgets");
 
   const month = currentMonthInBrazil();
   const data = await getBudgets(financeRepository, user.id, month);

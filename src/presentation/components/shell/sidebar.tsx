@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
-import { NAV_GROUPS, SETTINGS_ITEM } from "@/presentation/components/shell/nav-items";
+import { SETTINGS_ITEM, visibleNavGroups } from "@/presentation/components/shell/nav-items";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
+import { useModules } from "@/presentation/providers/modules-provider";
 
 const isActive = (pathname: string, href: string): boolean =>
   pathname === href || pathname.startsWith(`${href}/`);
@@ -20,6 +21,7 @@ export function Sidebar({
   displayName?: string;
 }) {
   const pathname = usePathname();
+  const navGroups = visibleNavGroups(useModules());
   const name = displayName || userEmail.split("@")[0] || "Você";
   const initials = name
     .split(" ")
@@ -46,7 +48,7 @@ export function Sidebar({
         </span>
       </Link>
 
-      {NAV_GROUPS.map((group) => (
+      {navGroups.map((group) => (
         <div className="nav-group" key={group.label}>
           <div className="nav-label">{group.label}</div>
           {group.items.map((item) => (

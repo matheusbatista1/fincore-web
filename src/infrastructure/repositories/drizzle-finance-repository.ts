@@ -5,6 +5,7 @@ import type {
   NewTransactionEntry,
   SettlementData,
   UpdateTransactionCommand,
+  UserProfile,
   Workspace,
 } from "@/application/ports/finance-repository";
 import type { Account } from "@/domain/entities/account";
@@ -13,6 +14,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import { type ModuleKey, sanitizeModules } from "@/shared/modules";
 import type {
   AccountInput,
   BudgetInput,
@@ -90,15 +92,21 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
-  async getProfile(userId: string): Promise<{ displayName: string | null; email: string }> {
-    return this.run(userId, async (tx) =>
+  async getProfile(userId: string): Promise<UserProfile> {
+    const row = await this.run(userId, async (tx) =>
       one(
         await tx
-          .select({ displayName: schema.users.displayName, email: schema.users.email })
+          .select({
+            displayName: schema.users.displayName,
+            email: schema.users.email,
+            enabledModules: schema.users.enabledModules,
+            onboardedAt: schema.users.onboardedAt,
+          })
           .from(schema.users)
           .where(eq(schema.users.id, userId)),
       ),
     );
+    return { ...row, enabledModules: sanitizeModules(row.enabledModules) };
   }
 
   async updateProfile(userId: string, input: { displayName: string }): Promise<void> {
@@ -106,6 +114,24 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       await tx
         .update(schema.users)
         .set({ displayName: input.displayName, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async updateEnabledModules(userId: string, modules: ModuleKey[]): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ enabledModules: sanitizeModules(modules), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async markOnboarded(userId: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ onboardedAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.users.id, userId));
     });
   }

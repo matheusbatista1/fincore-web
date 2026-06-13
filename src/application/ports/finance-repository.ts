@@ -12,6 +12,7 @@ import type {
   TransactionKind,
 } from "@/domain/entities/transaction";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
+import type { ModuleKey } from "@/shared/modules";
 import type {
   AccountInput,
   BudgetInput,
@@ -20,6 +21,14 @@ import type {
   GoalInput,
   PersonInput,
 } from "@/shared/schemas/entities";
+
+/** The user's profile + per-user settings (display name, enabled modules, onboarding state). */
+export interface UserProfile {
+  readonly displayName: string | null;
+  readonly email: string;
+  readonly enabledModules: ModuleKey[];
+  readonly onboardedAt: Date | null;
+}
 
 /**
  * A user's full financial dataset, as domain entities. Personal-finance volumes
@@ -109,9 +118,13 @@ export interface SettlementData {
  */
 export interface FinanceRepository {
   ensureProfile(userId: string, email: string): Promise<void>;
-  /** The user's display profile (name is editable via settings). */
-  getProfile(userId: string): Promise<{ displayName: string | null; email: string }>;
+  /** The user's profile + settings (name, enabled modules, onboarding state). */
+  getProfile(userId: string): Promise<UserProfile>;
   updateProfile(userId: string, input: { displayName: string }): Promise<void>;
+  /** Persist the set of optional modules the user has turned on. */
+  updateEnabledModules(userId: string, modules: ModuleKey[]): Promise<void>;
+  /** Stamp the first-run onboarding as completed. */
+  markOnboarded(userId: string): Promise<void>;
   loadWorkspace(userId: string): Promise<Workspace>;
 
   createAccount(userId: string, input: AccountInput): Promise<Account>;

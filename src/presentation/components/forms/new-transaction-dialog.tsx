@@ -8,6 +8,7 @@ import { Money } from "@/domain/money/money";
 import { calculateSplit } from "@/domain/services/split.calculator";
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
@@ -209,7 +210,10 @@ function TransactionForm({
   onDone: () => void;
 }) {
   const editing = initial !== undefined;
-  const initialShares = initial?.shares ?? [];
+  // Without the People module there's no expense split or income-from-person:
+  // the form behaves as a plain personal transaction (split stays 100% "me").
+  const peopleOn = useModuleEnabled("people");
+  const initialShares = peopleOn ? (initial?.shares ?? []) : [];
   // "Equal" only when the person shares match each other AND my share fits the
   // same even division (within rounding remainders) — otherwise saving an
   // untouched form would silently re-equalize a custom split.
@@ -628,52 +632,54 @@ function TransactionForm({
                 ))}
               </div>
             </div>
-            <div className="field">
-              <label>
-                É pagamento de alguém?{" "}
-                <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· opcional</span>
-              </label>
-              <div className="chip-select">
-                <button
-                  type="button"
-                  className={`person-chip${!fromPerson ? " on" : ""}`}
-                  onClick={() => setFromPerson(null)}
-                >
-                  <Icon
-                    name="briefcase"
-                    size={15}
-                    style={{ color: !fromPerson ? "var(--purple-300)" : "var(--text-lo)" }}
-                  />
-                  Ganho próprio
-                </button>
-                {people.map((p) => (
+            {peopleOn && (
+              <div className="field">
+                <label>
+                  É pagamento de alguém?{" "}
+                  <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· opcional</span>
+                </label>
+                <div className="chip-select">
                   <button
                     type="button"
-                    key={p.id}
-                    className={`person-chip${fromPerson === p.id ? " on" : ""}`}
-                    onClick={() => setFromPerson(p.id)}
+                    className={`person-chip${!fromPerson ? " on" : ""}`}
+                    onClick={() => setFromPerson(null)}
                   >
-                    <span className="pa" style={{ background: p.color }}>
-                      {p.name[0]}
-                    </span>
-                    {firstName(p.name)}
+                    <Icon
+                      name="briefcase"
+                      size={15}
+                      style={{ color: !fromPerson ? "var(--purple-300)" : "var(--text-lo)" }}
+                    />
+                    Ganho próprio
                   </button>
-                ))}
-              </div>
-              {fromPerson && (
-                <div style={INFO_STYLE}>
-                  <Icon
-                    name="info"
-                    size={14}
-                    style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
-                  />
-                  <span>
-                    Abate <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(cents)}</b> da dívida de{" "}
-                    {personFirst(fromPerson)}. Não conta como sua renda no modo Pessoal.
-                  </span>
+                  {people.map((p) => (
+                    <button
+                      type="button"
+                      key={p.id}
+                      className={`person-chip${fromPerson === p.id ? " on" : ""}`}
+                      onClick={() => setFromPerson(p.id)}
+                    >
+                      <span className="pa" style={{ background: p.color }}>
+                        {p.name[0]}
+                      </span>
+                      {firstName(p.name)}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+                {fromPerson && (
+                  <div style={INFO_STYLE}>
+                    <Icon
+                      name="info"
+                      size={14}
+                      style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
+                    />
+                    <span>
+                      Abate <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(cents)}</b> da dívida de{" "}
+                      {personFirst(fromPerson)}. Não conta como sua renda no modo Pessoal.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="summary-box">
               <div className="sb-row">
                 <span className="k">Entrada na carteira</span>
@@ -929,177 +935,130 @@ function TransactionForm({
               </div>
             )}
 
-            {/* método */}
-            <div className="field">
-              <label>Método de divisão</label>
-              <div className="seg">
-                <button
-                  type="button"
-                  className={method === "equal" ? "on" : ""}
-                  onClick={() => setMethod("equal")}
-                >
-                  Dividir igual
-                </button>
-                <button
-                  type="button"
-                  className={method === "custom" ? "on" : ""}
-                  onClick={() => setMethod("custom")}
-                >
-                  Personalizado
-                </button>
-              </div>
-            </div>
+            {peopleOn && (
+              <>
+                {/* método */}
+                <div className="field">
+                  <label>Método de divisão</label>
+                  <div className="seg">
+                    <button
+                      type="button"
+                      className={method === "equal" ? "on" : ""}
+                      onClick={() => setMethod("equal")}
+                    >
+                      Dividir igual
+                    </button>
+                    <button
+                      type="button"
+                      className={method === "custom" ? "on" : ""}
+                      onClick={() => setMethod("custom")}
+                    >
+                      Personalizado
+                    </button>
+                  </div>
+                </div>
 
-            {/* participantes */}
-            <div className="field">
-              <label>Quem entra no rateio?</label>
-              <div className="chip-select">
-                <button
-                  type="button"
-                  className={`person-chip${meIn ? " on" : ""}`}
-                  onClick={() => setMeIn((v) => !v)}
-                >
-                  <span
-                    className="pa"
-                    style={{ background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))" }}
-                  >
-                    EU
-                  </span>
-                  Você
-                  <span className="check">
-                    <Icon name="check" size={14} />
-                  </span>
-                </button>
-                {people.map((p) => (
-                  <button
-                    type="button"
-                    key={p.id}
-                    className={`person-chip${selected.includes(p.id) ? " on" : ""}`}
-                    onClick={() => toggleSelected(p.id)}
-                  >
-                    <span className="pa" style={{ background: p.color }}>
-                      {p.name[0]}
-                    </span>
-                    {firstName(p.name)}
-                    <span className="check">
-                      <Icon name="check" size={14} />
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div style={INFO_STYLE}>
-                <Icon
-                  name="info"
-                  size={14}
-                  style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
-                />
-                <span>
-                  {meIn
-                    ? "Você está incluído. Remova “Você” se pagou no seu cartão mas a despesa é só de outras pessoas."
-                    : "Você está fora (paga R$ 0,00). O valor divide entre as pessoas selecionadas."}
-                </span>
-              </div>
-              <div className="row gap-2" style={{ marginTop: 12 }}>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-faint)",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Atalhos
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-sm"
-                  style={{ height: 30 }}
-                  onClick={() => {
-                    setMethod("equal");
-                    setMeIn(true);
-                    setSelected([]);
-                  }}
-                >
-                  Só eu
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-sm"
-                  style={{ height: 30 }}
-                  onClick={() => {
-                    setMethod("equal");
-                    setMeIn(true);
-                    setSelected(people.map((p) => p.id));
-                  }}
-                >
-                  Todos
-                </button>
-              </div>
-            </div>
-
-            {/* divisão */}
-            {(meIn || selected.length > 0) && (
-              <div className="field">
-                <label>{parcelado && canParcel ? "Divisão por parcela" : "Divisão"}</label>
-                <div
-                  style={{
-                    background: "var(--surface-2)",
-                    border: "1px solid var(--line)",
-                    borderRadius: "var(--r-md)",
-                    padding: "4px 16px",
-                  }}
-                >
-                  <div className="split-row" style={{ opacity: meIn ? 1 : 0.5 }}>
-                    <div className="sr-name">
+                {/* participantes */}
+                <div className="field">
+                  <label>Quem entra no rateio?</label>
+                  <div className="chip-select">
+                    <button
+                      type="button"
+                      className={`person-chip${meIn ? " on" : ""}`}
+                      onClick={() => setMeIn((v) => !v)}
+                    >
                       <span
                         className="pa"
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: "50%",
-                          display: "grid",
-                          placeItems: "center",
-                          background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))",
-                          color: "#fff",
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
+                        style={{ background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))" }}
                       >
                         EU
                       </span>
-                      Você{" "}
-                      {!meIn && (
-                        <span style={{ fontSize: 11.5, color: "var(--text-lo)", fontWeight: 500 }}>
-                          · fora
-                        </span>
-                      )}
-                    </div>
-                    <div className="sr-amt">
-                      <div
-                        className="input"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "flex-end",
-                          background: "transparent",
-                          border: 0,
-                          height: 40,
-                          fontWeight: 700,
-                          color: meShareCents < 0 ? "var(--rose-500)" : "var(--text-hi)",
-                        }}
+                      Você
+                      <span className="check">
+                        <Icon name="check" size={14} />
+                      </span>
+                    </button>
+                    {people.map((p) => (
+                      <button
+                        type="button"
+                        key={p.id}
+                        className={`person-chip${selected.includes(p.id) ? " on" : ""}`}
+                        onClick={() => toggleSelected(p.id)}
                       >
-                        {formatBRLAbsolute(meShareCents)}
-                      </div>
-                    </div>
-                    <div className="sr-share">{pct(meShareCents)}%</div>
+                        <span className="pa" style={{ background: p.color }}>
+                          {p.name[0]}
+                        </span>
+                        {firstName(p.name)}
+                        <span className="check">
+                          <Icon name="check" size={14} />
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                  {selected.map((id) => {
-                    const p = people.find((x) => x.id === id);
-                    if (!p) return null;
-                    const shareCents = split.shares.get(id)?.cents ?? 0;
-                    return (
-                      <div className="split-row" key={id}>
+                  <div style={INFO_STYLE}>
+                    <Icon
+                      name="info"
+                      size={14}
+                      style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                    />
+                    <span>
+                      {meIn
+                        ? "Você está incluído. Remova “Você” se pagou no seu cartão mas a despesa é só de outras pessoas."
+                        : "Você está fora (paga R$ 0,00). O valor divide entre as pessoas selecionadas."}
+                    </span>
+                  </div>
+                  <div className="row gap-2" style={{ marginTop: 12 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-faint)",
+                        fontWeight: 700,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Atalhos
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-quiet btn-sm"
+                      style={{ height: 30 }}
+                      onClick={() => {
+                        setMethod("equal");
+                        setMeIn(true);
+                        setSelected([]);
+                      }}
+                    >
+                      Só eu
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-quiet btn-sm"
+                      style={{ height: 30 }}
+                      onClick={() => {
+                        setMethod("equal");
+                        setMeIn(true);
+                        setSelected(people.map((p) => p.id));
+                      }}
+                    >
+                      Todos
+                    </button>
+                  </div>
+                </div>
+
+                {/* divisão */}
+                {(meIn || selected.length > 0) && (
+                  <div className="field">
+                    <label>{parcelado && canParcel ? "Divisão por parcela" : "Divisão"}</label>
+                    <div
+                      style={{
+                        background: "var(--surface-2)",
+                        border: "1px solid var(--line)",
+                        borderRadius: "var(--r-md)",
+                        padding: "4px 16px",
+                      }}
+                    >
+                      <div className="split-row" style={{ opacity: meIn ? 1 : 0.5 }}>
                         <div className="sr-name">
                           <span
                             className="pa"
@@ -1109,69 +1068,124 @@ function TransactionForm({
                               borderRadius: "50%",
                               display: "grid",
                               placeItems: "center",
-                              background: p.color,
+                              background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))",
                               color: "#fff",
                               fontSize: 12,
                               fontWeight: 700,
                             }}
                           >
-                            {p.name[0]}
+                            EU
                           </span>
-                          {firstName(p.name)}
-                        </div>
-                        <div className="sr-amt">
-                          {method === "custom" ? (
-                            <input
-                              className="input"
-                              inputMode="decimal"
-                              placeholder="0,00"
-                              value={custom[id] ?? ""}
-                              onChange={(e) =>
-                                // Keep the raw pt-BR text; reaisToCents treats "," as the decimal mark.
-                                setCustom((c) => ({ ...c, [id]: e.target.value }))
-                              }
-                            />
-                          ) : (
-                            <div
-                              className="input"
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "flex-end",
-                                background: "transparent",
-                                border: 0,
-                                height: 40,
-                                fontWeight: 700,
-                                color: "var(--text-hi)",
-                              }}
-                            >
-                              {formatBRLAbsolute(shareCents)}
-                            </div>
+                          Você{" "}
+                          {!meIn && (
+                            <span style={{ fontSize: 11.5, color: "var(--text-lo)", fontWeight: 500 }}>
+                              · fora
+                            </span>
                           )}
                         </div>
-                        <div className="sr-share">{pct(shareCents)}%</div>
+                        <div className="sr-amt">
+                          <div
+                            className="input"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "flex-end",
+                              background: "transparent",
+                              border: 0,
+                              height: 40,
+                              fontWeight: 700,
+                              color: meShareCents < 0 ? "var(--rose-500)" : "var(--text-hi)",
+                            }}
+                          >
+                            {formatBRLAbsolute(meShareCents)}
+                          </div>
+                        </div>
+                        <div className="sr-share">{pct(meShareCents)}%</div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      {selected.map((id) => {
+                        const p = people.find((x) => x.id === id);
+                        if (!p) return null;
+                        const shareCents = split.shares.get(id)?.cents ?? 0;
+                        return (
+                          <div className="split-row" key={id}>
+                            <div className="sr-name">
+                              <span
+                                className="pa"
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: "50%",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  background: p.color,
+                                  color: "#fff",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {p.name[0]}
+                              </span>
+                              {firstName(p.name)}
+                            </div>
+                            <div className="sr-amt">
+                              {method === "custom" ? (
+                                <input
+                                  className="input"
+                                  inputMode="decimal"
+                                  placeholder="0,00"
+                                  value={custom[id] ?? ""}
+                                  onChange={(e) =>
+                                    // Keep the raw pt-BR text; reaisToCents treats "," as the decimal mark.
+                                    setCustom((c) => ({ ...c, [id]: e.target.value }))
+                                  }
+                                />
+                              ) : (
+                                <div
+                                  className="input"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "flex-end",
+                                    background: "transparent",
+                                    border: 0,
+                                    height: 40,
+                                    fontWeight: 700,
+                                    color: "var(--text-hi)",
+                                  }}
+                                >
+                                  {formatBRLAbsolute(shareCents)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="sr-share">{pct(shareCents)}%</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* resumo */}
             <div className="summary-box">
-              <div className="sb-row">
-                <span className="k">Sua parte{parcelado && canParcel ? " (por parcela)" : ""}</span>
-                <span className="v">{formatBRLAbsolute(Math.max(0, meShareCents))}</span>
-              </div>
-              <div className="sb-row">
-                <span className="k">
-                  {meIn ? "Pendente de terceiros" : "A receber das pessoas"}
-                  {parcelado && canParcel ? " (por parcela)" : ""}
-                </span>
-                <span className="v" style={{ color: "var(--mint-500)" }}>
-                  {formatBRLAbsolute(split.othersTotal.cents)}
-                </span>
-              </div>
+              {peopleOn && (
+                <>
+                  <div className="sb-row">
+                    <span className="k">Sua parte{parcelado && canParcel ? " (por parcela)" : ""}</span>
+                    <span className="v">{formatBRLAbsolute(Math.max(0, meShareCents))}</span>
+                  </div>
+                  <div className="sb-row">
+                    <span className="k">
+                      {meIn ? "Pendente de terceiros" : "A receber das pessoas"}
+                      {parcelado && canParcel ? " (por parcela)" : ""}
+                    </span>
+                    <span className="v" style={{ color: "var(--mint-500)" }}>
+                      {formatBRLAbsolute(split.othersTotal.cents)}
+                    </span>
+                  </div>
+                </>
+              )}
               {parcelado && canParcel && (
                 <div className="sb-row">
                   <span className="k">Valor da parcela</span>

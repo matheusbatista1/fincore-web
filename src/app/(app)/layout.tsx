@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { getProfileCached } from "@/application/loaders";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -11,8 +12,10 @@ import { PageHead } from "@/presentation/components/shell/page-head";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
 import { Sidebar } from "@/presentation/components/shell/sidebar";
 import { TxModalsHost } from "@/presentation/components/transactions/tx-modals-host";
+import { ModulesProvider } from "@/presentation/providers/modules-provider";
 import { LONG_MONTHS, monthLabel } from "@/shared/formatting/dates";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
+import { isModuleEnabled } from "@/shared/modules";
 
 /** Derive a display name from the account email when no profile name is set. */
 function nameFromEmail(email: string): string {
@@ -33,7 +36,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const [workspace, transactions, profile] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
-    financeRepository.getProfile(user.id),
+    getProfileCached(financeRepository, user.id),
   ]);
   const formData = {
     accounts: workspace.accounts.map((a) => ({
@@ -52,7 +55,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       icon: c.icon,
     })),
   };
-  const pendingCount = workspace.people.filter((p) => p.balanceCents !== 0).length;
+  const enabledModules = profile.enabledModules;
+  const peopleOn = isModuleEnabled(enabledModules, "people");
+  const pendingCount = peopleOn ? workspace.people.filter((p) => p.balanceCents !== 0).length : 0;
 
   const today = todayInBrazil();
   const displayName = profile.displayName ?? nameFromEmail(user.email ?? "");
@@ -70,23 +75,27 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       billCents: c.billCents,
       utilization: c.utilization,
     })),
-    debtors: workspace.people
-      .filter((p) => p.balanceCents > 0)
-      .map((p) => ({
+    debtors: peopleOn
+      ? workspace.people
+          .filter((p) => p.balanceCents > 0)
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            relationship: p.relationship,
+            balanceCents: p.balanceCents,
+          }))
+      : [],
+    today,
+  };
+  const searchPeople = peopleOn
+    ? workspace.people.map((p) => ({
         id: p.id,
         name: p.name,
         relationship: p.relationship,
+        color: p.color,
         balanceCents: p.balanceCents,
-      })),
-    today,
-  };
-  const searchPeople = workspace.people.map((p) => ({
-    id: p.id,
-    name: p.name,
-    relationship: p.relationship,
-    color: p.color,
-    balanceCents: p.balanceCents,
-  }));
+      }))
+    : [];
   const searchCards = workspace.cards.map((c) => ({
     id: c.id,
     bank: c.bank,
@@ -97,25 +106,27 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const searchTransactions = transactions.slice(0, 300);
 
   return (
-    <div className="shell">
-      <Sidebar userEmail={user.email ?? ""} pendingCount={pendingCount} displayName={displayName} />
-      <main className="main">
-        <AppHeader
-          {...formData}
-          searchPeople={searchPeople}
-          searchCards={searchCards}
-          transactions={searchTransactions}
-          notif={notif}
-        />
-        <div className="page">
-          <PageHead firstName={firstName} todayLabel={todayLabel} monthChip={monthChip} />
-          <PullToRefresh>
-            <PageTransition>{children}</PageTransition>
-          </PullToRefresh>
-        </div>
-      </main>
-      <MobileNav {...formData} pendingCount={pendingCount} />
-      <TxModalsHost {...formData} transactions={transactions} today={today} />
-    </div>
+    <ModulesProvider value={enabledModules}>
+      <div className="shell">
+        <Sidebar userEmail={user.email ?? ""} pendingCount={pendingCount} displayName={displayName} />
+        <main className="main">
+          <AppHeader
+            {...formData}
+            searchPeople={searchPeople}
+            searchCards={searchCards}
+            transactions={searchTransactions}
+            notif={notif}
+          />
+          <div className="page">
+            <PageHead firstName={firstName} todayLabel={todayLabel} monthChip={monthChip} />
+            <PullToRefresh>
+              <PageTransition>{children}</PageTransition>
+            </PullToRefresh>
+          </div>
+        </main>
+        <MobileNav {...formData} pendingCount={pendingCount} />
+        <TxModalsHost {...formData} transactions={transactions} today={today} />
+      </div>
+    </ModulesProvider>
   );
 }

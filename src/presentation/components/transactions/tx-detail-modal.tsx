@@ -6,6 +6,7 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
@@ -27,6 +28,7 @@ export function TxDetailModal({ today }: { today: string }) {
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
+  const peopleOn = useModuleEnabled("people");
 
   async function removeDirect(item: TransactionListItem) {
     const result = await deleteTransactionAction({ id: item.id, scope: "one" });
@@ -139,7 +141,7 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
-            {tx.shares.length > 0 && (
+            {peopleOn && tx.shares.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
                   Rateio
