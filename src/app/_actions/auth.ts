@@ -20,6 +20,8 @@ export interface AuthFormState {
   readonly error?: string;
   /** Set when the password was accepted but a second factor (TOTP) is still required. */
   readonly mfaRequired?: boolean;
+  /** Set when a password-reset email has been sent. */
+  readonly sent?: boolean;
 }
 
 const credentialsSchema = z.object({
@@ -227,6 +229,31 @@ export async function removeAvatarAction(): Promise<{ ok: true } | { ok: false; 
   await financeRepository.updateAvatar(user.id, null);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/** Send a password-reset email. Always reports success (don't reveal if the e-mail exists). */
+export async function requestPasswordResetAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (email.length < 3) return { error: "Informe um e-mail válido." };
+  const supabase = await createSupabaseServerClient();
+  const redirectTo = `${await requestOrigin()}/auth/callback?next=/reset-password`;
+  await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  return { sent: true };
+}
+
+/** Set a new password (used from the recovery session opened by the reset link). */
+export async function updatePasswordAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm") ?? "");
+  if (password.length < 6) return { error: "A senha precisa de ao menos 6 caracteres." };
+  if (password !== confirm) return { error: "As senhas não coincidem." };
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: "Não foi possível atualizar a senha. Abra o link do e-mail novamente." };
+  redirect("/dashboard");
 }
 
 export async function signOutAction(): Promise<void> {

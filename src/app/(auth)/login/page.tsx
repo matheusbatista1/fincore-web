@@ -6,7 +6,6 @@ import { type AuthFormState, authenticateAction, verifyMfaAction } from "@/app/_
 import { MfaCodeForm } from "@/presentation/components/auth/mfa-code-form";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
-import { toast } from "@/presentation/stores/ui-store";
 
 const INITIAL: AuthFormState = {};
 
@@ -113,13 +112,9 @@ export default function LoginPage() {
               <div className="field">
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <label htmlFor="login-password">Senha</label>
-                  <button
-                    type="button"
-                    className="lf-link"
-                    onClick={() => toast("Recuperação de senha em breve.", "info")}
-                  >
+                  <Link href="/forgot-password" className="lf-link">
                     Esqueceu?
-                  </button>
+                  </Link>
                 </div>
                 <div className="input-ic">
                   <Icon name="lock" size={17} />
