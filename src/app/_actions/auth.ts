@@ -150,11 +150,17 @@ type EnrollResult =
 /** Start TOTP enrollment: clears stale unverified factors, returns the QR + secret. */
 export async function enrollMfaAction(): Promise<EnrollResult> {
   const supabase = await createSupabaseServerClient();
+  // Remove any leftover unverified factors so retries don't pile up.
   const { data: existing } = await supabase.auth.mfa.listFactors();
   for (const f of existing?.totp ?? []) {
     if (f.status !== "verified") await supabase.auth.mfa.unenroll({ factorId: f.id });
   }
-  const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+  // A unique friendly name avoids the "factor with the friendly name '' already
+  // exists" collision when a previous unverified factor lingers.
+  const { data, error } = await supabase.auth.mfa.enroll({
+    factorType: "totp",
+    friendlyName: `totp-${Date.now()}`,
+  });
   if (error || !data) return { ok: false, error: error?.message ?? "Não foi possível iniciar o 2FA." };
   return { ok: true, factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret };
 }
