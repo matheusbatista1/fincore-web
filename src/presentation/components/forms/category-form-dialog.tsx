@@ -14,7 +14,7 @@ import {
 import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { FormModal } from "@/presentation/components/ui/form-modal";
 import { toast } from "@/presentation/stores/ui-store";
-import { PERSON_COLORS } from "@/shared/theme/person-colors";
+import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR } from "@/shared/theme/category-colors";
 
 interface CategoryView {
   readonly id: string;
@@ -58,7 +58,7 @@ function CategoryForm({
 }) {
   const editing = category !== undefined;
   const [name, setName] = useState(category?.name ?? "");
-  const [color, setColor] = useState(category?.color || PERSON_COLORS[4]);
+  const [color, setColor] = useState(category?.color || DEFAULT_CATEGORY_COLOR);
   const [icon, setIcon] = useState(category?.icon || DEFAULT_CATEGORY_ICON);
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -117,7 +117,15 @@ function CategoryForm({
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
         <span
           className="l-ic"
-          style={{ width: 56, height: 56, borderRadius: 16, background: `${color}22`, color }}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 16,
+            background: `${color}22`,
+            color,
+            display: "grid",
+            placeItems: "center",
+          }}
         >
           <CategoryIcon name={icon} size={26} />
         </span>
@@ -135,8 +143,8 @@ function CategoryForm({
       </div>
       <div className="field">
         <label>Cor</label>
-        <div className="swatches">
-          {PERSON_COLORS.map((c) => (
+        <div className="swatches" style={{ maxHeight: 120, overflowY: "auto" }}>
+          {CATEGORY_COLORS.map((c) => (
             <button
               type="button"
               key={c}
@@ -150,7 +158,7 @@ function CategoryForm({
       </div>
       <div className="field" style={{ marginBottom: 0 }}>
         <label>Ícone</label>
-        <div className="chip-select">
+        <div className="chip-select" style={{ maxHeight: 180, overflowY: "auto" }}>
           {CATEGORY_ICON_NAMES.map((n) => (
             <button
               type="button"

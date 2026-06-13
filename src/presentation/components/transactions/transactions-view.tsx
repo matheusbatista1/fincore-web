@@ -7,10 +7,6 @@ import { deleteTransactionAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { byDateDesc } from "@/application/use-cases/get-transactions";
 import { SwipeRow } from "@/presentation/components/gestures/swipe-row";
-import {
-  CategoriesManagerDialog,
-  type ManagedCategory,
-} from "@/presentation/components/transactions/categories-manager-dialog";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
@@ -54,11 +50,9 @@ async function removeDirect(item: TransactionListItem) {
 /** Transações — ported 1:1 from the prototype (more.jsx TransactionsScreen): desktop table + mobile swipe list. */
 export function TransactionsView({
   transactions,
-  categories,
   today,
 }: {
   transactions: TransactionListItem[];
-  categories: ManagedCategory[];
   today: string;
 }) {
   const toast = useUIStore((s) => s.toast);
@@ -114,15 +108,6 @@ export function TransactionsView({
         ))}
       </div>
       <div className="row gap-2">
-        <CategoriesManagerDialog
-          categories={categories}
-          trigger={
-            <button type="button" className="btn btn-ghost btn-sm">
-              <Icon name="tag" size={16} />
-              Categorias
-            </button>
-          }
-        />
         <Link className="btn btn-ghost btn-sm" href="/import">
           <Icon name="file-up" size={16} />
           Importar
