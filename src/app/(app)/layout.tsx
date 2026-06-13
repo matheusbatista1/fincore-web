@@ -109,7 +109,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <ModulesProvider value={enabledModules}>
       <div className="shell">
-        <Sidebar userEmail={user.email ?? ""} pendingCount={pendingCount} displayName={displayName} />
+        <Sidebar
+          userEmail={user.email ?? ""}
+          pendingCount={pendingCount}
+          displayName={displayName}
+          avatarUrl={profile.avatarUrl}
+        />
         <main className="main">
           <AppHeader
             {...formData}

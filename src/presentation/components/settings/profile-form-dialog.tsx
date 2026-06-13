@@ -1,20 +1,24 @@
 "use client";
 
-import { type ReactNode, useId, useState } from "react";
-import { updateProfileAction } from "@/app/_actions/auth";
+import { type ChangeEvent, type ReactNode, useId, useRef, useState } from "react";
+import { removeAvatarAction, updateProfileAction, uploadAvatarAction } from "@/app/_actions/auth";
 import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { FormModal } from "@/presentation/components/ui/form-modal";
 import { Icon } from "@/presentation/components/ui/icon";
 import { toast } from "@/presentation/stores/ui-store";
 
-/** Editar perfil — ported 1:1 from the prototype (forms.jsx ProfileForm); name persists. */
+const AVATAR_MAX_BYTES = 3 * 1024 * 1024;
+
+/** Editar perfil — ported from the prototype (forms.jsx ProfileForm); name + photo persist. */
 export function ProfileFormDialog({
   name,
   email,
+  avatarUrl,
   trigger,
 }: {
   name: string;
   email: string;
+  avatarUrl: string | null;
   trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -23,15 +27,37 @@ export function ProfileFormDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      {open && <ProfileForm key={formId} name={name} email={email} onDone={() => setOpen(false)} />}
+      {open && (
+        <ProfileForm
+          key={formId}
+          name={name}
+          email={email}
+          avatarUrl={avatarUrl}
+          onDone={() => setOpen(false)}
+        />
+      )}
     </Dialog>
   );
 }
 
-function ProfileForm({ name: initial, email, onDone }: { name: string; email: string; onDone: () => void }) {
+function ProfileForm({
+  name: initial,
+  email,
+  avatarUrl,
+  onDone,
+}: {
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  onDone: () => void;
+}) {
   const [name, setName] = useState(initial);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(avatarUrl);
+  const [removed, setRemoved] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const canSubmit = name.trim().length > 1;
   const initials = (name.trim() || "?")
@@ -41,16 +67,50 @@ function ProfileForm({ name: initial, email, onDone }: { name: string; email: st
     .join("")
     .toUpperCase();
 
+  function pickFile(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > AVATAR_MAX_BYTES) {
+      setServerError("A imagem deve ter até 3 MB.");
+      return;
+    }
+    setServerError(null);
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+    setRemoved(false);
+  }
+
+  function clearPhoto() {
+    setFile(null);
+    setPreview(null);
+    setRemoved(true);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
   async function save() {
     if (!canSubmit || submitting) return;
     setServerError(null);
     setSubmitting(true);
-    const result = await updateProfileAction({ displayName: name.trim() });
-    setSubmitting(false);
-    if (!result.ok) {
-      setServerError(result.error);
+
+    const profile = await updateProfileAction({ displayName: name.trim() });
+    if (!profile.ok) {
+      setSubmitting(false);
+      setServerError(profile.error);
       return;
     }
+    if (file) {
+      const fd = new FormData();
+      fd.append("file", file);
+      const up = await uploadAvatarAction(fd);
+      if (!up.ok) {
+        setSubmitting(false);
+        setServerError(up.error);
+        return;
+      }
+    } else if (removed && avatarUrl) {
+      await removeAvatarAction();
+    }
+    setSubmitting(false);
     toast("Perfil atualizado");
     onDone();
   }
@@ -63,19 +123,50 @@ function ProfileForm({ name: initial, email, onDone }: { name: string; email: st
       submitting={submitting}
       onSubmit={save}
     >
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-        <span
-          className="ava-circle"
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: 22,
-            fontSize: 26,
-            background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))",
-          }}
-        >
-          {initials}
-        </span>
+      <div
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 20 }}
+      >
+        {preview ? (
+          // biome-ignore lint/performance/noImgElement: user-uploaded avatar from Supabase Storage / object URL.
+          <img
+            src={preview}
+            alt="Foto de perfil"
+            width={72}
+            height={72}
+            style={{ width: 72, height: 72, borderRadius: 22, objectFit: "cover" }}
+          />
+        ) : (
+          <span
+            className="ava-circle"
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: 22,
+              fontSize: 26,
+              background: "linear-gradient(135deg,var(--purple-400),var(--purple-700))",
+            }}
+          >
+            {initials}
+          </span>
+        )}
+        <div className="row gap-2">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}>
+            <Icon name="pencil" size={15} />
+            {preview ? "Trocar foto" : "Adicionar foto"}
+          </button>
+          {preview && (
+            <button type="button" className="btn btn-quiet btn-sm" onClick={clearPhoto}>
+              Remover
+            </button>
+          )}
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+          onChange={pickFile}
+        />
       </div>
       <div className="field">
         <label>Nome completo</label>

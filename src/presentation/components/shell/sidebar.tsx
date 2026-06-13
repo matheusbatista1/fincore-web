@@ -15,10 +15,12 @@ export function Sidebar({
   userEmail,
   pendingCount,
   displayName,
+  avatarUrl,
 }: {
   userEmail: string;
   pendingCount: number;
   displayName?: string;
+  avatarUrl?: string | null;
 }) {
   const pathname = usePathname();
   const navGroups = visibleNavGroups(useModules());
@@ -41,7 +43,12 @@ export function Sidebar({
 
       {/* Single-account for now: just the name + email (no account-switcher affordance). */}
       <Link href="/settings" className="acct-switch">
-        <span className="ava">{initials}</span>
+        {avatarUrl ? (
+          // biome-ignore lint/performance/noImgElement: user-uploaded avatar from Supabase Storage.
+          <img className="ava" src={avatarUrl} alt="" style={{ objectFit: "cover" }} />
+        ) : (
+          <span className="ava">{initials}</span>
+        )}
         <span className="nm">
           <b>{name}</b>
           <span>{userEmail}</span>
