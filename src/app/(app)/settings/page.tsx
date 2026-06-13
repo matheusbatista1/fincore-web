@@ -3,10 +3,11 @@ import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
 import { getProfileCached } from "@/application/loaders";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
-import { getCurrentUser } from "@/infrastructure/auth/server";
+import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
 import { HelpCard } from "@/presentation/components/settings/help-card";
+import { MfaCard } from "@/presentation/components/settings/mfa-card";
 import { ModulesCard } from "@/presentation/components/settings/modules-card";
 import { SettingsView } from "@/presentation/components/settings/settings-view";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
@@ -33,10 +34,13 @@ export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [{ categories }, profile] = await Promise.all([
+  const supabase = await createSupabaseServerClient();
+  const [{ categories }, profile, factors] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
     getProfileCached(financeRepository, user.id),
+    supabase.auth.mfa.listFactors(),
   ]);
+  const mfaEnabled = (factors.data?.totp ?? []).some((f) => f.status === "verified");
   const email = user.email ?? "";
   const fallback = profileFromEmail(email);
   const name = profile.displayName ?? fallback.name;
@@ -53,6 +57,8 @@ export default async function SettingsPage() {
       <SettingsView name={name} email={email} initials={initials} />
 
       <ModulesCard enabled={profile.enabledModules} />
+
+      <MfaCard initialEnabled={mfaEnabled} />
 
       <HelpCard />
 

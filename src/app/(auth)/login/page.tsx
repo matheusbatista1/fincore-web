@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { type AuthFormState, authenticateAction } from "@/app/_actions/auth";
+import { type AuthFormState, authenticateAction, verifyMfaAction } from "@/app/_actions/auth";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
 import { toast } from "@/presentation/stores/ui-store";
@@ -13,7 +13,9 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [show, setShow] = useState(false);
   const [state, formAction, pending] = useActionState(authenticateAction, INITIAL);
+  const [mfaState, mfaAction, mfaPending] = useActionState(verifyMfaAction, INITIAL);
   const isSignup = mode === "signup";
+  const mfaMode = Boolean(state.mfaRequired) || Boolean(mfaState.mfaRequired);
 
   return (
     <div className="login">
@@ -65,118 +67,196 @@ export default function LoginPage() {
 
         {/* painel form */}
         <div className="login-form-wrap">
-          <form className="login-form" action={formAction}>
-            <div className="lf-mobile-brand">
-              <LogoMark size={36} />
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 22,
-                  color: "var(--text-hi)",
-                }}
-              >
-                Fin<span style={{ color: "var(--purple-400)" }}>Core</span>
-              </span>
-            </div>
-            <h2>{isSignup ? "Crie sua conta" : "Bem-vindo de volta"}</h2>
-            <p className="lf-sub">
-              {isSignup
-                ? "Comece a organizar suas finanças agora."
-                : "Entre para continuar gerenciando suas finanças."}
-            </p>
-
-            <input type="hidden" name="intent" value={mode} />
-
-            <div className="field">
-              <label htmlFor="login-email">E-mail</label>
-              <div className="input-ic">
-                <Icon name="mail" size={17} />
-                <input
-                  id="login-email"
-                  className="input"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="voce@email.com"
-                />
+          {mfaMode ? (
+            <MfaForm action={mfaAction} pending={mfaPending} error={mfaState.error} />
+          ) : (
+            <form className="login-form" action={formAction}>
+              <div className="lf-mobile-brand">
+                <LogoMark size={36} />
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                    fontSize: 22,
+                    color: "var(--text-hi)",
+                  }}
+                >
+                  Fin<span style={{ color: "var(--purple-400)" }}>Core</span>
+                </span>
               </div>
-            </div>
-            <div className="field">
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <label htmlFor="login-password">Senha</label>
+              <h2>{isSignup ? "Crie sua conta" : "Bem-vindo de volta"}</h2>
+              <p className="lf-sub">
+                {isSignup
+                  ? "Comece a organizar suas finanças agora."
+                  : "Entre para continuar gerenciando suas finanças."}
+              </p>
+
+              <input type="hidden" name="intent" value={mode} />
+
+              <div className="field">
+                <label htmlFor="login-email">E-mail</label>
+                <div className="input-ic">
+                  <Icon name="mail" size={17} />
+                  <input
+                    id="login-email"
+                    className="input"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="voce@email.com"
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <label htmlFor="login-password">Senha</label>
+                  <button
+                    type="button"
+                    className="lf-link"
+                    onClick={() => toast("Recuperação de senha em breve.", "info")}
+                  >
+                    Esqueceu?
+                  </button>
+                </div>
+                <div className="input-ic">
+                  <Icon name="lock" size={17} />
+                  <input
+                    id="login-password"
+                    className="input"
+                    name="password"
+                    type={show ? "text" : "password"}
+                    required
+                    autoComplete={isSignup ? "new-password" : "current-password"}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    className="eye-btn"
+                    aria-label={show ? "Ocultar senha" : "Mostrar senha"}
+                    onClick={() => setShow((s) => !s)}
+                  >
+                    <Icon name={show ? "eye-off" : "eye"} size={17} />
+                  </button>
+                </div>
+              </div>
+
+              <label className="lf-check">
+                <input type="checkbox" defaultChecked />
+                <span>Manter conectado neste dispositivo</span>
+              </label>
+
+              {state.error && (
+                <div className="warn-text" style={{ marginBottom: 12 }}>
+                  <Icon name="alert-triangle" size={14} />
+                  {state.error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: "100%", height: 50, marginTop: 4 }}
+                disabled={pending}
+              >
+                {pending ? (
+                  <Icon name="loader-circle" size={18} className="spin" />
+                ) : (
+                  <span className="row gap-2">
+                    <Icon name="arrow-right" size={18} />
+                    {isSignup ? "Criar conta" : "Entrar"}
+                  </span>
+                )}
+              </button>
+
+              <p className="lf-foot">
+                {isSignup ? "Já tem conta? " : "Não tem conta? "}
                 <button
                   type="button"
                   className="lf-link"
-                  onClick={() => toast("Recuperação de senha em breve.", "info")}
+                  onClick={() => setMode(isSignup ? "signin" : "signup")}
                 >
-                  Esqueceu?
+                  {isSignup ? "Entrar" : "Criar agora"}
                 </button>
-              </div>
-              <div className="input-ic">
-                <Icon name="lock" size={17} />
-                <input
-                  id="login-password"
-                  className="input"
-                  name="password"
-                  type={show ? "text" : "password"}
-                  required
-                  autoComplete={isSignup ? "new-password" : "current-password"}
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  className="eye-btn"
-                  aria-label={show ? "Ocultar senha" : "Mostrar senha"}
-                  onClick={() => setShow((s) => !s)}
-                >
-                  <Icon name={show ? "eye-off" : "eye"} size={17} />
-                </button>
-              </div>
-            </div>
-
-            <label className="lf-check">
-              <input type="checkbox" defaultChecked />
-              <span>Manter conectado neste dispositivo</span>
-            </label>
-
-            {state.error && (
-              <div className="warn-text" style={{ marginBottom: 12 }}>
-                <Icon name="alert-triangle" size={14} />
-                {state.error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ width: "100%", height: 50, marginTop: 4 }}
-              disabled={pending}
-            >
-              {pending ? (
-                <Icon name="loader-circle" size={18} className="spin" />
-              ) : (
-                <span className="row gap-2">
-                  <Icon name="arrow-right" size={18} />
-                  {isSignup ? "Criar conta" : "Entrar"}
-                </span>
-              )}
-            </button>
-
-            <p className="lf-foot">
-              {isSignup ? "Já tem conta? " : "Não tem conta? "}
-              <button
-                type="button"
-                className="lf-link"
-                onClick={() => setMode(isSignup ? "signin" : "signup")}
-              >
-                {isSignup ? "Entrar" : "Criar agora"}
-              </button>
-            </p>
-          </form>
+              </p>
+            </form>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Second-factor (TOTP) step shown after the password is accepted. */
+function MfaForm({
+  action,
+  pending,
+  error,
+}: {
+  action: (formData: FormData) => void;
+  pending: boolean;
+  error?: string | undefined;
+}) {
+  return (
+    <form className="login-form" action={action}>
+      <div className="lf-mobile-brand">
+        <LogoMark size={36} />
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 600,
+            fontSize: 22,
+            color: "var(--text-hi)",
+          }}
+        >
+          Fin<span style={{ color: "var(--purple-400)" }}>Core</span>
+        </span>
+      </div>
+      <h2>Verificação em duas etapas</h2>
+      <p className="lf-sub">Digite o código de 6 dígitos do seu app autenticador.</p>
+
+      <div className="field">
+        <label htmlFor="mfa-code">Código</label>
+        <div className="input-ic">
+          <Icon name="lock" size={17} />
+          <input
+            id="mfa-code"
+            className="input"
+            name="code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            pattern="\d{6}"
+            placeholder="000000"
+            required
+            // biome-ignore lint/a11y/noAutofocus: the code field is the only action on this step.
+            autoFocus
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="warn-text" style={{ marginBottom: 12 }}>
+          <Icon name="alert-triangle" size={14} />
+          {error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        className="btn btn-primary"
+        style={{ width: "100%", height: 50, marginTop: 4 }}
+        disabled={pending}
+      >
+        {pending ? (
+          <Icon name="loader-circle" size={18} className="spin" />
+        ) : (
+          <span className="row gap-2">
+            <Icon name="arrow-right" size={18} />
+            Verificar
+          </span>
+        )}
+      </button>
+    </form>
   );
 }

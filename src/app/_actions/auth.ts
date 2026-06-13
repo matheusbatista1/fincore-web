@@ -18,6 +18,8 @@ async function requestOrigin(): Promise<string> {
 
 export interface AuthFormState {
   readonly error?: string;
+  /** Set when the password was accepted but a second factor (TOTP) is still required. */
+  readonly mfaRequired?: boolean;
 }
 
 const credentialsSchema = z.object({
@@ -41,6 +43,13 @@ export async function signInAction(_prev: AuthFormState, formData: FormData): Pr
   if (error || !data.user) return { error: "E-mail ou senha incorretos." };
 
   await financeRepository.ensureProfile(data.user.id, data.user.email ?? parsed.data.email);
+
+  // Step-up: if the account has a verified TOTP factor, the password alone only
+  // reaches aal1 — ask for the code (verified client-side) before entering.
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal?.currentLevel === "aal1" && aal.nextLevel === "aal2") {
+    return { mfaRequired: true };
+  }
   redirect("/dashboard");
 }
 
@@ -104,6 +113,75 @@ export async function markOnboardedAction(
   );
   await financeRepository.markOnboarded(user.id);
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Second-factor (TOTP) verification during login — challenges + verifies, then enters. */
+export async function verifyMfaAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const code = String(formData.get("code") ?? "").trim();
+  if (!/^\d{6}$/.test(code)) return { mfaRequired: true, error: "Digite o código de 6 dígitos." };
+
+  const supabase = await createSupabaseServerClient();
+  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const factor = factors?.totp?.find((f) => f.status === "verified") ?? factors?.totp?.[0];
+  if (!factor) return { error: "Sessão expirada. Entre novamente." };
+
+  const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+    factorId: factor.id,
+  });
+  if (challengeError || !challenge) {
+    return { mfaRequired: true, error: "Não foi possível validar agora. Tente de novo." };
+  }
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId: factor.id,
+    challengeId: challenge.id,
+    code,
+  });
+  if (verifyError) return { mfaRequired: true, error: "Código inválido. Tente de novo." };
+  redirect("/dashboard");
+}
+
+type EnrollResult =
+  | { ok: true; factorId: string; qrCode: string; secret: string }
+  | { ok: false; error: string };
+
+/** Start TOTP enrollment: clears stale unverified factors, returns the QR + secret. */
+export async function enrollMfaAction(): Promise<EnrollResult> {
+  const supabase = await createSupabaseServerClient();
+  const { data: existing } = await supabase.auth.mfa.listFactors();
+  for (const f of existing?.totp ?? []) {
+    if (f.status !== "verified") await supabase.auth.mfa.unenroll({ factorId: f.id });
+  }
+  const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+  if (error || !data) return { ok: false, error: error?.message ?? "Não foi possível iniciar o 2FA." };
+  return { ok: true, factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret };
+}
+
+/** Confirm enrollment by verifying the first TOTP code. */
+export async function confirmMfaAction(
+  factorId: string,
+  code: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "Digite o código de 6 dígitos." };
+  const supabase = await createSupabaseServerClient();
+  const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+  if (challengeError || !challenge) return { ok: false, error: "Não foi possível validar. Tente de novo." };
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId,
+    challengeId: challenge.id,
+    code: code.trim(),
+  });
+  if (verifyError) return { ok: false, error: "Código inválido. Confira o relógio do app autenticador." };
+  return { ok: true };
+}
+
+/** Disable 2FA by unenrolling every TOTP factor. */
+export async function disableMfaAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.mfa.listFactors();
+  for (const f of data?.totp ?? []) {
+    await supabase.auth.mfa.unenroll({ factorId: f.id });
+  }
   return { ok: true };
 }
 
