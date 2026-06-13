@@ -42,6 +42,7 @@ export async function proxy(request: NextRequest) {
     path === "/login" ||
     path.startsWith("/login/") ||
     path.startsWith("/auth") ||
+    path === "/forgot-password" ||
     path === "/privacy" ||
     path === "/terms" ||
     // PWA surfaces must be reachable without a session.
@@ -66,7 +67,8 @@ export async function proxy(request: NextRequest) {
     } catch {
       pendingMfa = false;
     }
-    if (pendingMfa && path !== "/verify-2fa" && !path.startsWith("/auth")) {
+    // /reset-password runs in a recovery session — let it through without 2FA.
+    if (pendingMfa && path !== "/verify-2fa" && path !== "/reset-password" && !path.startsWith("/auth")) {
       return redirectTo(request, response, "/verify-2fa");
     }
     if (!pendingMfa && path === "/verify-2fa") {
