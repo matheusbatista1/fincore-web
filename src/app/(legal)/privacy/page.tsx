@@ -60,7 +60,7 @@ const SECTIONS: readonly LegalSection[] = [
   {
     heading: "Contato",
     body: [
-      "Dúvidas sobre privacidade ou solicitações relativas aos seus dados podem ser enviadas para matheus.batista@zig.fun.",
+      "Dúvidas sobre privacidade ou solicitações relativas aos seus dados podem ser enviadas para matheusbatista.tech@gmail.com.",
     ],
   },
 ];

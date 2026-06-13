@@ -45,10 +45,13 @@ export async function proxy(request: NextRequest) {
     path === "/forgot-password" ||
     path === "/privacy" ||
     path === "/terms" ||
-    // PWA surfaces must be reachable without a session.
+    // PWA + icon surfaces must be reachable without a session (otherwise the
+    // login page can't load the favicon / apple-touch icon and shows a stale one).
     path === "/offline" ||
     path === "/sw.js" ||
     path === "/manifest.webmanifest" ||
+    path === "/icon" ||
+    path === "/apple-icon" ||
     path.startsWith("/icons/");
 
   // Unauthenticated users may only see public routes.
