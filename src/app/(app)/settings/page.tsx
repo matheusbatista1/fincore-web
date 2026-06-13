@@ -136,11 +136,11 @@ export default async function SettingsPage() {
           className="card-pad"
           style={{ paddingTop: 6, paddingBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}
         >
-          <Link className="btn btn-ghost btn-sm" href="/privacy" target="_blank">
+          <Link className="btn btn-ghost btn-sm" href="/privacy">
             <Icon name="lock" size={15} />
             Política de Privacidade
           </Link>
-          <Link className="btn btn-ghost btn-sm" href="/terms" target="_blank">
+          <Link className="btn btn-ghost btn-sm" href="/terms">
             <Icon name="file-text" size={15} />
             Termos de Uso
           </Link>

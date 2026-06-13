@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { confirmMfaAction, disableMfaAction, enrollMfaAction } from "@/app/_actions/auth";
+import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { toast } from "@/presentation/stores/ui-store";
 
@@ -12,57 +13,17 @@ function qrSrc(qr: string): string {
 
 type Enroll = { factorId: string; qrCode: string; secret: string };
 
-/** Two-factor (TOTP) setup card: enroll → scan QR → confirm code, or disable. */
+/** Two-factor (TOTP) setup card: opens a modal to enroll (QR + code), or disables. */
 export function MfaCard({ initialEnabled }: { initialEnabled: boolean }) {
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [enroll, setEnroll] = useState<Enroll | null>(null);
-  const [code, setCode] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  function begin() {
-    setError(null);
-    startTransition(async () => {
-      const result = await enrollMfaAction();
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      setEnroll({ factorId: result.factorId, qrCode: result.qrCode, secret: result.secret });
-      setCode("");
-    });
-  }
-
-  function confirm() {
-    if (!enroll) return;
-    setError(null);
-    startTransition(async () => {
-      const result = await confirmMfaAction(enroll.factorId, code);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      setEnroll(null);
-      setEnabled(true);
-      toast("Autenticação em duas etapas ativada.");
-    });
-  }
-
-  function cancelEnroll() {
-    setError(null);
-    setCode("");
-    startTransition(async () => {
-      await disableMfaAction();
-      setEnroll(null);
-    });
-  }
-
   function disable() {
-    setError(null);
     startTransition(async () => {
       const result = await disableMfaAction();
       if (!result.ok) {
-        setError(result.error);
+        toast(result.error, "error");
         return;
       }
       setEnabled(false);
@@ -78,8 +39,7 @@ export function MfaCard({ initialEnabled }: { initialEnabled: boolean }) {
           <div className="ch-sub">Autenticação em duas etapas (2FA) com app autenticador.</div>
         </div>
       </div>
-      <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 16 }}>
-        {/* Status row */}
+      <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 12 }}>
         <div className="lrow" style={{ cursor: "default" }}>
           <span
             className="l-ic"
@@ -104,56 +64,117 @@ export function MfaCard({ initialEnabled }: { initialEnabled: boolean }) {
               Desativar
             </button>
           ) : (
-            !enroll && (
-              <button type="button" className="btn btn-primary btn-sm" onClick={begin} disabled={pending}>
-                {pending ? <Icon name="loader-circle" size={16} className="spin" /> : "Ativar"}
-              </button>
-            )
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>
+              Ativar
+            </button>
           )}
         </div>
+      </div>
 
-        {/* Enrollment flow */}
-        {enroll && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: 16,
-              borderRadius: "var(--r-md)",
-              background: "var(--surface-2)",
-              border: "1px solid var(--line)",
-            }}
-          >
-            <p style={{ fontSize: 13.5, color: "var(--text-lo)", lineHeight: 1.5, marginBottom: 12 }}>
-              Escaneie o QR code no seu app autenticador (Google Authenticator, 1Password, Authy…) ou digite o
-              código manual. Depois informe os 6 dígitos para confirmar.
-            </p>
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-              {/* biome-ignore lint/performance/noImgElement: dynamic data-URI QR, not a static asset. */}
-              <img
-                src={qrSrc(enroll.qrCode)}
-                alt="QR code do 2FA"
-                width={148}
-                height={148}
-                style={{ background: "#fff", borderRadius: 12, padding: 8 }}
-              />
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <div style={{ fontSize: 12, color: "var(--text-faint)", fontWeight: 700, marginBottom: 4 }}>
-                  Código manual
-                </div>
+      {open && (
+        <MfaEnrollModal
+          onClose={() => setOpen(false)}
+          onEnabled={() => {
+            setEnabled(true);
+            setOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Modal that enrolls a TOTP factor: shows the QR + secret, confirms the code. */
+function MfaEnrollModal({ onClose, onEnabled }: { onClose: () => void; onEnabled: () => void }) {
+  const [enroll, setEnroll] = useState<Enroll | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, startConfirm] = useTransition();
+  const confirmed = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    enrollMfaAction().then((result) => {
+      if (!active) return;
+      if (!result.ok) {
+        setError(result.error);
+      } else {
+        setEnroll({ factorId: result.factorId, qrCode: result.qrCode, secret: result.secret });
+      }
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Closing without confirming removes the freshly created (unverified) factor.
+  function handleOpenChange(next: boolean) {
+    if (next) return;
+    if (!confirmed.current) void disableMfaAction();
+    onClose();
+  }
+
+  function confirm() {
+    if (!enroll) return;
+    setError(null);
+    startConfirm(async () => {
+      const result = await confirmMfaAction(enroll.factorId, code);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      confirmed.current = true;
+      toast("Autenticação em duas etapas ativada.");
+      onEnabled();
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={handleOpenChange}>
+      <DialogModal title="Ativar 2FA" maxWidth={420}>
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ display: "grid", placeItems: "center", padding: "32px 0" }}>
+              <Icon name="loader-circle" size={26} className="spin" />
+            </div>
+          ) : enroll ? (
+            <>
+              <p style={{ fontSize: 13.5, color: "var(--text-lo)", lineHeight: 1.5, marginBottom: 14 }}>
+                Escaneie o QR code no seu app autenticador (Google Authenticator, 1Password, Authy…) ou use o
+                código manual. Depois informe os 6 dígitos para confirmar.
+              </p>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                {/* biome-ignore lint/performance/noImgElement: dynamic data-URI QR, not a static asset. */}
+                <img
+                  src={qrSrc(enroll.qrCode)}
+                  alt="QR code do 2FA"
+                  width={172}
+                  height={172}
+                  style={{ background: "#fff", borderRadius: 12, padding: 10 }}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="mfa-secret">Código manual</label>
                 <code
+                  id="mfa-secret"
                   style={{
                     display: "block",
                     fontSize: 13,
                     wordBreak: "break-all",
                     color: "var(--text-hi)",
-                    marginBottom: 12,
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--r-sm)",
+                    padding: "8px 12px",
                   }}
                 >
                   {enroll.secret}
                 </code>
-                <label htmlFor="mfa-confirm" style={{ fontSize: 13, color: "var(--text-lo)" }}>
-                  Código de 6 dígitos
-                </label>
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label htmlFor="mfa-confirm">Código de 6 dígitos</label>
                 <input
                   id="mfa-confirm"
                   className="input tnum"
@@ -162,44 +183,36 @@ export function MfaCard({ initialEnabled }: { initialEnabled: boolean }) {
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
-                  style={{ marginTop: 4 }}
+                  autoFocus
                 />
               </div>
-            </div>
-            {error && (
-              <div className="warn-text" style={{ marginTop: 12 }}>
-                <Icon name="alert-triangle" size={14} />
-                {error}
-              </div>
-            )}
-            <div className="row gap-2" style={{ marginTop: 14, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={cancelEnroll}
-                disabled={pending}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={confirm}
-                disabled={pending || code.length !== 6}
-              >
-                {pending ? <Icon name="loader-circle" size={16} className="spin" /> : "Confirmar"}
-              </button>
-            </div>
-          </div>
-        )}
+            </>
+          ) : null}
 
-        {error && !enroll && (
-          <div className="warn-text" style={{ marginTop: 12 }}>
-            <Icon name="alert-triangle" size={14} />
-            {error}
-          </div>
-        )}
-      </div>
-    </div>
+          {error && (
+            <div className="warn-text" style={{ marginTop: 12 }}>
+              <Icon name="alert-triangle" size={14} />
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-foot">
+          <DialogClose asChild>
+            <button type="button" className="btn btn-ghost">
+              Cancelar
+            </button>
+          </DialogClose>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={confirm}
+            disabled={!enroll || code.length !== 6 || confirming}
+          >
+            {confirming ? <Icon name="loader-circle" size={16} className="spin" /> : "Confirmar"}
+          </button>
+        </div>
+      </DialogModal>
+    </Dialog>
   );
 }

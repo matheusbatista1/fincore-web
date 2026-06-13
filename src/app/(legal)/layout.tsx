@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { LegalBackButton } from "@/presentation/components/legal/legal-back-button";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
 
 const WRAP: CSSProperties = { minHeight: "100dvh", position: "relative" };
@@ -35,9 +36,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
               Fin<span style={{ color: "var(--purple-400)" }}>Core</span>
             </span>
           </Link>
-          <Link href="/login" className="btn btn-ghost btn-sm">
-            Voltar ao login
-          </Link>
+          <LegalBackButton />
         </header>
         <main className="card card-pad">{children}</main>
         <footer style={{ marginTop: 18, display: "flex", gap: 16, justifyContent: "center" }}>

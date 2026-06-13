@@ -148,11 +148,11 @@ export default function LoginPage() {
                   <input type="checkbox" name="accept" required />
                   <span>
                     Li e aceito os{" "}
-                    <Link href="/terms" className="lf-link" target="_blank">
+                    <Link href="/terms" className="lf-link">
                       Termos de Uso
                     </Link>{" "}
                     e a{" "}
-                    <Link href="/privacy" className="lf-link" target="_blank">
+                    <Link href="/privacy" className="lf-link">
                       Política de Privacidade
                     </Link>
                     .
@@ -195,10 +195,10 @@ export default function LoginPage() {
               </p>
 
               <div style={{ marginTop: 14, display: "flex", gap: 16, justifyContent: "center" }}>
-                <Link href="/privacy" className="lf-link" target="_blank">
+                <Link href="/privacy" className="lf-link">
                   Privacidade
                 </Link>
-                <Link href="/terms" className="lf-link" target="_blank">
+                <Link href="/terms" className="lf-link">
                   Termos
                 </Link>
               </div>
