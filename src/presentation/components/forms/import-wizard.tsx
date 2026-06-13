@@ -7,6 +7,7 @@ import { Icon } from "@/presentation/components/ui/icon";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
+import { partitionCardLines } from "@/shared/import/card-lines";
 import {
   detectFormat,
   type ParsedEntry,
@@ -31,11 +32,14 @@ interface WizardCategory {
 
 type Mode = "account" | "card";
 type Row = ParsedEntry & { id: string; categoryId: string | null };
+/** How a reviewed row will be imported (drives its color, category cell and inclusion). */
+type RowState = "expense" | "income" | "charge" | "credit";
 
 /**
  * Import CSV/OFX wizard — bank statement (into a wallet) or card bill (into a
- * card). For a card, positive lines are purchases (charges) and negative lines
- * are credits/refunds, which can't be represented as a card transaction and are
+ * card). For a card the purchases are detected by the dominant amount sign
+ * (OFX files carry them negative, CSV positive); the minority sign is a
+ * credit/refund, which can't be represented as a card transaction and is
  * excluded. Prototype visual language (.card/.field/.input/.tbl/.btn).
  */
 export function ImportWizard({
@@ -57,12 +61,19 @@ export function ImportWizard({
   const [submitting, setSubmitting] = useState(false);
   const [importedCount, setImportedCount] = useState<number | null>(null);
 
-  // For a card bill, only purchases (positive lines) are importable; credits are excluded.
-  const isCharge = (row: Row) => row.amountCents > 0;
-  const importable = mode === "card" ? rows.filter(isCharge) : rows;
-  const excludedCredits = mode === "card" ? rows.length - importable.length : 0;
+  // For a card bill, charges are the dominant-sign lines; credits (the minority) are excluded.
+  const { charges, credits } =
+    mode === "card" ? partitionCardLines(rows) : { charges: rows, credits: [] as Row[] };
+  const creditIds = new Set(credits.map((row) => row.id));
+  const importable = mode === "card" ? charges : rows;
+  const excludedCredits = credits.length;
   const destinationReady = mode === "card" ? cardId !== "" : accountId !== "";
   const canImport = destinationReady && importable.length > 0 && !submitting;
+
+  function rowState(row: Row): RowState {
+    if (mode === "card") return creditIds.has(row.id) ? "credit" : "charge";
+    return row.amountCents < 0 ? "expense" : "income";
+  }
 
   async function onFile(file: File) {
     setError(null);
@@ -292,7 +303,7 @@ export function ImportWizard({
                 <ImportRowMobile
                   key={row.id}
                   row={row}
-                  mode={mode}
+                  state={rowState(row)}
                   categories={categories}
                   onCategory={setRowCategory}
                   onRemove={removeRow}
@@ -314,8 +325,9 @@ export function ImportWizard({
                   </thead>
                   <tbody>
                     {rows.map((row) => {
-                      const charge = mode === "card" ? isCharge(row) : row.amountCents < 0;
-                      const credit = mode === "card" && !charge;
+                      const state = rowState(row);
+                      const expenseLike = state === "expense" || state === "charge";
+                      const credit = state === "credit";
                       return (
                         <tr key={row.id} style={{ opacity: credit ? 0.55 : 1 }}>
                           <td className="tnum" style={{ color: "var(--text-lo)", whiteSpace: "nowrap" }}>
@@ -325,17 +337,14 @@ export function ImportWizard({
                             <span className="t-strong">{row.description}</span>
                           </td>
                           <td className="r">
-                            <span
-                              className="tnum t-strong"
-                              style={{ color: charge ? "var(--rose-500)" : "var(--mint-500)" }}
-                            >
+                            <span className="tnum t-strong" style={{ color: amountColor(state) }}>
                               {formatBRL(row.amountCents)}
                             </span>
                           </td>
                           <td>
                             {credit ? (
                               <span className="pill neutral">Crédito</span>
-                            ) : charge ? (
+                            ) : expenseLike ? (
                               <CategorySelect row={row} categories={categories} onCategory={setRowCategory} />
                             ) : (
                               <span className="pill mint">Receita</span>
@@ -382,6 +391,13 @@ export function ImportWizard({
   );
 }
 
+/** Amount color by row state: expense/charge red, income green, credit muted. */
+function amountColor(state: RowState): string {
+  if (state === "expense" || state === "charge") return "var(--rose-500)";
+  if (state === "income") return "var(--mint-500)";
+  return "var(--text-lo)";
+}
+
 /** Category dropdown for an importable expense/charge row. */
 function CategorySelect({
   row,
@@ -413,19 +429,19 @@ function CategorySelect({
 /** Stacked row for the mobile preview (the desktop table overflows on narrow screens). */
 function ImportRowMobile({
   row,
-  mode,
+  state,
   categories,
   onCategory,
   onRemove,
 }: {
   row: Row;
-  mode: Mode;
+  state: RowState;
   categories: WizardCategory[];
   onCategory: (id: string, categoryId: string | null) => void;
   onRemove: (id: string) => void;
 }) {
-  const charge = mode === "card" ? row.amountCents > 0 : row.amountCents < 0;
-  const credit = mode === "card" && !charge;
+  const expenseLike = state === "expense" || state === "charge";
+  const credit = state === "credit";
   return (
     <div
       style={{
@@ -444,10 +460,7 @@ function ImportRowMobile({
           </div>
           <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 2 }}>{row.date}</div>
         </div>
-        <span
-          className="tnum t-strong"
-          style={{ color: charge ? "var(--rose-500)" : "var(--mint-500)", whiteSpace: "nowrap" }}
-        >
+        <span className="tnum t-strong" style={{ color: amountColor(state), whiteSpace: "nowrap" }}>
           {formatBRL(row.amountCents)}
         </span>
         <button
@@ -462,7 +475,7 @@ function ImportRowMobile({
       </div>
       {credit ? (
         <span className="pill neutral">Crédito — não importado</span>
-      ) : charge ? (
+      ) : expenseLike ? (
         <CategorySelect row={row} categories={categories} onCategory={onCategory} />
       ) : (
         <span className="pill mint">Receita</span>

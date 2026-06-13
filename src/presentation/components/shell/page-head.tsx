@@ -8,6 +8,7 @@ const GREETS: Record<string, { g: string; s: string }> = {
   "/wallets": { g: "Suas carteiras", s: "Saldos consolidados de todas as suas contas." },
   "/cards": { g: "Seus cartões", s: "Faturas, limites e parcelamentos em um só lugar." },
   "/transactions": { g: "Transações", s: "Todo o histórico de entradas e saídas." },
+  "/categories": { g: "Categorias", s: "Organize seus gastos e veja para onde o dinheiro vai." },
   "/monthly": {
     g: "Visão mensal",
     s: "Seus lançamentos do mês, agrupados por cartão, conta e compromissos.",
@@ -17,7 +18,10 @@ const GREETS: Record<string, { g: string; s: string }> = {
   "/settings": { g: "Configurações", s: "Conta, preferências e segurança." },
   "/budgets": { g: "Orçamentos", s: "Limites mensais de gasto por categoria." },
   "/goals": { g: "Metas", s: "Objetivos de economia e seu progresso." },
-  "/import": { g: "Importar extrato", s: "Traga lançamentos de um arquivo CSV ou OFX do seu banco." },
+  "/import": {
+    g: "Importar",
+    s: "Traga lançamentos de um extrato (CSV/OFX) para uma carteira, ou de uma fatura para um cartão.",
+  },
 };
 
 /**
