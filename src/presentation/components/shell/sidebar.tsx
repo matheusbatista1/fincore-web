@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/_actions/auth";
-import { SETTINGS_ITEM, visibleNavGroups } from "@/presentation/components/shell/nav-items";
+import { IMPORT_ITEM, SETTINGS_ITEM, visibleNavGroups } from "@/presentation/components/shell/nav-items";
 import { Icon } from "@/presentation/components/ui/icon";
 import { LogoMark } from "@/presentation/components/ui/logo-mark";
 import { useModules } from "@/presentation/providers/modules-provider";
@@ -80,6 +80,13 @@ export function Sidebar({
         >
           <Icon name={SETTINGS_ITEM.icon} size={19} />
           {SETTINGS_ITEM.label}
+        </Link>
+        <Link
+          href={IMPORT_ITEM.href}
+          className={`nav-item${isActive(pathname, IMPORT_ITEM.href) ? " active" : ""}`}
+        >
+          <Icon name={IMPORT_ITEM.icon} size={19} />
+          {IMPORT_ITEM.label}
         </Link>
       </div>
 
