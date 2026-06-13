@@ -45,6 +45,8 @@ export async function signInAction(_prev: AuthFormState, formData: FormData): Pr
   if (error || !data.user) return { error: "E-mail ou senha incorretos." };
 
   await financeRepository.ensureProfile(data.user.id, data.user.email ?? parsed.data.email);
+  // Logging in within the grace period cancels a pending account deletion.
+  await financeRepository.reactivateAccount(data.user.id);
 
   // Step-up: if the account has a verified TOTP factor, the password alone only
   // reaches aal1 — ask for the code (verified client-side) before entering.
@@ -282,6 +284,27 @@ export async function changePasswordAction(
   const { error } = await supabase.auth.updateUser({ password: parsed.data.newPassword });
   if (error) return { ok: false, error: "Não foi possível atualizar a senha." };
   return { ok: true };
+}
+
+const deleteAccountSchema = z.object({ password: z.string().min(1, "Informe sua senha.") });
+
+/**
+ * Request account deletion: validate the password, mark the account deactivated
+ * (a cron purges it after 30 days; logging in before that reactivates it), then
+ * sign out.
+ */
+export async function deleteAccountAction(raw: unknown): Promise<{ ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user?.email) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = deleteAccountSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  if (!(await verifyPassword(user.email, parsed.data.password))) {
+    return { ok: false, error: "Senha incorreta." };
+  }
+  await financeRepository.deactivateAccount(user.id);
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
+  redirect("/login?deactivated=1");
 }
 
 export async function signOutAction(): Promise<void> {

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { signOutAction } from "@/app/_actions/auth";
 import { getProfileCached } from "@/application/loaders";
 import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { DeleteAccountCard } from "@/presentation/components/settings/delete-account-card";
 import { HelpCard } from "@/presentation/components/settings/help-card";
 import { MfaCard } from "@/presentation/components/settings/mfa-card";
 import { ModulesCard } from "@/presentation/components/settings/modules-card";
@@ -74,26 +74,6 @@ export default async function SettingsPage() {
     </div>
   );
 
-  const signOutCard = (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="card-pad">
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            className="danger-row"
-            style={{ width: "100%", cursor: "pointer", color: "var(--rose-500)" }}
-          >
-            <span className="row gap-2">
-              <Icon name="log-out" size={17} />
-              Sair da conta
-            </span>
-            <Icon name="chevron-right" size={16} />
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-
   return (
     <div className="settings-page" style={{ maxWidth: 720 }}>
       <SettingsTabs
@@ -129,7 +109,7 @@ export default async function SettingsPage() {
               <>
                 <HelpCard />
                 {aboutCard}
-                {signOutCard}
+                <DeleteAccountCard />
               </>
             ),
           },

@@ -17,6 +17,8 @@ export const env = createEnv({
     DATABASE_URL_UNPOOLED: z.string().min(1).optional(),
     /** Supabase service-role key — server-only, bypasses RLS (seed/admin jobs). */
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    /** Shared secret for the daily account-purge cron. Optional: the cron is disabled until set. */
+    CRON_SECRET: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_SUPABASE_URL: z.string().min(1),
