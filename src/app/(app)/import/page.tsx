@@ -12,13 +12,6 @@ export default async function ImportPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <p className="mt-1 text-text-mid">
-          Traga lançamentos de um arquivo CSV ou OFX: extrato (para uma carteira) ou fatura (para um cartão).
-          Revise antes de confirmar.
-        </p>
-      </div>
-
       <ImportWizard
         accounts={workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name }))}
         cards={workspace.cards.map((c) => ({ id: c.id, bank: c.bank, product: c.product }))}

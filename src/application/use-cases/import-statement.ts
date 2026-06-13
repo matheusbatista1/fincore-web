@@ -6,9 +6,10 @@ import type { FinanceRepository, NewTransactionEntry } from "../ports/finance-re
  *
  * - **Wallet (bank statement):** a negative amount becomes an expense paid from
  *   the account; a positive one becomes income landing in it.
- * - **Card (bill):** every positive line becomes a charge on the card (stored as
- *   a negative card expense). Negative lines are credits/refunds, which the
- *   domain can't represent as a card transaction, so they are skipped.
+ * - **Card (bill):** every reviewed line is a charge, stored as a negative card
+ *   expense (its magnitude, regardless of the file's sign convention). The
+ *   wizard already excluded credits/refunds — which the domain can't represent
+ *   as a card transaction — by dominant sign before sending.
  *
  * All rows are inserted atomically via the repository.
  */
@@ -55,22 +56,20 @@ function toAccountEntries(rows: ImportStatementInput["entries"], accountId: stri
   });
 }
 
-/** Card-bill lines → card charges. Positive = purchase; negative = credit (skipped). */
+/** Card-bill lines → card charges (negative cents by magnitude, any input sign). */
 function toCardCharges(rows: ImportStatementInput["entries"], cardId: string): NewTransactionEntry[] {
-  return rows.flatMap((entry) => {
-    if (entry.amountCents <= 0) return [];
-    return [
-      {
-        kind: "expense",
-        description: entry.description || "Despesa",
-        date: entry.date,
-        amountCents: -entry.amountCents,
-        source: "card",
-        cardId,
-        categoryId: entry.categoryId,
-        myShareCents: entry.amountCents,
-        splits: [],
-      },
-    ];
+  return rows.map((entry) => {
+    const cents = Math.abs(entry.amountCents);
+    return {
+      kind: "expense",
+      description: entry.description || "Despesa",
+      date: entry.date,
+      amountCents: -cents,
+      source: "card",
+      cardId,
+      categoryId: entry.categoryId,
+      myShareCents: cents,
+      splits: [],
+    };
   });
 }

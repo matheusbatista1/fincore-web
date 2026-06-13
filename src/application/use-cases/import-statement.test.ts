@@ -64,29 +64,20 @@ describe("importStatement use-case", () => {
     });
   });
 
-  it("skips credit lines (non-positive) when importing a card bill", async () => {
+  it("normalizes any input sign to a negative card charge (OFX purchases are negative)", async () => {
+    // The wizard already excluded credits by dominant sign; the use case just charges
+    // every received line by magnitude, so negative OFX purchases stay charges.
     const captured: { command?: CreateTransactionCommand; calls: number } = { calls: 0 };
     const result = await importStatement(stubRepo(captured), USER, {
       target: { type: "card", cardId: "card-1" },
       entries: [
-        { date: "2026-06-10", description: "Compra", amountCents: 5000, categoryId: null },
-        { date: "2026-06-11", description: "Estorno", amountCents: -2000, categoryId: null },
+        { date: "2026-06-13", description: "Supermercado", amountCents: -60762, categoryId: null },
+        { date: "2026-06-10", description: "Apple", amountCents: -1499, categoryId: null },
       ],
     });
 
-    expect(result.imported).toBe(1);
-    expect(captured.command?.entries).toHaveLength(1);
-    expect(captured.command?.entries[0]?.description).toBe("Compra");
-  });
-
-  it("never touches the repo when a card bill has only credits", async () => {
-    const captured: { command?: CreateTransactionCommand; calls: number } = { calls: 0 };
-    const result = await importStatement(stubRepo(captured), USER, {
-      target: { type: "card", cardId: "card-1" },
-      entries: [{ date: "2026-06-10", description: "Estorno", amountCents: -2000, categoryId: null }],
-    });
-
-    expect(result.imported).toBe(0);
-    expect(captured.calls).toBe(0);
+    expect(result.imported).toBe(2);
+    expect(captured.command?.entries.map((e) => e.amountCents)).toEqual([-60762, -1499]);
+    expect(captured.command?.entries[0]).toMatchObject({ source: "card", myShareCents: 60762 });
   });
 });
