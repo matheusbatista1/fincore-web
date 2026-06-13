@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   // NOTE: `typedRoutes` is intentionally off for now so `tsc --noEmit` does not
   // require a prior `next build` (it injects a generated route types import into
   // next-env.d.ts). Revisit in the presentation phase with a CI typegen step.
+  experimental: {
+    // Profile-photo uploads go through a Server Action; allow up to ~4 MB
+    // (the client also caps files at 3 MB before upload).
+    serverActions: { bodySizeLimit: "4mb" },
+  },
 };
 
 export default nextConfig;

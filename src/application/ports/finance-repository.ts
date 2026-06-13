@@ -26,6 +26,7 @@ import type {
 export interface UserProfile {
   readonly displayName: string | null;
   readonly email: string;
+  readonly avatarUrl: string | null;
   readonly enabledModules: ModuleKey[];
   readonly onboardedAt: Date | null;
 }
@@ -121,6 +122,8 @@ export interface FinanceRepository {
   /** The user's profile + settings (name, enabled modules, onboarding state). */
   getProfile(userId: string): Promise<UserProfile>;
   updateProfile(userId: string, input: { displayName: string }): Promise<void>;
+  /** Persist (or clear) the user's avatar URL. */
+  updateAvatar(userId: string, avatarUrl: string | null): Promise<void>;
   /** Persist the set of optional modules the user has turned on. */
   updateEnabledModules(userId: string, modules: ModuleKey[]): Promise<void>;
   /** Stamp the first-run onboarding as completed. */

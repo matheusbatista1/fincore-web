@@ -44,6 +44,7 @@ export const users = pgTable(
       .references(() => authUsers.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
     locale: text("locale").notNull().default("pt-BR"),
     /** Optional feature modules the user has turned on (people/budgets/goals/reports). */
     enabledModules: jsonb("enabled_modules").$type<ModuleKey[]>().notNull().default(sql`'[]'::jsonb`),

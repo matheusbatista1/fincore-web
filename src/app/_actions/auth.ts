@@ -185,6 +185,50 @@ export async function disableMfaAction(): Promise<{ ok: true } | { ok: false; er
   return { ok: true };
 }
 
+const AVATAR_MAX_BYTES = 3 * 1024 * 1024;
+const AVATAR_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+/** Upload a profile photo to the `avatars` bucket and store its public URL. */
+export async function uploadAvatarAction(
+  formData: FormData,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Selecione uma imagem." };
+  if (file.size > AVATAR_MAX_BYTES) return { ok: false, error: "A imagem deve ter até 3 MB." };
+  const ext = AVATAR_EXT[file.type];
+  if (!ext) return { ok: false, error: "Use uma imagem PNG, JPG ou WebP." };
+
+  const supabase = await createSupabaseServerClient();
+  const path = `${user.id}/avatar.${ext}`;
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (uploadError) return { ok: false, error: "Não foi possível enviar a imagem." };
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  // Cache-bust so the new photo replaces the old one immediately.
+  const url = `${data.publicUrl}?v=${Date.now()}`;
+  await financeRepository.updateAvatar(user.id, url);
+  revalidatePath("/", "layout");
+  return { ok: true, url };
+}
+
+/** Clear the profile photo. */
+export async function removeAvatarAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  await financeRepository.updateAvatar(user.id, null);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 export async function signOutAction(): Promise<void> {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();

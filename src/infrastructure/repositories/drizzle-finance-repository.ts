@@ -99,6 +99,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           .select({
             displayName: schema.users.displayName,
             email: schema.users.email,
+            avatarUrl: schema.users.avatarUrl,
             enabledModules: schema.users.enabledModules,
             onboardedAt: schema.users.onboardedAt,
           })
@@ -114,6 +115,15 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       await tx
         .update(schema.users)
         .set({ displayName: input.displayName, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async updateAvatar(userId: string, avatarUrl: string | null): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ avatarUrl, updatedAt: new Date() })
         .where(eq(schema.users.id, userId));
     });
   }

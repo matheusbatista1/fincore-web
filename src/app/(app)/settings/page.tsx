@@ -54,7 +54,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="settings-page" style={{ maxWidth: 720 }}>
-      <SettingsView name={name} email={email} initials={initials} />
+      <SettingsView name={name} email={email} initials={initials} avatarUrl={profile.avatarUrl} />
 
       <ModulesCard enabled={profile.enabledModules} />
 
