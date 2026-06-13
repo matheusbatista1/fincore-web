@@ -124,6 +124,29 @@ export default async function SettingsPage() {
         </div>
       </div>
 
+      {/* Sobre / Legal */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head">
+          <div>
+            <h3>Sobre</h3>
+            <div className="ch-sub">Documentos legais do FinCore.</div>
+          </div>
+        </div>
+        <div
+          className="card-pad"
+          style={{ paddingTop: 6, paddingBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}
+        >
+          <Link className="btn btn-ghost btn-sm" href="/privacy" target="_blank">
+            <Icon name="lock" size={15} />
+            Política de Privacidade
+          </Link>
+          <Link className="btn btn-ghost btn-sm" href="/terms" target="_blank">
+            <Icon name="file-text" size={15} />
+            Termos de Uso
+          </Link>
+        </div>
+      </div>
+
       {/* Sair */}
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-pad">

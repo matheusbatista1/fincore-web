@@ -8,6 +8,7 @@ import { Money } from "@/domain/money/money";
 import { calculateSplit } from "@/domain/services/split.calculator";
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { InfoHint } from "@/presentation/components/ui/info-hint";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
@@ -726,7 +727,13 @@ function TransactionForm({
             </div>
 
             <div className="field">
-              <label>Forma de pagamento</label>
+              <label>
+                Forma de pagamento
+                <InfoHint>
+                  No cartão, a despesa entra na fatura. Em conta/Pix/débito, sai do saldo na hora. Boleto,
+                  empréstimo e financiamento podem ser vinculados a um banco só para organização.
+                </InfoHint>
+              </label>
               <select
                 className="input"
                 value={srcType}
@@ -875,7 +882,13 @@ function TransactionForm({
                         />
                       </div>
                       <div className="field" style={{ marginBottom: 0 }}>
-                        <label>Parcela atual</label>
+                        <label>
+                          Parcela atual
+                          <InfoHint>
+                            Qual parcela você está pagando agora (ex.: 3 de 10). Só a parcela atual afeta o
+                            saldo/fatura deste mês; as outras entram como previstas nos meses certos.
+                          </InfoHint>
+                        </label>
                         <input
                           className="input tnum"
                           inputMode="numeric"
@@ -939,7 +952,13 @@ function TransactionForm({
               <>
                 {/* método */}
                 <div className="field">
-                  <label>Método de divisão</label>
+                  <label>
+                    Método de divisão
+                    <InfoHint>
+                      "Dividir igual" reparte o valor em partes iguais entre os participantes. "Personalizado"
+                      deixa você digitar quanto cabe a cada pessoa.
+                    </InfoHint>
+                  </label>
                   <div className="seg">
                     <button
                       type="button"

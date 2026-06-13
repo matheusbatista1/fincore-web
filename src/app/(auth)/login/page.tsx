@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { type AuthFormState, authenticateAction, verifyMfaAction } from "@/app/_actions/auth";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -146,6 +147,23 @@ export default function LoginPage() {
                 <span>Manter conectado neste dispositivo</span>
               </label>
 
+              {isSignup && (
+                <label className="lf-check">
+                  <input type="checkbox" name="accept" required />
+                  <span>
+                    Li e aceito os{" "}
+                    <Link href="/terms" className="lf-link" target="_blank">
+                      Termos de Uso
+                    </Link>{" "}
+                    e a{" "}
+                    <Link href="/privacy" className="lf-link" target="_blank">
+                      Política de Privacidade
+                    </Link>
+                    .
+                  </span>
+                </label>
+              )}
+
               {state.error && (
                 <div className="warn-text" style={{ marginBottom: 12 }}>
                   <Icon name="alert-triangle" size={14} />
@@ -179,6 +197,15 @@ export default function LoginPage() {
                   {isSignup ? "Entrar" : "Criar agora"}
                 </button>
               </p>
+
+              <div style={{ marginTop: 14, display: "flex", gap: 16, justifyContent: "center" }}>
+                <Link href="/privacy" className="lf-link" target="_blank">
+                  Privacidade
+                </Link>
+                <Link href="/terms" className="lf-link" target="_blank">
+                  Termos
+                </Link>
+              </div>
             </form>
           )}
         </div>
