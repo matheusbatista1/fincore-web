@@ -3,27 +3,19 @@
 import { useState } from "react";
 import { ProfileFormDialog } from "@/presentation/components/settings/profile-form-dialog";
 import { Icon } from "@/presentation/components/ui/icon";
-import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 
-type PrefKey = "notif" | "hideOnOpen";
+type PrefKey = "hideOnOpen";
 
-/** `mobileOnly` prefs (push notifications) are device features — hidden on desktop. */
-const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: string; mobileOnly?: boolean }> =
-  [
-    {
-      key: "notif",
-      icon: "bell",
-      title: "Notificações push",
-      sub: "Vencimentos, pendências e alertas",
-      mobileOnly: true,
-    },
-    {
-      key: "hideOnOpen",
-      icon: "eye-off",
-      title: "Ocultar valores ao abrir",
-      sub: "Privacidade extra em locais públicos",
-    },
-  ];
+// Push notifications aren't implemented yet (no Web Push), so that toggle is
+// hidden for now — re-add it alongside a real push flow.
+const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: string }> = [
+  {
+    key: "hideOnOpen",
+    icon: "eye-off",
+    title: "Ocultar valores ao abrir",
+    sub: "Privacidade extra em locais públicos",
+  },
+];
 
 /** Settings — profile header + preferences toggles, ported 1:1 from the prototype (more.jsx SettingsScreen). */
 export function SettingsView({
@@ -37,13 +29,10 @@ export function SettingsView({
   initials: string;
   avatarUrl: string | null;
 }) {
-  const isMobile = useIsMobile();
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
-    notif: true,
     hideOnOpen: false,
   });
   const toggle = (k: PrefKey) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
-  const visiblePrefs = PREFS.filter((p) => isMobile || !p.mobileOnly);
 
   return (
     <>
@@ -103,7 +92,7 @@ export function SettingsView({
           </div>
         </div>
         <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-          {visiblePrefs.map((p) => (
+          {PREFS.map((p) => (
             <div
               role="button"
               tabIndex={0}
