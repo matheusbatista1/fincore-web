@@ -104,7 +104,7 @@ export function AppHeader({
           people={people}
           categories={categories}
           trigger={
-            <button type="button" className="btn btn-primary">
+            <button type="button" className="btn btn-primary" data-tour="new-tx">
               <Icon name="plus" size={17} />
               Novo lançamento
             </button>

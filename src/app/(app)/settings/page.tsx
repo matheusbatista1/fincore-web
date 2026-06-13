@@ -6,6 +6,7 @@ import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
+import { HelpCard } from "@/presentation/components/settings/help-card";
 import { ModulesCard } from "@/presentation/components/settings/modules-card";
 import { SettingsView } from "@/presentation/components/settings/settings-view";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
@@ -52,6 +53,8 @@ export default async function SettingsPage() {
       <SettingsView name={name} email={email} initials={initials} />
 
       <ModulesCard enabled={profile.enabledModules} />
+
+      <HelpCard />
 
       {/* Categorias (feature real, mesma linguagem visual) */}
       <div className="card" style={{ marginTop: 16 }}>

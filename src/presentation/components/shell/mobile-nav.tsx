@@ -39,7 +39,7 @@ export function MobileNav({
 
   return (
     <>
-      <nav className="bottom-nav">
+      <nav className="bottom-nav" data-tour="nav">
         {tabs.map((tab) => (
           <Link
             key={tab.href}
@@ -67,7 +67,7 @@ export function MobileNav({
         people={people}
         categories={categories}
         trigger={
-          <button type="button" className="fab" aria-label="Novo lançamento">
+          <button type="button" className="fab" aria-label="Novo lançamento" data-tour="new-tx">
             <Icon name="plus" size={26} />
           </button>
         }

@@ -6,6 +6,7 @@ import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { PullToRefresh } from "@/presentation/components/gestures/pull-to-refresh";
+import { OnboardingHost } from "@/presentation/components/onboarding/onboarding-host";
 import { AppHeader } from "@/presentation/components/shell/app-header";
 import { MobileNav } from "@/presentation/components/shell/mobile-nav";
 import { PageHead } from "@/presentation/components/shell/page-head";
@@ -126,6 +127,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </main>
         <MobileNav {...formData} pendingCount={pendingCount} />
         <TxModalsHost {...formData} transactions={transactions} today={today} />
+        <OnboardingHost onboarded={profile.onboardedAt !== null} enabledModules={enabledModules} />
       </div>
     </ModulesProvider>
   );
