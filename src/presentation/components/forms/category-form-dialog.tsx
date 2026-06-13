@@ -1,7 +1,11 @@
 "use client";
 
 import { type ReactNode, useId, useState } from "react";
-import { createCategoryAction, deleteCategoryAction, updateCategoryAction } from "@/app/_actions/finance";
+import {
+  createCategoryReturningAction,
+  deleteCategoryAction,
+  updateCategoryAction,
+} from "@/app/_actions/finance";
 import {
   CATEGORY_ICON_NAMES,
   CategoryIcon,
@@ -20,19 +24,38 @@ interface CategoryView {
 }
 
 /** Nova/editar categoria — prototype form language (.field/.swatches/.chip-select). */
-export function CategoryFormDialog({ category, trigger }: { category?: CategoryView; trigger: ReactNode }) {
+export function CategoryFormDialog({
+  category,
+  trigger,
+  onCreated,
+}: {
+  category?: CategoryView;
+  trigger: ReactNode;
+  /** Called with the created category (create mode only) — used to select it inline. */
+  onCreated?: (category: CategoryView) => void;
+}) {
   const [open, setOpen] = useState(false);
   const formId = useId();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      {open && <CategoryForm key={formId} category={category} onDone={() => setOpen(false)} />}
+      {open && (
+        <CategoryForm key={formId} category={category} onCreated={onCreated} onDone={() => setOpen(false)} />
+      )}
     </Dialog>
   );
 }
 
-function CategoryForm({ category, onDone }: { category?: CategoryView | undefined; onDone: () => void }) {
+function CategoryForm({
+  category,
+  onDone,
+  onCreated,
+}: {
+  category?: CategoryView | undefined;
+  onDone: () => void;
+  onCreated?: ((category: CategoryView) => void) | undefined;
+}) {
   const editing = category !== undefined;
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState(category?.color || PERSON_COLORS[4]);
@@ -47,15 +70,25 @@ function CategoryForm({ category, onDone }: { category?: CategoryView | undefine
     setServerError(null);
     const input = { name: name.trim(), color, icon };
     setSubmitting(true);
-    const result = editing
-      ? await updateCategoryAction(category.id, input)
-      : await createCategoryAction(input);
+    if (editing) {
+      const result = await updateCategoryAction(category.id, input);
+      setSubmitting(false);
+      if (!result.ok) {
+        setServerError(result.error);
+        return;
+      }
+      toast(`Categoria ${name.trim()} salva`);
+      onDone();
+      return;
+    }
+    const result = await createCategoryReturningAction(input);
     setSubmitting(false);
     if (!result.ok) {
       setServerError(result.error);
       return;
     }
-    toast(`Categoria ${name.trim()} salva`);
+    toast(`Categoria ${name.trim()} criada`);
+    onCreated?.(result.category);
     onDone();
   }
 

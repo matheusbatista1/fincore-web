@@ -41,3 +41,17 @@ export const getCurrentUser = cache(async () => {
   } = await supabase.auth.getUser();
   return user;
 });
+
+/**
+ * Check a password without disturbing the current session: a throwaway client
+ * with no-op cookies signs in just to validate, persisting nothing. Used to
+ * confirm the current password before sensitive actions (change password,
+ * delete account).
+ */
+export async function verifyPassword(email: string, password: string): Promise<boolean> {
+  const supabase = createServerClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+    cookies: { getAll: () => [], setAll: () => {} },
+  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  return !error;
+}
