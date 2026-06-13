@@ -42,6 +42,8 @@ export async function proxy(request: NextRequest) {
     path === "/login" ||
     path.startsWith("/login/") ||
     path.startsWith("/auth") ||
+    path === "/privacy" ||
+    path === "/terms" ||
     // PWA surfaces must be reachable without a session.
     path === "/offline" ||
     path === "/sw.js" ||
@@ -52,6 +54,26 @@ export async function proxy(request: NextRequest) {
   if (!user && !isPublic) {
     return redirectTo(request, response, "/login");
   }
+
+  // AAL2 step-up: a session with a verified second factor that is still at aal1
+  // (e.g. a pre-existing session) may only reach the challenge route until it
+  // verifies. Fail-open on errors so the app never hard-locks.
+  if (user) {
+    let pendingMfa = false;
+    try {
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      pendingMfa = aal?.currentLevel === "aal1" && aal?.nextLevel === "aal2";
+    } catch {
+      pendingMfa = false;
+    }
+    if (pendingMfa && path !== "/verify-2fa" && !path.startsWith("/auth")) {
+      return redirectTo(request, response, "/verify-2fa");
+    }
+    if (!pendingMfa && path === "/verify-2fa") {
+      return redirectTo(request, response, "/dashboard");
+    }
+  }
+
   // Authenticated users skip the login / landing page.
   if (user && (path === "/login" || path === "/")) {
     return redirectTo(request, response, "/dashboard");
