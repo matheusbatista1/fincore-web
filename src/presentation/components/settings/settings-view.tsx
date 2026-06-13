@@ -5,9 +5,9 @@ import { ProfileFormDialog } from "@/presentation/components/settings/profile-fo
 import { Icon } from "@/presentation/components/ui/icon";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 
-type PrefKey = "notif" | "biometric" | "hideOnOpen";
+type PrefKey = "notif" | "hideOnOpen";
 
-/** `mobileOnly` prefs (push notifications, biometric login) are device features — hidden on desktop. */
+/** `mobileOnly` prefs (push notifications) are device features — hidden on desktop. */
 const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: string; mobileOnly?: boolean }> =
   [
     {
@@ -15,13 +15,6 @@ const PREFS: ReadonlyArray<{ key: PrefKey; icon: string; title: string; sub: str
       icon: "bell",
       title: "Notificações push",
       sub: "Vencimentos, pendências e alertas",
-      mobileOnly: true,
-    },
-    {
-      key: "biometric",
-      icon: "fingerprint",
-      title: "Login por biometria",
-      sub: "Face ID / impressão digital",
       mobileOnly: true,
     },
     {
@@ -37,7 +30,6 @@ export function SettingsView({ name, email, initials }: { name: string; email: s
   const isMobile = useIsMobile();
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
     notif: true,
-    biometric: true,
     hideOnOpen: false,
   });
   const toggle = (k: PrefKey) => setPrefs((p) => ({ ...p, [k]: !p[k] }));

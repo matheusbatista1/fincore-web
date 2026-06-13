@@ -6,5 +6,5 @@ export const contentType = "image/png";
 
 /** Browser favicon. */
 export default function Icon() {
-  return new ImageResponse(brandGlyph({ size: 32, radius: 0.25, fontScale: 0.62 }), { ...size });
+  return new ImageResponse(brandGlyph({ size: 32 }), { ...size });
 }

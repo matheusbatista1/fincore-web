@@ -37,13 +37,13 @@ export function Sidebar({
         </span>
       </Link>
 
+      {/* Single-account for now: just the name + email (no account-switcher affordance). */}
       <Link href="/settings" className="acct-switch">
         <span className="ava">{initials}</span>
         <span className="nm">
           <b>{name}</b>
           <span>{userEmail}</span>
         </span>
-        <Icon name="chevrons-up-down" size={16} />
       </Link>
 
       {NAV_GROUPS.map((group) => (
