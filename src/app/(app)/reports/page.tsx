@@ -1,9 +1,7 @@
-import { redirect } from "next/navigation";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getReports } from "@/application/use-cases/get-reports";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
-import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { BarList } from "@/presentation/components/charts/bar-list";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
@@ -12,10 +10,10 @@ import { buildReportData } from "@/presentation/components/reports/report-data";
 import { ReportPickButtons } from "@/presentation/components/reports/report-pick-buttons";
 import { Icon } from "@/presentation/components/ui/icon";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
+import { requireModule } from "../_guards";
 
 export default async function ReportsPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireModule("reports");
 
   const month = currentMonthInBrazil();
   const [data, workspace, dash, transactions] = await Promise.all([

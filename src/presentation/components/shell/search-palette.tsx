@@ -6,8 +6,10 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { useModules } from "@/presentation/providers/modules-provider";
 import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
+import { isHrefEnabled } from "@/shared/modules";
 
 export interface SearchPerson {
   readonly id: string;
@@ -47,6 +49,7 @@ export function SearchPalette({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const enabled = useModules();
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -70,7 +73,8 @@ export function SearchPalette({
     ? people.filter((p) => match(p.name) || match(p.relationship)).slice(0, 5)
     : people.slice(0, 3);
   const cardHits = term ? cards.filter((c) => match(c.bank) || match(c.product)).slice(0, 4) : [];
-  const navHits = term ? NAV.filter(([, label]) => match(label)) : [];
+  const navList = NAV.filter(([href]) => isHrefEnabled(enabled, href));
+  const navHits = term ? navList.filter(([, label]) => match(label)) : [];
 
   const empty = term && !txHits.length && !peopleHits.length && !cardHits.length && !navHits.length;
 

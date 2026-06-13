@@ -5,6 +5,7 @@ import {
   check,
   date,
   index,
+  jsonb,
   pgPolicy,
   pgTable,
   smallint,
@@ -14,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUsers } from "drizzle-orm/supabase";
+import type { ModuleKey } from "@/shared/modules";
 import { accountType, cardFlag, expenseSource, parcelaStatus, transactionKind } from "./enums";
 
 // Shared audit columns (soft-delete via deletedAt).
@@ -43,6 +45,10 @@ export const users = pgTable(
     email: text("email").notNull(),
     displayName: text("display_name"),
     locale: text("locale").notNull().default("pt-BR"),
+    /** Optional feature modules the user has turned on (people/budgets/goals/reports). */
+    enabledModules: jsonb("enabled_modules").$type<ModuleKey[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Set when the first-run onboarding has been completed; null = not onboarded yet. */
+    onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
     ...timestamps,
   },
   () => [

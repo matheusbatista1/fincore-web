@@ -1,15 +1,13 @@
-import { redirect } from "next/navigation";
 import { getGoals } from "@/application/use-cases/get-goals";
-import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { GoalContributeDialog } from "@/presentation/components/forms/goal-contribute-dialog";
 import { GoalFormDialog } from "@/presentation/components/forms/goal-form-dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { requireModule } from "../_guards";
 
 export default async function GoalsPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await requireModule("goals");
 
   const data = await getGoals(financeRepository, user.id);
 
