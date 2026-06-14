@@ -1088,10 +1088,12 @@
 }
 .donut .center .big {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 600;
   color: var(--text-hi);
   font-variant-numeric: tabular-nums;
+  /* Never wrap to a second line while counting (values > R$ 10 mil were flickering). */
+  white-space: nowrap;
 }
 .donut .center .lbl {
   font-size: 11.5px;

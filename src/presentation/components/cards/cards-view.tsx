@@ -8,6 +8,7 @@ import { cardBillMonth, cardBillOverridesByCard } from "@/domain/services/card-b
 import { addMonths } from "@/domain/value-objects/competence-month";
 import { CardBillDatesDialog } from "@/presentation/components/cards/card-bill-dates-dialog";
 import { CreditCardFormDialog } from "@/presentation/components/forms/credit-card-form-dialog";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { CreditCardWidget } from "@/presentation/components/ui/credit-card-widget";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
@@ -170,7 +171,7 @@ export function CardsView({
                   marginTop: 3,
                 }}
               >
-                {formatBRLAbsolute(totals.limit)}
+                <AnimatedMoney cents={totals.limit} withSign={false} />
               </div>
             </div>
             <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
@@ -185,7 +186,7 @@ export function CardsView({
                   marginTop: 3,
                 }}
               >
-                {formatBRLAbsolute(totals.used)}
+                <AnimatedMoney cents={totals.used} withSign={false} />
               </div>
             </div>
             <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
@@ -200,7 +201,7 @@ export function CardsView({
                   marginTop: 3,
                 }}
               >
-                {formatBRLAbsolute(totals.available)}
+                <AnimatedMoney cents={totals.available} withSign={false} />
               </div>
             </div>
           </div>
@@ -290,7 +291,7 @@ export function CardsView({
               <div className="row" style={{ justifyContent: "space-between", fontSize: 13.5 }}>
                 <span style={{ color: "var(--text-lo)" }}>Utilizado</span>
                 <span className="tnum" style={{ color: "var(--text-hi)", fontWeight: 700 }}>
-                  {formatBRLAbsolute(used)}
+                  <AnimatedMoney cents={used} withSign={false} />
                 </span>
               </div>
               <div className={`meter ${meterCls}`}>
@@ -301,7 +302,9 @@ export function CardsView({
                 style={{ justifyContent: "space-between", fontSize: 12.5, color: "var(--text-lo)" }}
               >
                 <span>{pct}% do limite</span>
-                <span>Disponível {formatBRLAbsolute(avail)}</span>
+                <span>
+                  Disponível <AnimatedMoney cents={avail} withSign={false} />
+                </span>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 22 }}>
@@ -317,7 +320,7 @@ export function CardsView({
                     marginTop: 3,
                   }}
                 >
-                  {formatBRLAbsolute(card.limitCents)}
+                  <AnimatedMoney cents={card.limitCents} withSign={false} />
                 </div>
               </div>
               <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
@@ -332,7 +335,7 @@ export function CardsView({
                     marginTop: 3,
                   }}
                 >
-                  {formatBRLAbsolute(avail)}
+                  <AnimatedMoney cents={avail} withSign={false} />
                 </div>
               </div>
             </div>
@@ -348,7 +351,7 @@ export function CardsView({
                 </div>
               </div>
               <div className="l-amt">
-                <Money cents={used} withSign={false} />
+                <AnimatedMoney cents={used} withSign={false} />
               </div>
             </div>
             <button
@@ -455,7 +458,7 @@ export function CardsView({
                       color: "var(--text-hi)",
                     }}
                   >
-                    <Money cents={faturaMes} withSign={false} />
+                    <AnimatedMoney cents={faturaMes} withSign={false} />
                   </div>
                 </div>
               </div>
