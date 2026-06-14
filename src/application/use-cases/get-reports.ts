@@ -1,7 +1,12 @@
 import { isExpense } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { addMonths, type CompetenceMonth } from "@/domain/value-objects/competence-month";
+import {
+  addMonths,
+  type CompetenceMonth,
+  compareMonths,
+  monthsBetween,
+} from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
@@ -23,14 +28,30 @@ export interface CategorySlice {
   readonly valueCents: number;
 }
 
+/**
+ * The window a report covers. `from → to` drives the monthly trend bars; the
+ * category breakdown defaults to the latest month (`to`) but can span its own
+ * window (`categoryFrom → categoryTo`) so the dashboard keeps a single-month
+ * donut while the bars show six months, and the Reports screen can aggregate
+ * categories over the whole chosen period.
+ */
+export interface ReportRange {
+  readonly from: CompetenceMonth;
+  readonly to: CompetenceMonth;
+  readonly categoryFrom?: CompetenceMonth;
+  readonly categoryTo?: CompetenceMonth;
+}
+
 export interface ReportsData {
-  readonly month: CompetenceMonth;
-  readonly monthLabel: string;
-  /** Trailing 6 months ending at `month`, oldest → newest (general lens). */
+  readonly from: CompetenceMonth;
+  readonly to: CompetenceMonth;
+  /** Human label for the covered window ("Junho de 2026" or "jan – jun 2026"). */
+  readonly rangeLabel: string;
+  /** One bar per month in `[from, to]`, oldest → newest (general lens). */
   readonly months: MonthBar[];
   /** Same trend through the personal lens (only the user's own share). */
   readonly monthsPersonal: MonthBar[];
-  /** Expense breakdown by category for `month`, largest → smallest (general lens). */
+  /** Expense breakdown by category over the category window, largest → smallest (general lens). */
   readonly categories: CategorySlice[];
   /** Same breakdown through the personal lens (only the user's own share). */
   readonly categoriesPersonal: CategorySlice[];
@@ -39,22 +60,30 @@ export interface ReportsData {
 }
 
 const UNCATEGORIZED_COLOR = "#8A93A6";
-const TRAILING_MONTHS = 6;
 
-/** Build the reports snapshot: a 6-month income/expense trend + the month's category breakdown. */
+/** Order two months ascending. */
+function ordered(a: CompetenceMonth, b: CompetenceMonth): [CompetenceMonth, CompetenceMonth] {
+  return compareMonths(a, b) <= 0 ? [a, b] : [b, a];
+}
+
+/** Build the reports snapshot: a monthly income/expense trend + the category breakdown. */
 export async function getReports(
   repo: FinanceRepository,
   userId: string,
-  anchorMonth: CompetenceMonth,
+  range: ReportRange,
 ): Promise<ReportsData> {
   const ws = await loadWorkspaceCached(repo, userId);
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
 
+  const [from, to] = ordered(range.from, range.to);
+  const [catLo, catHi] = ordered(range.categoryFrom ?? to, range.categoryTo ?? to);
+
   const months: MonthBar[] = [];
   const monthsPersonal: MonthBar[] = [];
-  for (let i = TRAILING_MONTHS - 1; i >= 0; i--) {
-    const month = addMonths(anchorMonth, -i);
+  const span = monthsBetween(from, to);
+  for (let k = 0; k <= span; k++) {
+    const month = addMonths(from, k);
     const totals = computeViewTotals(ws.transactions, "general", month, competenceOf);
     const totalsPersonal = computeViewTotals(ws.transactions, "personal", month, competenceOf);
     months.push({
@@ -73,13 +102,15 @@ export async function getReports(
     });
   }
 
-  // Category breakdown for the anchor month. General sums full (absolute) expense
-  // amounts; personal sums only the user's own share (`myShareCents`).
+  // Category breakdown over the category window. General sums full (absolute)
+  // expense amounts; personal sums only the user's own share (`myShareCents`).
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const byCategory = new Map<string, number>();
   const byCategoryPersonal = new Map<string, number>();
   for (const tx of ws.transactions) {
-    if (!isExpense(tx) || competenceOf(tx) !== anchorMonth) continue;
+    if (!isExpense(tx)) continue;
+    const competence = competenceOf(tx);
+    if (compareMonths(competence, catLo) < 0 || compareMonths(competence, catHi) > 0) continue;
     const key = tx.categoryId ?? "__none__";
     byCategory.set(key, (byCategory.get(key) ?? 0) + Math.abs(tx.amountCents));
     // A fully-shared expense (myShareCents === 0) leaves the personal donut.
@@ -106,9 +137,13 @@ export async function getReports(
   const totalExpenseCents = categories.reduce((sum, c) => sum + c.valueCents, 0);
   const totalExpensePersonalCents = categoriesPersonal.reduce((sum, c) => sum + c.valueCents, 0);
 
+  const rangeLabel =
+    from === to ? monthLabel(from, { long: true }) : `${monthLabel(from)} – ${monthLabel(to)}`;
+
   return {
-    month: anchorMonth,
-    monthLabel: monthLabel(anchorMonth, { long: true }),
+    from,
+    to,
+    rangeLabel,
     months,
     monthsPersonal,
     categories,

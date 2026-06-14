@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Category } from "@/domain/entities/category";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
+import { addMonths } from "@/domain/value-objects/competence-month";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 import { getReports } from "./get-reports";
 
 const ANCHOR = "2026-06";
+/** Single-month window (bars + categories all on the anchor month). */
+const justAnchor = { from: ANCHOR, to: ANCHOR };
 
 const food: Category = { id: "cat-food", name: "Alimentação", color: "#FF8800", icon: "utensils-crossed" };
 const transport: Category = { id: "cat-trans", name: "Transporte", color: "#3366FF", icon: "car" };
@@ -70,7 +73,7 @@ describe("getReports — general vs personal lenses", () => {
       // fully reimbursed expense (my share 0): drops from the personal donut
       expense({ amountCents: -2000, myShareCents: 0, categoryId: transport.id }),
     ]);
-    const data = await getReports(repo, "u", ANCHOR);
+    const data = await getReports(repo, "u", justAnchor);
 
     // General categories: food 13000, transport 2000.
     expect(data.categories.map((c) => [c.id, c.valueCents])).toEqual([
@@ -90,7 +93,7 @@ describe("getReports — general vs personal lenses", () => {
       income({ amountCents: 6000, isReimbursement: true }),
       expense({ amountCents: -10000, myShareCents: 5000 }),
     ]);
-    const data = await getReports(repo, "u", ANCHOR);
+    const data = await getReports(repo, "u", justAnchor);
 
     const general = data.months.at(-1);
     const personal = data.monthsPersonal.at(-1);
@@ -101,11 +104,34 @@ describe("getReports — general vs personal lenses", () => {
     expect(personal?.expenseCents).toBe(5000);
   });
 
-  it("returns 6 trailing month bars, oldest → newest, ending at the anchor", async () => {
-    const data = await getReports(stubRepo([]), "u", ANCHOR);
+  it("emits one bar per month in [from, to], oldest → newest", async () => {
+    const data = await getReports(stubRepo([]), "u", { from: addMonths(ANCHOR, -5), to: ANCHOR });
     expect(data.months).toHaveLength(6);
     expect(data.monthsPersonal).toHaveLength(6);
-    expect(data.months.at(-1)?.month).toBe(ANCHOR);
     expect(data.months[0]?.month).toBe("2026-01");
+    expect(data.months.at(-1)?.month).toBe(ANCHOR);
+  });
+
+  it("aggregates categories across the whole category window", async () => {
+    const repo = stubRepo([
+      expense({ amountCents: -1000, myShareCents: 1000, date: "2026-04-10", categoryId: food.id }),
+      expense({ amountCents: -2000, myShareCents: 2000, date: "2026-05-10", categoryId: food.id }),
+      expense({ amountCents: -3000, myShareCents: 3000, date: "2026-06-10", categoryId: food.id }),
+    ]);
+    const data = await getReports(repo, "u", {
+      from: "2026-04",
+      to: ANCHOR,
+      categoryFrom: "2026-04",
+      categoryTo: ANCHOR,
+    });
+    expect(data.categories).toEqual([{ id: food.id, name: food.name, color: food.color, valueCents: 6000 }]);
+    expect(data.totalExpenseCents).toBe(6000);
+  });
+
+  it("normalizes a reversed range (from after to)", async () => {
+    const data = await getReports(stubRepo([]), "u", { from: ANCHOR, to: "2026-04" });
+    expect(data.from).toBe("2026-04");
+    expect(data.to).toBe(ANCHOR);
+    expect(data.months).toHaveLength(3);
   });
 });

@@ -17,7 +17,7 @@ export default async function PeoplePage() {
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
     getDashboard(financeRepository, user.id, month),
-    getReports(financeRepository, user.id, month),
+    getReports(financeRepository, user.id, { from: month, to: month }),
   ]);
 
   const reportData = buildReportData({ dash, reports, workspace, transactions, today });

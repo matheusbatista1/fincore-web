@@ -4,7 +4,7 @@ import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getReports } from "@/application/use-cases/get-reports";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
-import { isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
+import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { type DashboardData, DashboardView } from "@/presentation/components/dashboard/dashboard-view";
@@ -32,7 +32,8 @@ export default async function DashboardPage({
   const isCurrent = month === current;
   const [dash, reports, transactions, workspace] = await Promise.all([
     getDashboard(financeRepository, user.id, month),
-    getReports(financeRepository, user.id, month),
+    // Bars: trailing 6 months ending at the browsed month; donut: just that month.
+    getReports(financeRepository, user.id, { from: addMonths(month, -5), to: month }),
     getTransactions(financeRepository, user.id),
     getWorkspaceView(financeRepository, user.id),
   ]);
