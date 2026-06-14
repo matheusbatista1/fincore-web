@@ -1,7 +1,7 @@
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
-import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
+import { computePersonBalancesForMonth } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { cardBillsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -38,7 +38,9 @@ export interface CardSummary {
 export interface PersonSummary {
   readonly id: string;
   readonly name: string;
+  readonly relationship: string;
   readonly color: string;
+  /** The person's NET for the browsed month (> 0 they owe you, < 0 you owe them). */
   readonly balanceCents: number;
 }
 
@@ -65,7 +67,12 @@ export interface DashboardData {
   readonly projectedBalanceCents: number;
   readonly accounts: AccountSummary[];
   readonly cards: CardSummary[];
+  /** People with a non-zero NET in the browsed month (sorted, they-owe-you first). */
   readonly people: PersonSummary[];
+  /** Sum of the month's positive person nets (others owe you this month). */
+  readonly aReceberCents: number;
+  /** Sum of the month's negative person nets, as a positive figure (you owe this month). */
+  readonly aPagarCents: number;
   readonly general: ViewTotalsDto;
   readonly personal: ViewTotalsDto;
   /** Trailing 6-month cumulative balance for the hero sparkline. */
@@ -85,9 +92,16 @@ export async function getDashboard(
   // Headline balances are "live" (as of today), independent of the browsed month.
   const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
   const bills = computeCardBills(ws.creditCards, ws.transactions);
-  const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
+  // Person nets scoped to the browsed month (drives "A receber" + "Pessoas com pendências").
+  const ledgerMonth = computePersonBalancesForMonth(
+    ws.people,
+    ws.transactions,
+    ws.settlements,
+    month,
+    competenceOf,
+  );
   // The month's set: real movements always, plus the projected ("previsto") recurring
   // occurrences for FUTURE months — so browsing months ahead shows expected income and
   // spending. Past/current stay real-only (history/actuals unchanged).
@@ -122,10 +136,14 @@ export async function getDashboard(
     .map((person) => ({
       id: person.id,
       name: person.name,
+      relationship: person.relationship,
       color: person.color,
-      balanceCents: (ledger.get(person.id) ?? Money.zero()).cents,
+      balanceCents: (ledgerMonth.get(person.id) ?? Money.zero()).cents,
     }))
-    .filter((person) => person.balanceCents !== 0);
+    .filter((person) => person.balanceCents !== 0)
+    .sort((a, b) => b.balanceCents - a.balanceCents);
+  const aReceberCents = people.reduce((sum, p) => (p.balanceCents > 0 ? sum + p.balanceCents : sum), 0);
+  const aPagarCents = people.reduce((sum, p) => (p.balanceCents < 0 ? sum - p.balanceCents : sum), 0);
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
 
@@ -161,6 +179,8 @@ export async function getDashboard(
     accounts,
     cards,
     people,
+    aReceberCents,
+    aPagarCents,
     trend,
     general: {
       incomeCents: general.income.cents,

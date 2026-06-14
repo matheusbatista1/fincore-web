@@ -1,18 +1,25 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { settlePersonAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { PersonView } from "@/application/use-cases/get-workspace-view";
+import { addMonths } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
+import {
+  MonthNavButton,
+  MonthNavPending,
+  MonthTransition,
+} from "@/presentation/components/shell/month-transition";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { relativeDateLabel } from "@/shared/formatting/dates";
+import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 import { settlementInputSchema } from "@/shared/schemas/transaction";
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
@@ -26,13 +33,24 @@ function todayIso(): string {
 /** Pessoas — ported 1:1 from the prototype (people.jsx). */
 export function PeopleView({
   people,
+  monthBalances,
   transactions,
   today,
+  month,
+  isCurrent,
+  prevHref,
+  nextHref,
   reportData,
 }: {
   people: PersonView[];
+  /** Per-person NET for the browsed month (id → cents; missing = 0). */
+  monthBalances: Record<string, number>;
   transactions: TransactionListItem[];
   today: string;
+  month: string;
+  isCurrent: boolean;
+  prevHref: string;
+  nextHref: string;
   reportData: ReportData;
 }) {
   const toast = useUIStore((s) => s.toast);
@@ -40,194 +58,230 @@ export function PeopleView({
   const [settleId, setSettleId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
-  const totalReceber = people.filter((p) => p.balanceCents > 0).reduce((s, p) => s + p.balanceCents, 0);
-  const totalPagar = people
-    .filter((p) => p.balanceCents < 0)
-    .reduce((s, p) => s + Math.abs(p.balanceCents), 0);
-  const withPending = people.filter((p) => p.balanceCents !== 0).length;
+  // All people figures on this screen are scoped to the browsed month.
+  const monthBal = (id: string): number => monthBalances[id] ?? 0;
+  const totalReceber = people.reduce((s, p) => (monthBal(p.id) > 0 ? s + monthBal(p.id) : s), 0);
+  const totalPagar = people.reduce((s, p) => (monthBal(p.id) < 0 ? s - monthBal(p.id) : s), 0);
+  const withPending = people.filter((p) => monthBal(p.id) !== 0).length;
 
   const open = people.find((p) => p.id === openId) ?? null;
   const settle = people.find((p) => p.id === settleId) ?? null;
 
   return (
-    <div className="people-page">
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 22 }}>
-        <div className="card card-pad" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span className="kpi-ic mint" style={{ width: 46, height: 46 }}>
-            <Icon name="hand-coins" size={22} />
-          </span>
-          <div>
-            <div className="kpi-label" style={{ marginTop: 0 }}>
-              Total a receber
+    <MonthTransition prevHref={prevHref} nextHref={nextHref}>
+      <div className="people-page">
+        <div className="card card-pad" style={{ marginBottom: 16 }}>
+          <div className="month-nav">
+            <MonthNavButton href={prevHref} dir="prev" title="Mês anterior">
+              <Icon name="chevron-left" size={19} />
+            </MonthNavButton>
+            <div className="mn-label">
+              <span className="mn-month">{monthLabel(month, { long: true })}</span>
+              <MonthNavPending />
+              {isCurrent ? (
+                <span className="pill purple" style={{ height: 22 }}>
+                  Mês atual
+                </span>
+              ) : (
+                <Link className="card-link" href="/people">
+                  Voltar para hoje
+                </Link>
+              )}
             </div>
-            <div
-              className="tnum"
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: 26,
-                fontWeight: 600,
-                color: "var(--mint-500)",
-              }}
-            >
-              <Money cents={totalReceber} withSign={false} />
-            </div>
+            <MonthNavButton href={nextHref} dir="next" title="Próximo mês">
+              <Icon name="chevron-right" size={19} />
+            </MonthNavButton>
           </div>
         </div>
-        <div className="card card-pad" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span className="kpi-ic rose" style={{ width: 46, height: 46 }}>
-            <Icon name="send" size={22} />
-          </span>
-          <div>
-            <div className="kpi-label" style={{ marginTop: 0 }}>
-              Você deve
-            </div>
-            <div
-              className="tnum"
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: 26,
-                fontWeight: 600,
-                color: "var(--rose-500)",
-              }}
-            >
-              <Money cents={totalPagar} withSign={false} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h3>Pessoas</h3>
-            <div className="ch-sub">
-              {people.length} {people.length === 1 ? "contato" : "contatos"} · {withPending} com pendências
-            </div>
-          </div>
-          <PersonFormDialog
-            trigger={
-              <button type="button" className="btn btn-ghost btn-sm">
-                <Icon name="user-plus" size={16} />
-                Adicionar pessoa
-              </button>
-            }
-          />
-        </div>
-        <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 8 }}>
-          {people.length === 0 && (
-            <div style={{ color: "var(--text-lo)", padding: "16px 0" }}>Nenhuma pessoa cadastrada ainda.</div>
-          )}
-          {people.map((p) => {
-            const owes = p.balanceCents > 0;
-            const owed = p.balanceCents < 0;
-            const settled = p.balanceCents === 0;
-            return (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 22 }}>
+          <div className="card card-pad" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <span className="kpi-ic mint" style={{ width: 46, height: 46 }}>
+              <Icon name="hand-coins" size={22} />
+            </span>
+            <div>
+              <div className="kpi-label" style={{ marginTop: 0 }}>
+                Total a receber
+              </div>
               <div
-                role="button"
-                tabIndex={0}
-                className="lrow"
-                key={p.id}
-                style={{ cursor: "pointer" }}
-                onClick={() => setOpenId(p.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setOpenId(p.id);
-                  }
+                className="tnum"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 26,
+                  fontWeight: 600,
+                  color: "var(--mint-500)",
                 }}
               >
-                <Avatar name={p.name} color={p.color} size={44} radius={14} />
-                <div className="l-main">
-                  <div className="l-title">{p.name}</div>
-                  <div className="l-sub">{p.relationship}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}>
-                    {settled ? "—" : <Money cents={Math.abs(p.balanceCents)} withSign={false} />}
-                  </div>
-                  <div className="l-sub">{owes ? "te deve" : owed ? "você deve" : "em dia"}</div>
-                </div>
-                <Icon name="chevron-right" size={18} style={{ color: "var(--text-faint)", marginLeft: 6 }} />
+                <Money cents={totalReceber} withSign={false} />
               </div>
-            );
-          })}
+            </div>
+          </div>
+          <div className="card card-pad" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <span className="kpi-ic rose" style={{ width: 46, height: 46 }}>
+              <Icon name="send" size={22} />
+            </span>
+            <div>
+              <div className="kpi-label" style={{ marginTop: 0 }}>
+                Você deve
+              </div>
+              <div
+                className="tnum"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 26,
+                  fontWeight: 600,
+                  color: "var(--rose-500)",
+                }}
+              >
+                <Money cents={totalPagar} withSign={false} />
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {/* Perfil */}
-      <Dialog open={open !== null} onOpenChange={(v) => !v && setOpenId(null)}>
-        {open && (
-          <DialogModal
-            title="Perfil"
-            maxWidth={520}
-            actions={
-              <>
-                <PersonFormDialog
-                  person={open}
-                  trigger={
-                    <button
-                      type="button"
-                      className="icon-btn btn-sm"
-                      style={{ width: 36, height: 36 }}
-                      title="Editar"
-                    >
-                      <Icon name="pencil" size={16} />
-                    </button>
-                  }
-                />
-                <button
-                  type="button"
-                  className="icon-btn btn-sm"
-                  style={{ width: 36, height: 36 }}
-                  title="Exportar relatório"
-                  onClick={() => {
-                    setOpenId(null);
-                    setReportId(open.id);
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Pessoas</h3>
+              <div className="ch-sub">
+                {people.length} {people.length === 1 ? "contato" : "contatos"} · {withPending} com pendências
+              </div>
+            </div>
+            <PersonFormDialog
+              trigger={
+                <button type="button" className="btn btn-ghost btn-sm">
+                  <Icon name="user-plus" size={16} />
+                  Adicionar pessoa
+                </button>
+              }
+            />
+          </div>
+          <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 8 }}>
+            {people.length === 0 && (
+              <div style={{ color: "var(--text-lo)", padding: "16px 0" }}>
+                Nenhuma pessoa cadastrada ainda.
+              </div>
+            )}
+            {people.map((p) => {
+              const bal = monthBal(p.id);
+              const owes = bal > 0;
+              const owed = bal < 0;
+              const settled = bal === 0;
+              return (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="lrow"
+                  key={p.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setOpenId(p.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setOpenId(p.id);
+                    }
                   }}
                 >
-                  <Icon name="file-down" size={16} />
-                </button>
-              </>
-            }
-          >
-            <ProfileBody
-              person={open}
-              transactions={transactions}
-              today={today}
-              onSettle={() => {
-                setOpenId(null);
-                setSettleId(open.id);
-              }}
-              onRemind={() => toast(`Lembrete enviado para ${firstName(open.name)} via WhatsApp`, "info")}
-              onReport={() => {
-                setOpenId(null);
-                setReportId(open.id);
-              }}
-            />
-          </DialogModal>
+                  <Avatar name={p.name} color={p.color} size={44} radius={14} />
+                  <div className="l-main">
+                    <div className="l-title">{p.name}</div>
+                    <div className="l-sub">{p.relationship}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}>
+                      {settled ? "—" : <Money cents={Math.abs(bal)} withSign={false} />}
+                    </div>
+                    <div className="l-sub">{owes ? "te deve" : owed ? "você deve" : "em dia"}</div>
+                  </div>
+                  <Icon
+                    name="chevron-right"
+                    size={18}
+                    style={{ color: "var(--text-faint)", marginLeft: 6 }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Perfil */}
+        <Dialog open={open !== null} onOpenChange={(v) => !v && setOpenId(null)}>
+          {open && (
+            <DialogModal
+              title="Perfil"
+              maxWidth={520}
+              actions={
+                <>
+                  <PersonFormDialog
+                    person={open}
+                    trigger={
+                      <button
+                        type="button"
+                        className="icon-btn btn-sm"
+                        style={{ width: 36, height: 36 }}
+                        title="Editar"
+                      >
+                        <Icon name="pencil" size={16} />
+                      </button>
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="icon-btn btn-sm"
+                    style={{ width: 36, height: 36 }}
+                    title="Exportar relatório"
+                    onClick={() => {
+                      setOpenId(null);
+                      setReportId(open.id);
+                    }}
+                  >
+                    <Icon name="file-down" size={16} />
+                  </button>
+                </>
+              }
+            >
+              <ProfileBody
+                person={open}
+                monthBalanceCents={monthBal(open.id)}
+                month={month}
+                transactions={transactions}
+                today={today}
+                onSettle={() => {
+                  setOpenId(null);
+                  setSettleId(open.id);
+                }}
+                onRemind={() => toast(`Lembrete enviado para ${firstName(open.name)} via WhatsApp`, "info")}
+                onReport={() => {
+                  setOpenId(null);
+                  setReportId(open.id);
+                }}
+              />
+            </DialogModal>
+          )}
+        </Dialog>
+
+        {/* Acerto */}
+        <Dialog open={settle !== null} onOpenChange={(v) => !v && setSettleId(null)}>
+          {settle && <SettleBody person={settle} onDone={() => setSettleId(null)} />}
+        </Dialog>
+
+        {/* Relatório por pessoa */}
+        {reportId && (
+          <ReportModal
+            data={reportData}
+            initialMode="person"
+            initialPersonId={reportId}
+            onClose={() => setReportId(null)}
+          />
         )}
-      </Dialog>
-
-      {/* Acerto */}
-      <Dialog open={settle !== null} onOpenChange={(v) => !v && setSettleId(null)}>
-        {settle && <SettleBody person={settle} onDone={() => setSettleId(null)} />}
-      </Dialog>
-
-      {/* Relatório por pessoa */}
-      {reportId && (
-        <ReportModal
-          data={reportData}
-          initialMode="person"
-          initialPersonId={reportId}
-          onClose={() => setReportId(null)}
-        />
-      )}
-    </div>
+      </div>
+    </MonthTransition>
   );
 }
 
 function ProfileBody({
   person,
+  monthBalanceCents,
+  month,
   transactions,
   today,
   onSettle,
@@ -235,15 +289,22 @@ function ProfileBody({
   onReport,
 }: {
   person: PersonView;
+  /** The person's NET for the browsed month (the headline figure). */
+  monthBalanceCents: number;
+  month: string;
   transactions: TransactionListItem[];
   today: string;
   onSettle: () => void;
   onRemind: () => void;
   onReport: () => void;
 }) {
-  const owes = person.balanceCents > 0;
-  const owed = person.balanceCents < 0;
-  const involved = transactions.filter((t) => t.shares.some((s) => s.personId === person.id));
+  const monthOwes = monthBalanceCents > 0;
+  const monthOwed = monthBalanceCents < 0;
+  // Settling acts on the all-time outstanding total, not the month net.
+  const totalOwes = person.balanceCents > 0;
+  const involved = transactions.filter(
+    (t) => t.shares.some((s) => s.personId === person.id) && t.date.slice(0, 7) === month,
+  );
   const first = firstName(person.name);
 
   return (
@@ -264,18 +325,34 @@ function ProfileBody({
 
       <div className="summary-box" style={{ textAlign: "center", marginBottom: 18 }}>
         <div style={{ fontSize: 13, color: "var(--text-lo)", marginBottom: 4 }}>
-          {person.balanceCents === 0 ? "Tudo certo" : owes ? `${first} te deve` : `Você deve a ${first}`}
+          {monthBalanceCents === 0
+            ? `Sem pendências em ${monthLabel(month)}`
+            : monthOwes
+              ? `${first} te deve em ${monthLabel(month)}`
+              : `Você deve a ${first} em ${monthLabel(month)}`}
         </div>
-        <div className={`balance-big ${owes ? "pos" : owed ? "neg" : ""}`}>
-          {person.balanceCents === 0 ? (
+        <div className={`balance-big ${monthOwes ? "pos" : monthOwed ? "neg" : ""}`}>
+          {monthBalanceCents === 0 ? (
             "R$ 0,00"
           ) : (
-            <Money cents={Math.abs(person.balanceCents)} withSign={false} />
+            <Money cents={Math.abs(monthBalanceCents)} withSign={false} />
+          )}
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 8 }}>
+          {person.balanceCents === 0 ? (
+            "Saldo total quitado"
+          ) : (
+            <>
+              {totalOwes ? `No total, ${first} te deve ` : "No total, você deve "}
+              <b style={{ color: totalOwes ? "var(--mint-500)" : "var(--rose-500)" }}>
+                <Money cents={Math.abs(person.balanceCents)} withSign={false} />
+              </b>
+            </>
           )}
         </div>
         {person.balanceCents !== 0 && (
           <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16 }}>
-            {owes && (
+            {totalOwes && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRemind}>
                 <Icon name="bell" size={16} />
                 Cobrar
@@ -283,7 +360,7 @@ function ProfileBody({
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={onSettle}>
               <Icon name="check-circle" size={16} />
-              {owes ? "Registrar pagamento" : "Marcar como pago"}
+              {totalOwes ? "Registrar pagamento" : "Marcar como pago"}
             </button>
           </div>
         )}
@@ -293,17 +370,15 @@ function ProfileBody({
         className="kicker"
         style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-        Histórico
-        {involved.length > 0 && (
-          <button type="button" className="card-link" onClick={onReport}>
-            Relatório completo
-            <Icon name="arrow-right" size={14} />
-          </button>
-        )}
+        Movimentações de {monthLabel(month)}
+        <button type="button" className="card-link" onClick={onReport}>
+          Relatório completo
+          <Icon name="arrow-right" size={14} />
+        </button>
       </div>
       {involved.length === 0 && (
         <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "10px 0" }}>
-          Nenhuma despesa compartilhada ainda.
+          Nenhuma despesa compartilhada em {monthLabel(month)}.
         </div>
       )}
       {involved.map((t) => {

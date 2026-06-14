@@ -19,6 +19,10 @@ import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome } from "../entities/transaction";
 import { Money } from "../money/money";
+import { type CompetenceMonth, monthOf } from "../value-objects/competence-month";
+
+/** Maps a transaction to its competence month (calendar month, or card bill due month). */
+type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
 
 /**
  * Compute each person's derived ledger balance from transactions and settlements.
@@ -82,6 +86,54 @@ export function computePersonBalances(
   // Each settlement reduces the outstanding balance toward zero, clamped so it
   // never crosses zero — exactly the `applySettle` operation.
   for (const settlement of settlements) {
+    const current = balances.get(settlement.personId) ?? Money.zero();
+    balances.set(settlement.personId, applySettlement(current, settlement.amountCents));
+  }
+
+  return balances;
+}
+
+/**
+ * Per-person NET for a single month — the change a person's balance saw in `month`.
+ *
+ * Unlike {@link computePersonBalances} (all-time), this is the month's flow: the sum of
+ * their expense shares whose competence is `month`, minus payments received from them in
+ * `month`, then settlements dated in `month` applied toward zero (same clamp as the
+ * all-time ledger, but against the month's own net). Convention is unchanged: `> 0` they
+ * owe you for the month, `< 0` you owe them. Use the all-time balance for the true total.
+ *
+ * @returns a Map from personId to their month net as Money; every `people` id is present.
+ */
+export function computePersonBalancesForMonth(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  month: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  const balances = new Map<string, Money>();
+  for (const person of people) balances.set(person.id, Money.zero());
+
+  const adjust = (personId: string, delta: Money): void => {
+    const current = balances.get(personId) ?? Money.zero();
+    balances.set(personId, current.add(delta));
+  };
+
+  for (const tx of transactions) {
+    if (competenceOf(tx) !== month) continue;
+    if (isExpense(tx)) {
+      const status = tx.installment?.status;
+      if (status === "paga" || status === "futura") continue;
+      for (const split of tx.splits) {
+        adjust(split.personId, Money.fromCents(split.shareCents));
+      }
+    } else if (isIncome(tx) && tx.fromPersonId !== null) {
+      adjust(tx.fromPersonId, Money.fromCents(tx.amountCents).negate());
+    }
+  }
+
+  for (const settlement of settlements) {
+    if (monthOf(settlement.date) !== month) continue;
     const current = balances.get(settlement.personId) ?? Money.zero();
     balances.set(settlement.personId, applySettlement(current, settlement.amountCents));
   }

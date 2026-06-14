@@ -73,9 +73,9 @@ export default async function DashboardPage({
     );
   }
 
-  const debtors = workspace.people
+  // Debtors + "a receber" are scoped to the browsed month (from the dashboard use-case).
+  const debtors = dash.people
     .filter((p) => p.balanceCents > 0)
-    .sort((a, b) => b.balanceCents - a.balanceCents)
     .map((p) => ({
       id: p.id,
       name: p.name,
@@ -83,7 +83,7 @@ export default async function DashboardPage({
       relationship: p.relationship,
       balanceCents: p.balanceCents,
     }));
-  const aReceberCents = debtors.reduce((sum, p) => sum + p.balanceCents, 0);
+  const aReceberCents = dash.aReceberCents;
   const othersCents = Math.max(0, dash.general.expenseCents - dash.personal.expenseCents);
 
   const prev = dash.trend.at(-2)?.valueCents ?? 0;

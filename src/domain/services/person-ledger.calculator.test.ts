@@ -11,7 +11,14 @@ import type {
   TransferTransaction,
 } from "../entities/transaction";
 import { Money } from "../money/money";
-import { applySettlement, computePersonBalances } from "./person-ledger.calculator";
+import {
+  applySettlement,
+  computePersonBalances,
+  computePersonBalancesForMonth,
+} from "./person-ledger.calculator";
+
+/** Calendar competence (month of the transaction's date) for the month-scoped tests. */
+const calOf = (tx: Transaction): string => tx.date.slice(0, 7);
 
 // --- test data factories -----------------------------------------------------
 
@@ -305,5 +312,74 @@ describe("computePersonBalances", () => {
         },
       ),
     );
+  });
+});
+
+// =============================================================================
+// computePersonBalancesForMonth — the per-month net (drives "A receber" do mês).
+// =============================================================================
+
+describe("computePersonBalancesForMonth", () => {
+  it("counts only shares whose competence is the target month", () => {
+    const people = [person("p-mar")];
+    const txs: Transaction[] = [
+      expense({ id: "jun", date: "2026-06-10", splits: [{ personId: "p-mar", shareCents: 7_400 }] }),
+      expense({ id: "jul", date: "2026-07-10", splits: [{ personId: "p-mar", shareCents: 5_000 }] }),
+    ];
+    expect(computePersonBalancesForMonth(people, txs, [], "2026-06", calOf).get("p-mar")?.cents).toBe(7_400);
+    expect(computePersonBalancesForMonth(people, txs, [], "2026-07", calOf).get("p-mar")?.cents).toBe(5_000);
+  });
+
+  it("abates with a payment dated in the same month and clamps settlements", () => {
+    const people = [person("p-joao")];
+    const txs: Transaction[] = [
+      expense({ id: "e", date: "2026-06-05", splits: [{ personId: "p-joao", shareCents: 9_000 }] }),
+      income({ id: "pay", date: "2026-06-20", amountCents: 2_000, fromPersonId: "p-joao" }),
+    ];
+    // 9_000 share − 2_000 payment = 7_000; a 3_000 settlement in June → 4_000.
+    const balances = computePersonBalancesForMonth(
+      people,
+      txs,
+      [settlement("p-joao", 3_000)],
+      "2026-06",
+      calOf,
+    );
+    expect(balances.get("p-joao")?.cents).toBe(4_000);
+  });
+
+  it("a month with no activity nets to zero", () => {
+    const people = [person("p-mar")];
+    const txs: Transaction[] = [
+      expense({ id: "jun", date: "2026-06-10", splits: [{ personId: "p-mar", shareCents: 7_400 }] }),
+    ];
+    expect(computePersonBalancesForMonth(people, txs, [], "2026-05", calOf).get("p-mar")?.cents).toBe(0);
+  });
+
+  it("ignores transfers, paid/future installments, non-person income and other-month settlements", () => {
+    const people = [person("p-x")];
+    const mk = (id: string, status: ParcelaStatus): ExpenseTransaction =>
+      expense({
+        id,
+        date: "2026-06-02",
+        splits: [{ personId: "p-x", shareCents: id === "atual" ? 5_000 : 9_000 }],
+        installment: { groupId: "g", number: 1, total: 2, status },
+      });
+    const txs: Transaction[] = [
+      mk("atual", "atual"),
+      mk("paga", "paga"),
+      mk("futura", "futura"),
+      transfer({ id: "tr", date: "2026-06-05", valueCents: 50_000 }),
+      income({ id: "noperson", date: "2026-06-06", amountCents: 3_000, fromPersonId: null }),
+    ];
+    // Settlement is dated June, so it is ignored when scoping to July (and July has no tx).
+    expect(
+      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-07", calOf).get("p-x")
+        ?.cents,
+    ).toBe(0);
+    // June: only the "atual" installment (5_000) counts, less the June settlement (1_000).
+    expect(
+      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-06", calOf).get("p-x")
+        ?.cents,
+    ).toBe(4_000);
   });
 });
