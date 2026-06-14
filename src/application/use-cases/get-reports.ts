@@ -20,6 +20,8 @@ export interface MonthBar {
   readonly incomeCents: number;
   readonly expenseCents: number;
   readonly netCents: number;
+  /** True for months after the current one — totals fold in projected ("previsto") recurring. */
+  readonly projected: boolean;
 }
 
 /** One slice of the category-breakdown donut. */
@@ -59,6 +61,10 @@ export interface ReportsData {
   readonly categoriesPersonal: CategorySlice[];
   readonly totalExpenseCents: number;
   readonly totalExpensePersonalCents: number;
+  /** True when the window reaches into the future, so some totals are projected ("previsto"). */
+  readonly includesProjected: boolean;
+  /** Human label of the future portion ("jul 2026" or "jul – set 2026"); "" when none. */
+  readonly projectedLabel: string;
 }
 
 const UNCATEGORIZED_COLOR = "#8A93A6";
@@ -97,6 +103,7 @@ export async function getReports(
   for (let k = 0; k <= span; k++) {
     const month = addMonths(from, k);
     const set = setForMonth(month);
+    const projected = compareMonths(month, current) > 0;
     const totals = computeViewTotals(set, "general");
     const totalsPersonal = computeViewTotals(set, "personal");
     months.push({
@@ -105,6 +112,7 @@ export async function getReports(
       incomeCents: totals.income.cents,
       expenseCents: totals.expense.cents,
       netCents: totals.net.cents,
+      projected,
     });
     monthsPersonal.push({
       month,
@@ -112,6 +120,7 @@ export async function getReports(
       incomeCents: totalsPersonal.income.cents,
       expenseCents: totalsPersonal.expense.cents,
       netCents: totalsPersonal.net.cents,
+      projected,
     });
   }
 
@@ -155,6 +164,16 @@ export async function getReports(
   const rangeLabel =
     from === to ? monthLabel(from, { long: true }) : `${monthLabel(from)} – ${monthLabel(to)}`;
 
+  // Future portion of the window — the part whose totals fold in projected recurring.
+  const includesProjected = compareMonths(to, current) > 0 || compareMonths(catHi, current) > 0;
+  const lastFuture = compareMonths(catHi, to) > 0 ? catHi : to;
+  const firstFuture = compareMonths(from, addMonths(current, 1)) > 0 ? from : addMonths(current, 1);
+  const projectedLabel = !includesProjected
+    ? ""
+    : firstFuture === lastFuture
+      ? monthLabel(firstFuture)
+      : `${monthLabel(firstFuture)} – ${monthLabel(lastFuture)}`;
+
   return {
     from,
     to,
@@ -165,5 +184,7 @@ export async function getReports(
     categoriesPersonal,
     totalExpenseCents,
     totalExpensePersonalCents,
+    includesProjected,
+    projectedLabel,
   };
 }

@@ -61,7 +61,7 @@ export function DonutChart({ slices, totalCents }: { slices: DonutSlice[]; total
             <AnimatedNumber
               className="pc"
               value={Math.round((slice.valueCents / total) * 100)}
-              format={(n) => `${n}%`}
+              format={(n) => `${Math.round(n)}%`}
             />
           </div>
         ))}
