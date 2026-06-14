@@ -18,6 +18,9 @@ import { relativeDateLabel } from "@/shared/formatting/dates";
 
 type Filter = "all" | "out" | "in" | "xfer";
 
+/** How many rows to reveal per "Ver mais" step (the list loads fully, paginates in the UI). */
+const PAGE_SIZE = 30;
+
 const FILTERS: ReadonlyArray<[Filter, string]> = [
   ["all", "Todas"],
   ["out", "Despesas"],
@@ -60,6 +63,7 @@ export function TransactionsView({
   const openDelete = useTxUIStore((s) => s.openDelete);
   const isMobile = useIsMobile();
   const [filter, setFilter] = useState<Filter>("all");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const rows = transactions
     .filter((t) =>
       filter === "all"
@@ -71,6 +75,38 @@ export function TransactionsView({
             : t.kind === "expense",
     )
     .sort(byDateDesc);
+  const shown = rows.slice(0, visibleCount);
+  const hasMore = rows.length > visibleCount;
+
+  function pickFilter(next: Filter) {
+    setFilter(next);
+    setVisibleCount(PAGE_SIZE); // reset the window whenever the filter changes
+  }
+
+  const moreFooter = hasMore ? (
+    <div
+      className="row"
+      style={{
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 12,
+        padding: "14px 0 6px",
+        flexWrap: "wrap",
+      }}
+    >
+      <span style={{ color: "var(--text-lo)", fontSize: 13 }}>
+        Mostrando {shown.length} de {rows.length}
+      </span>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+      >
+        <Icon name="chevron-down" size={16} />
+        Ver mais ({rows.length - shown.length} restantes)
+      </button>
+    </div>
+  ) : null;
 
   function onExport() {
     const csvRows = rows.map((t) => [
@@ -101,7 +137,7 @@ export function TransactionsView({
             type="button"
             key={k}
             className={`person-chip${filter === k ? " on" : ""}`}
-            onClick={() => setFilter(k)}
+            onClick={() => pickFilter(k)}
           >
             {l}
           </button>
@@ -126,7 +162,7 @@ export function TransactionsView({
       <div className="card">
         {filtersHead}
         <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-          {rows.map((t) => {
+          {shown.map((t) => {
             const isTransfer = t.kind === "transfer";
             const cat = t.category;
             const icStyle: CSSProperties = isTransfer
@@ -175,6 +211,7 @@ export function TransactionsView({
               Nenhuma transação.
             </div>
           )}
+          {moreFooter}
         </div>
       </div>
     );
@@ -197,7 +234,7 @@ export function TransactionsView({
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => {
+              {shown.map((t) => {
                 const isTransfer = t.kind === "transfer";
                 const cat = t.category;
                 const avaStyle = isTransfer
@@ -272,6 +309,7 @@ export function TransactionsView({
             </tbody>
           </table>
         </div>
+        {moreFooter}
       </div>
     </div>
   );

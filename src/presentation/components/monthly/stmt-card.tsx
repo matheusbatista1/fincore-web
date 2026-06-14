@@ -17,6 +17,8 @@ export interface StmtGroup {
   readonly icon: string;
   readonly items: MonthlyItem[];
   readonly totalCents: number;
+  /** Which money bucket this group is — drives the personal-lens recompute. */
+  readonly lens?: "income" | "expense" | "transfer";
 }
 
 function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {

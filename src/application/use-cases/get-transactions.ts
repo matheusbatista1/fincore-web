@@ -63,6 +63,8 @@ export interface TransactionListItem {
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
+  /** True for a reimbursement income (a refund) — excluded from the personal lens. */
+  readonly isReimbursement: boolean;
   /** When an income is a payment from a person, their id + first name. */
   readonly fromPersonId: string | null;
   readonly fromPersonName: string | null;
@@ -115,6 +117,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
+      isReimbursement: false,
       fromPersonName: null,
       transferFromName: null,
       transferToName: null,
@@ -172,6 +175,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         sourceLabel: accountName.get(tx.accountId) ?? null,
         accountId: tx.accountId,
         isFixed: tx.recurrence !== null,
+        isReimbursement: tx.isReimbursement,
         fromPersonId: tx.fromPersonId,
         fromPersonName: person ? firstName(person.name) : null,
       };
