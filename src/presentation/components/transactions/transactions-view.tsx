@@ -11,8 +11,9 @@ import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { csvMoney, exportCSV } from "@/presentation/lib/export";
+import { collapseRowsByInstallments } from "@/presentation/lib/group-installments";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
-import { openTxDetail, useTxUIStore } from "@/presentation/stores/tx-ui-store";
+import { openInstallmentGroup, openTxDetail, useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast as fireToast, useUIStore } from "@/presentation/stores/ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
@@ -75,13 +76,19 @@ export function TransactionsView({
             : t.kind === "expense",
     )
     .sort(byDateDesc);
-  const shown = rows.slice(0, visibleCount);
-  const hasMore = rows.length > visibleCount;
+  // Collapse installment parcelas into one row per group (the modal lists them all).
+  const collapsed = collapseRowsByInstallments(rows);
+  const shown = collapsed.slice(0, visibleCount);
+  const hasMore = collapsed.length > visibleCount;
 
   function pickFilter(next: Filter) {
     setFilter(next);
     setVisibleCount(PAGE_SIZE); // reset the window whenever the filter changes
   }
+
+  // A collapsed installment row opens the group modal; anything else opens the detail.
+  const openRow = (t: TransactionListItem) =>
+    t.installmentGroupId && t.parcela ? openInstallmentGroup(t.installmentGroupId) : openTxDetail(t);
 
   const moreFooter = hasMore ? (
     <div
@@ -95,7 +102,7 @@ export function TransactionsView({
       }}
     >
       <span style={{ color: "var(--text-lo)", fontSize: 13 }}>
-        Mostrando {shown.length} de {rows.length}
+        Mostrando {shown.length} de {collapsed.length}
       </span>
       <button
         type="button"
@@ -103,7 +110,7 @@ export function TransactionsView({
         onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
       >
         <Icon name="chevron-down" size={16} />
-        Ver mais ({rows.length - shown.length} restantes)
+        Ver mais ({collapsed.length - shown.length} restantes)
       </button>
     </div>
   ) : null;
@@ -173,7 +180,7 @@ export function TransactionsView({
             return (
               <SwipeRow
                 key={t.id}
-                onOpen={() => openTxDetail(t)}
+                onOpen={() => openRow(t)}
                 onEdit={isTransfer ? null : () => openEdit(t)}
                 onDelete={() => (t.parcela ? openDelete(t) : void removeDirect(t))}
               >
@@ -187,6 +194,11 @@ export function TransactionsView({
                   <div className="l-main">
                     <div className="l-title">
                       {t.description || (isTransfer ? "Transferência" : "Lançamento")}
+                      {t.installmentGroupId && t.parcela && (
+                        <span className="parc-badge" style={{ marginLeft: 8 }}>
+                          {t.parcela.total}x
+                        </span>
+                      )}
                     </div>
                     <div className="l-sub">
                       {relativeDateLabel(t.date, today)}
@@ -249,13 +261,16 @@ export function TransactionsView({
                     : (t.note ?? "—")
                   : (t.sourceLabel ?? "—");
                 return (
-                  <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openTxDetail(t)}>
+                  <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openRow(t)}>
                     <td>
                       <div className="row gap-3">
                         <span className="tx-ava" style={avaStyle}>
                           <Icon name={iconName} size={16} />
                         </span>
                         <span className="t-strong">{t.description}</span>
+                        {t.installmentGroupId && t.parcela && (
+                          <span className="parc-badge">{t.parcela.total}x</span>
+                        )}
                       </div>
                     </td>
                     <td>
