@@ -1,0 +1,1 @@
+ALTER TABLE "transactions" ADD COLUMN "bill_month_override" text;

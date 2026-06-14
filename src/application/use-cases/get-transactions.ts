@@ -57,6 +57,8 @@ export interface TransactionListItem {
   } | null;
   /** Groups installments of the same purchase (for the active-installments panel). */
   readonly installmentGroupId: string | null;
+  /** Manual bill (competence month) override for a card charge; null = automatic. */
+  readonly billMonthOverride: string | null;
   readonly isFixed: boolean;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
@@ -108,6 +110,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       linkedAccountId: null,
       parcela: null,
       installmentGroupId: null,
+      billMonthOverride: null,
       isFixed: false,
       fromPersonId: null,
       shares: [] as TxShareView[],
@@ -153,6 +156,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
           ? { number: tx.installment.number, total: tx.installment.total, status: tx.installment.status }
           : null,
         installmentGroupId: tx.installment?.groupId ?? null,
+        billMonthOverride: tx.billMonthOverride,
         isFixed: tx.recurrence !== null,
         shares,
         myShareCents: tx.myShareCents,

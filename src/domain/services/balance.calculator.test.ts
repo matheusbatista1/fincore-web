@@ -74,6 +74,7 @@ function expense(amountCents: number, opts: ExpenseOpts): ExpenseTransaction {
         ? null
         : { groupId: "grp", number: 1, total: 3, status: opts.installmentStatus },
     recurrence: null,
+    billMonthOverride: null,
   };
 }
 

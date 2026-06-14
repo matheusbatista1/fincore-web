@@ -1,7 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { deleteTransactionAction } from "@/app/_actions/finance";
+import { type CSSProperties, useState } from "react";
+import { deleteTransactionAction, moveTransactionBillAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -29,6 +29,20 @@ export function TxDetailModal({ today }: { today: string }) {
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
   const peopleOn = useModuleEnabled("people");
+  const [moving, setMoving] = useState(false);
+
+  async function moveBill(id: string, direction: "prev" | "next") {
+    if (moving) return;
+    setMoving(true);
+    const result = await moveTransactionBillAction({ id, direction });
+    setMoving(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast(direction === "prev" ? "Movido para a fatura anterior." : "Movido para a fatura seguinte.");
+    closeDetail();
+  }
 
   async function removeDirect(item: TransactionListItem) {
     const result = await deleteTransactionAction({ id: item.id, scope: "one" });
@@ -149,6 +163,37 @@ export function TxDetailModal({ today }: { today: string }) {
                     </span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {tx.source === "card" && (
+              <div style={{ marginTop: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>
+                  Fatura
+                </div>
+                <div className="row gap-2" style={{ alignItems: "center", justifyContent: "space-between" }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => moveBill(tx.id, "prev")}
+                    disabled={moving}
+                  >
+                    <Icon name="chevron-left" size={15} />
+                    Fatura anterior
+                  </button>
+                  <span style={{ fontSize: 12.5, color: "var(--text-lo)" }}>
+                    {tx.billMonthOverride ? "movida manualmente" : "automática"}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => moveBill(tx.id, "next")}
+                    disabled={moving}
+                  >
+                    Fatura seguinte
+                    <Icon name="chevron-right" size={15} />
+                  </button>
+                </div>
               </div>
             )}
 

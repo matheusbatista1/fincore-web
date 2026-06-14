@@ -218,6 +218,8 @@ export const transactions = pgTable(
     parcelaNo: smallint("parcela_no"),
     parcelaTotal: smallint("parcela_total"),
     parcelaStatus: parcelaStatus("parcela_status"),
+    /** Manual override pinning a card charge to a bill (competence month `YYYY-MM`); null = automatic. */
+    billMonthOverride: text("bill_month_override"),
 
     // income-only
     fromPersonId: uuid("from_person_id").references(() => people.id, { onDelete: "set null" }),

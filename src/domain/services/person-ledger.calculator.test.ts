@@ -39,6 +39,7 @@ const expense = (
   myShareCents: 0,
   installment: null,
   recurrence: null,
+  billMonthOverride: null,
   ...overrides,
 });
 

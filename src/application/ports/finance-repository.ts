@@ -188,6 +188,8 @@ export interface FinanceRepository {
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
   /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */
   stopRecurrence(userId: string, id: string): Promise<void>;
+  /** Pin a card charge to a specific bill (competence month), or `null` to restore the automatic cycle. */
+  setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
 }

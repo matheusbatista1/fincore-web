@@ -1,4 +1,4 @@
-import type { IsoDate } from "../value-objects/competence-month";
+import type { CompetenceMonth, IsoDate } from "../value-objects/competence-month";
 
 /** Discriminator for the polymorphic transaction (lançamento). */
 export type TransactionKind = "expense" | "income" | "transfer";
@@ -58,6 +58,8 @@ export interface ExpenseTransaction extends BaseTransaction {
   readonly myShareCents: number;
   readonly installment: InstallmentInfo | null;
   readonly recurrence: RecurrenceInfo | null;
+  /** Manual override pinning a card charge to a specific bill (competence month); null = automatic. */
+  readonly billMonthOverride: CompetenceMonth | null;
 }
 
 /** Income (receita). `amountCents` is positive. */

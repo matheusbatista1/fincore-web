@@ -59,6 +59,7 @@ function cardExpense(
     myShareCents: Math.abs(cents),
     installment: installment === undefined ? null : { groupId: "grp", ...installment },
     recurrence: null,
+    billMonthOverride: null,
   };
 }
 
@@ -79,6 +80,7 @@ function accountExpense(cents: number, accountId: string): ExpenseTransaction {
     myShareCents: Math.abs(cents),
     installment: null,
     recurrence: null,
+    billMonthOverride: null,
   };
 }
 
