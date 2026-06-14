@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Category } from "@/domain/entities/category";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
 import { addMonths } from "@/domain/value-objects/competence-month";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 import { getReports } from "./get-reports";
+
+// Freeze "current month" so the future-projection cutoff is deterministic.
+vi.mock("@/shared/formatting/now", () => ({ currentMonthInBrazil: () => "2026-06" }));
 
 const ANCHOR = "2026-06";
 /** Single-month window (bars + categories all on the anchor month). */
@@ -134,5 +137,33 @@ describe("getReports — general vs personal lenses", () => {
     expect(data.from).toBe("2026-04");
     expect(data.to).toBe(ANCHOR);
     expect(data.months).toHaveLength(3);
+  });
+});
+
+describe("getReports — future months include projected recurring (current = 2026-06)", () => {
+  it("folds fixed lançamentos into months ahead", async () => {
+    const repo = stubRepo([
+      // Recurring expense anchored in the current month → projects into July onward.
+      expense({ amountCents: -5000, myShareCents: 5000, date: "2026-06-10", recurrence: { dayOfMonth: 10 } }),
+    ]);
+    const data = await getReports(repo, "u", {
+      from: "2026-06",
+      to: "2026-07",
+      categoryFrom: "2026-06",
+      categoryTo: "2026-07",
+    });
+
+    expect(data.months.find((m) => m.month === "2026-06")?.expenseCents).toBe(5000); // real
+    expect(data.months.find((m) => m.month === "2026-07")?.expenseCents).toBe(5000); // projected
+    expect(data.totalExpenseCents).toBe(10000); // June real + July projected
+  });
+
+  it("keeps the current month real-only (no projection)", async () => {
+    const repo = stubRepo([
+      // Anchored in May; would project into June, but current/past stay real-only.
+      expense({ amountCents: -5000, myShareCents: 5000, date: "2026-05-10", recurrence: { dayOfMonth: 10 } }),
+    ]);
+    const data = await getReports(repo, "u", { from: "2026-06", to: "2026-06" });
+    expect(data.months.at(-1)?.expenseCents).toBe(0);
   });
 });
