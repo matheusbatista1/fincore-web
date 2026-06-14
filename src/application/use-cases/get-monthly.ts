@@ -36,7 +36,9 @@ function sumTotals(items: readonly MonthlyItem[]): MonthlyTotals {
   let incomeCents = 0;
   let expenseCents = 0;
   for (const item of items) {
-    if (item.kind === "income") incomeCents += item.amountCents;
+    // A card credit (estorno, income with a cardId) only reduces a card bill — it
+    // is shown on the Cards screen, not counted as monthly income.
+    if (item.kind === "income" && item.cardId === null) incomeCents += item.amountCents;
     else if (item.kind === "expense") expenseCents += Math.abs(item.amountCents);
   }
   return { incomeCents, expenseCents, netCents: incomeCents - expenseCents };

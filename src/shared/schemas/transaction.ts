@@ -36,16 +36,27 @@ const expenseInputSchema = z.object({
   installment: installmentParamsSchema.nullable().default(null),
 });
 
-const incomeInputSchema = z.object({
-  kind: z.literal("income"),
-  description: z.string().trim().max(120).default(""),
-  date: isoDateSchema,
-  note: z.string().max(280).optional(),
-  amountCents: centsSchema.positive("Informe um valor maior que zero."),
-  accountId: idSchema,
-  fromPersonId: idSchema.nullable().default(null),
-  fixed: z.boolean().default(false),
-});
+/** Income lands in exactly one destination: an account OR a credit card (estorno). */
+const incomeDestination = <T extends { accountId: string | null; cardId: string | null }>(v: T) =>
+  (v.accountId === null) !== (v.cardId === null);
+const incomeDestinationError = {
+  message: "Escolha uma conta OU um cartão de crédito.",
+  path: ["accountId"] as PropertyKey[],
+};
+
+const incomeInputSchema = z
+  .object({
+    kind: z.literal("income"),
+    description: z.string().trim().max(120).default(""),
+    date: isoDateSchema,
+    note: z.string().max(280).optional(),
+    amountCents: centsSchema.positive("Informe um valor maior que zero."),
+    accountId: idSchema.nullable().default(null),
+    cardId: idSchema.nullable().default(null),
+    fromPersonId: idSchema.nullable().default(null),
+    fixed: z.boolean().default(false),
+  })
+  .refine(incomeDestination, incomeDestinationError);
 
 const transferInputSchema = z
   .object({
@@ -95,17 +106,20 @@ const expenseUpdateSchema = z.object({
   installment: installmentParamsSchema.nullable().default(null),
 });
 
-const incomeUpdateSchema = z.object({
-  kind: z.literal("income"),
-  id: idSchema,
-  description: z.string().trim().max(120).default(""),
-  date: isoDateSchema,
-  note: z.string().max(280).optional(),
-  amountCents: centsSchema.positive("Informe um valor maior que zero."),
-  accountId: idSchema,
-  fromPersonId: idSchema.nullable().default(null),
-  fixed: z.boolean().default(false),
-});
+const incomeUpdateSchema = z
+  .object({
+    kind: z.literal("income"),
+    id: idSchema,
+    description: z.string().trim().max(120).default(""),
+    date: isoDateSchema,
+    note: z.string().max(280).optional(),
+    amountCents: centsSchema.positive("Informe um valor maior que zero."),
+    accountId: idSchema.nullable().default(null),
+    cardId: idSchema.nullable().default(null),
+    fromPersonId: idSchema.nullable().default(null),
+    fixed: z.boolean().default(false),
+  })
+  .refine(incomeDestination, incomeDestinationError);
 
 const transferUpdateSchema = z
   .object({

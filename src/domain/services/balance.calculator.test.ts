@@ -40,6 +40,7 @@ function income(accountId: string, amountCents: number, date = "2026-06-01"): In
     date,
     amountCents,
     accountId,
+    cardId: null,
     fromPersonId: null,
     isReimbursement: false,
     recurrence: null,

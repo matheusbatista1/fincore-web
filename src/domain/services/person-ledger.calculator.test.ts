@@ -50,6 +50,7 @@ const income = (overrides: Partial<IncomeTransaction>): IncomeTransaction => ({
   kind: "income",
   amountCents: 10_000,
   accountId: "nu",
+  cardId: null,
   fromPersonId: null,
   isReimbursement: false,
   recurrence: null,

@@ -154,7 +154,9 @@ export function toTransaction(row: TransactionRow, splits: readonly SplitRow[] =
       ...base,
       kind: "income",
       amountCents: row.amountCents,
-      accountId: required(row.accountId, "accountId"),
+      // Exactly one of accountId/cardId is set (DB CHECK chk_income_account_xor_card).
+      accountId: row.accountId,
+      cardId: row.cardId,
       fromPersonId: row.fromPersonId,
       isReimbursement: row.isReimbursement,
       recurrence,

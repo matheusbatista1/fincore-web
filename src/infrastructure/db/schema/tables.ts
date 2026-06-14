@@ -247,6 +247,11 @@ export const transactions = pgTable(
       .where(sql`parcela_status = 'atual' AND deleted_at IS NULL`),
     check("chk_expense_sign", sql`kind <> 'expense' OR amount_cents < 0`),
     check("chk_income_sign", sql`kind <> 'income' OR amount_cents > 0`),
+    // Income lands in EXACTLY one place: an account (normal) or a card (estorno).
+    check(
+      "chk_income_account_xor_card",
+      sql`kind <> 'income' OR ((account_id IS NOT NULL) <> (card_id IS NOT NULL))`,
+    ),
     check("chk_transfer_zero", sql`kind <> 'transfer' OR amount_cents = 0`),
     check("chk_expense_source", sql`kind <> 'expense' OR source IS NOT NULL`),
     check("chk_card_source", sql`source IS DISTINCT FROM 'card' OR card_id IS NOT NULL`),

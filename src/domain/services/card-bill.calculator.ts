@@ -21,7 +21,7 @@
 import type { CardBillDate } from "../entities/card-bill-date";
 import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, Transaction } from "../entities/transaction";
-import { isExpense } from "../entities/transaction";
+import { isExpense, isIncome } from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -103,6 +103,11 @@ export function billingCompetence(
       const card = byId.get(tx.cardId);
       if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay, overrides.get(card.id));
     }
+    // A card credit (estorno) buckets into its card's bill cycle, like a charge.
+    if (isIncome(tx) && tx.cardId !== null) {
+      const card = byId.get(tx.cardId);
+      if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay, overrides.get(card.id));
+    }
     return monthOf(tx.date);
   };
 }
@@ -125,13 +130,23 @@ function qualifiesForCurrentBill(expense: ExpenseTransaction, cardId: string): b
   return expense.installment.status === "atual";
 }
 
+/** Card credits (estornos) for a card: income rows whose destination is that card. */
+function cardCreditTotal(cardId: string, transactions: readonly Transaction[]): Money {
+  const credits = transactions
+    .filter(isIncome)
+    .filter((tx) => tx.cardId === cardId)
+    .map((tx) => Money.fromCents(tx.amountCents));
+  return Money.sum(credits);
+}
+
 /**
  * The current bill (fatura) for a single card: the sum of the absolute value of
- * every qualifying card expense. Returns {@link Money.zero} when nothing
- * qualifies (unknown card, no charges, only paid/future installments, etc.).
+ * every qualifying card expense, MINUS any card credits (estornos/reembolsos)
+ * recorded against the card. Returns {@link Money.zero} when nothing qualifies.
  *
- * `amountCents` on an expense is stored negative; we take the absolute value so
- * the bill is a non-negative amount owed.
+ * `amountCents` on an expense is stored negative; we take the absolute value, then
+ * subtract credits — so a refund reduces what's owed. The result can be negative
+ * (a credit balance), which callers should render as-is (clamp only meter widths).
  */
 export function computeCardBill(cardId: string, transactions: readonly Transaction[]): Money {
   const qualifying = transactions
@@ -139,7 +154,7 @@ export function computeCardBill(cardId: string, transactions: readonly Transacti
     .filter((expense) => qualifiesForCurrentBill(expense, cardId))
     .map((expense) => Money.fromCents(expense.amountCents).abs());
 
-  return Money.sum(qualifying);
+  return Money.sum(qualifying).subtract(cardCreditTotal(cardId, transactions));
 }
 
 /**
@@ -162,14 +177,18 @@ export function computeCardBills(
   }
 
   for (const tx of transactions) {
-    if (!isExpense(tx)) continue;
-    const cardId = tx.cardId;
-    // Only accumulate onto known cards; skip charges to cards we weren't asked about.
-    if (cardId === null || !bills.has(cardId)) continue;
-    if (!qualifiesForCurrentBill(tx, cardId)) continue;
-
-    const current = bills.get(cardId) ?? Money.zero();
-    bills.set(cardId, current.add(Money.fromCents(tx.amountCents).abs()));
+    if (isExpense(tx)) {
+      const cardId = tx.cardId;
+      // Only accumulate onto known cards; skip charges to cards we weren't asked about.
+      if (cardId === null || !bills.has(cardId)) continue;
+      if (!qualifiesForCurrentBill(tx, cardId)) continue;
+      const current = bills.get(cardId) ?? Money.zero();
+      bills.set(cardId, current.add(Money.fromCents(tx.amountCents).abs()));
+    } else if (isIncome(tx) && tx.cardId !== null && bills.has(tx.cardId)) {
+      // A card credit (estorno) reduces the bill.
+      const current = bills.get(tx.cardId) ?? Money.zero();
+      bills.set(tx.cardId, current.subtract(Money.fromCents(tx.amountCents)));
+    }
   }
 
   return bills;

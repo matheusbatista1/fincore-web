@@ -66,8 +66,11 @@ export function accountDeltas(tx: Transaction): Map<string, Money> {
   }
 
   if (isIncome(tx)) {
-    // Income lands in its account (amountCents is positive).
-    credit(tx.accountId, Money.fromCents(tx.amountCents));
+    // Income lands in its account (amountCents is positive). A card credit
+    // (estorno) has no account — it only reduces a card bill, never a balance.
+    if (tx.accountId !== null) {
+      credit(tx.accountId, Money.fromCents(tx.amountCents));
+    }
     return deltas;
   }
 

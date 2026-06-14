@@ -39,6 +39,7 @@ const income = (over: Partial<IncomeTransaction> = {}): IncomeTransaction => ({
   kind: "income",
   amountCents: 400000,
   accountId: "acc-1",
+  cardId: null,
   fromPersonId: null,
   isReimbursement: false,
   recurrence: null,

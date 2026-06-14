@@ -37,7 +37,8 @@ export default async function MonthlyPage({
     getWorkspaceView(financeRepository, user.id),
   ]);
 
-  const incomes = data.items.filter((e) => e.kind === "income");
+  // Card credits (estornos) live on the Cards screen, not in the monthly cash flow.
+  const incomes = data.items.filter((e) => e.kind === "income" && e.cardId === null);
   const expenses = data.items.filter((e) => e.kind === "expense");
   const transfers = data.items.filter((e) => e.kind === "transfer");
   const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);

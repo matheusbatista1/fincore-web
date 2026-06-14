@@ -60,7 +60,8 @@ export function CardsView({
         ? transactions.filter(
             (t) =>
               t.cardId === card.id &&
-              t.amountCents < 0 &&
+              // Card charges (expense, amount < 0) plus card credits (estorno income, amount > 0).
+              (t.kind === "income" || t.amountCents < 0) &&
               (t.billMonthOverride ?? cardBillMonth(t.date, card.closingDay, card.dueDay, overrides)) ===
                 fatKey,
           )
@@ -132,7 +133,8 @@ export function CardsView({
   const avail = card.limitCents - used;
   const pct = card.limitCents > 0 ? Math.round((used / card.limitCents) * 100) : 0;
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
-  const faturaMes = compras.reduce((s, t) => s + Math.abs(t.amountCents), 0);
+  // Net bill: charges (amount < 0) minus credits (amount > 0) → −Σ amount.
+  const faturaMes = compras.reduce((s, t) => s - t.amountCents, 0);
   // Effective closing/due day for the bill being viewed (override for this month or the card default).
   const billOverride = overrides?.get(fatKey);
   const effClosingDay = billOverride?.closingDay ?? card.closingDay;
@@ -292,7 +294,7 @@ export function CardsView({
                 </span>
               </div>
               <div className={`meter ${meterCls}`}>
-                <span style={{ width: `${pct}%` }} />
+                <span style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
               </div>
               <div
                 className="row"
@@ -464,6 +466,7 @@ export function CardsView({
               )}
               {compras.map((t) => {
                 const cat = t.category;
+                const isCredit = t.kind === "income";
                 return (
                   <div
                     role="button"
@@ -481,9 +484,15 @@ export function CardsView({
                   >
                     <span
                       className="l-ic"
-                      style={cat ? { background: `${cat.color}22`, color: cat.color } : {}}
+                      style={
+                        isCredit
+                          ? { background: "var(--mint-soft)", color: "var(--mint-500)" }
+                          : cat
+                            ? { background: `${cat.color}22`, color: cat.color }
+                            : {}
+                      }
                     >
-                      <Icon name={cat ? cat.icon : "shopping-bag"} size={18} />
+                      <Icon name={isCredit ? "arrow-down-left" : cat ? cat.icon : "shopping-bag"} size={18} />
                     </span>
                     <div className="l-main">
                       <div className="l-title">
@@ -512,7 +521,7 @@ export function CardsView({
                         {t.note ? ` · ${t.note}` : ""}
                       </div>
                     </div>
-                    <div className="l-amt neg">
+                    <div className={`l-amt ${isCredit ? "pos" : "neg"}`}>
                       <Money cents={t.amountCents} />
                     </div>
                   </div>
