@@ -22,7 +22,17 @@ export async function getProjectedBalances(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const current = currentMonthInBrazil();
 
-  const byAccount = projectedMonthEndBalances(ws.accounts, ws.transactions, month, competenceOf, current);
+  // Wallets show "what's really mine": the personal lens (only the user's share of
+  // shared expenses, reimbursement income excluded). There is no general/personal
+  // toggle on this screen, so the projection is always personal.
+  const byAccount = projectedMonthEndBalances(
+    ws.accounts,
+    ws.transactions,
+    month,
+    competenceOf,
+    current,
+    "personal",
+  );
   const byAccountCents: Record<string, number> = {};
   let accountsTotal = 0;
   for (const [id, value] of byAccount) {
@@ -31,6 +41,6 @@ export async function getProjectedBalances(
   }
   // The headline total nets the month's card bills; per-account figures do not
   // (we can't attribute which account pays a bill), so their sum differs by the bills.
-  const bills = cardBillsDueThrough(ws.transactions, current, month, competenceOf);
+  const bills = cardBillsDueThrough(ws.transactions, current, month, competenceOf, "personal");
   return { totalCents: accountsTotal - bills.cents, byAccountCents };
 }

@@ -105,8 +105,56 @@ describe("projectedMonthEndBalances", () => {
   });
 });
 
+describe("projectedMonthEndBalances — personal lens", () => {
+  it("debits only the user's share of a shared expense and drops reimbursement income", () => {
+    const sharedExpense: ExpenseTransaction = {
+      id: "shared",
+      kind: "expense",
+      description: "Jantar dividido",
+      date: "2026-06-10",
+      amountCents: -30000,
+      categoryId: null,
+      source: "account",
+      cardId: null,
+      accountId: "acc-1",
+      linkedAccountId: null,
+      splits: [{ personId: "p1", shareCents: 20000 }],
+      myShareCents: 10000,
+      installment: null,
+      recurrence: null,
+      billMonthOverride: null,
+    };
+    const reimbursement: IncomeTransaction = {
+      id: "reimb",
+      kind: "income",
+      description: "Reembolso",
+      date: "2026-06-12",
+      amountCents: 5000,
+      accountId: "acc-1",
+      cardId: null,
+      fromPersonId: "p1",
+      isReimbursement: true,
+      recurrence: null,
+    };
+    const txs: Transaction[] = [sharedExpense, reimbursement];
+    // General: 100000 − 30000 (full) + 5000 (reimbursement counts) = 75000.
+    expect(sum(projectedMonthEndBalances([account], txs, "2026-06", calendar, "2026-06"))).toBe(75000);
+    // Personal: 100000 − 10000 (my share) + 0 (reimbursement dropped) = 90000.
+    expect(sum(projectedMonthEndBalances([account], txs, "2026-06", calendar, "2026-06", "personal"))).toBe(
+      90000,
+    );
+  });
+});
+
 describe("cardBillsDueThrough", () => {
   const competenceOf = billingCompetence([card]);
+
+  it("personal lens counts only the user's share of a shared card charge", () => {
+    // Shared card charge −300 (my share 100), due July.
+    const shared: ExpenseTransaction = { ...cardExpense(-30000, "2026-06-10"), myShareCents: 10000 };
+    expect(cardBillsDueThrough([shared], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
+    expect(cardBillsDueThrough([shared], "2026-07", "2026-07", competenceOf, "personal").cents).toBe(10000);
+  });
 
   it("nets charges minus credits whose bill is due in the range", () => {
     // Charge 2026-06-10 and credit 2026-06-12 both fall due in JULY (closes 24, due 2).

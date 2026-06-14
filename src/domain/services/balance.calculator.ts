@@ -24,6 +24,7 @@ import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome, isTransfer } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { IsoDate } from "../value-objects/competence-month";
+import type { ViewMode } from "./personal-vs-general";
 
 /**
  * Whether a transaction affects account balances at all.
@@ -45,8 +46,14 @@ function affectsBalance(tx: Transaction): boolean {
  *
  * This is the direct analogue of the `d.acct` portion of the prototype's
  * `txDeltas`. Exported so callers can inspect a single transaction's impact.
+ *
+ * The `lens` defaults to `"general"` (real money movement — the live balance
+ * everywhere). The `"personal"` lens estimates "what's really mine": a shared
+ * expense debits only `myShareCents` (the rest is owed back by others) and
+ * reimbursement income is ignored (it's a refund, not your money). Card/linked
+ * expenses still never touch an account balance in either lens.
  */
-export function accountDeltas(tx: Transaction): Map<string, Money> {
+export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<string, Money> {
   const deltas = new Map<string, Money>();
   if (!affectsBalance(tx)) {
     return deltas;
@@ -69,6 +76,8 @@ export function accountDeltas(tx: Transaction): Map<string, Money> {
     // Income lands in its account (amountCents is positive). A card credit
     // (estorno) has no account — it only reduces a card bill, never a balance.
     if (tx.accountId !== null) {
+      // Personal lens drops reimbursements: money others pay you back is not "yours".
+      if (lens === "personal" && tx.isReimbursement) return deltas;
       credit(tx.accountId, Money.fromCents(tx.amountCents));
     }
     return deltas;
@@ -77,8 +86,10 @@ export function accountDeltas(tx: Transaction): Map<string, Money> {
   // Expense: only those paid directly from an account move a balance.
   // Card and linked-account sources (boleto/loan/financing/overdraft) do not.
   if (isExpense(tx) && tx.source === "account" && tx.accountId !== null) {
-    // amountCents is negative for expenses; debit by its magnitude.
-    credit(tx.accountId, Money.fromCents(tx.amountCents).abs().negate());
+    // General debits the full magnitude; personal debits only the user's own share.
+    const magnitude =
+      lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs();
+    credit(tx.accountId, magnitude.negate());
   }
 
   return deltas;
@@ -99,6 +110,7 @@ export function computeAccountBalances(
   accounts: readonly Account[],
   transactions: readonly Transaction[],
   upToDate?: IsoDate,
+  lens: ViewMode = "general",
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
 
@@ -112,7 +124,7 @@ export function computeAccountBalances(
   // `commitTx`, which only updates accounts that exist in its list.
   const applicable = upToDate === undefined ? transactions : transactions.filter((tx) => tx.date <= upToDate);
   for (const tx of applicable) {
-    for (const [accountId, delta] of accountDeltas(tx)) {
+    for (const [accountId, delta] of accountDeltas(tx, lens)) {
       const current = balances.get(accountId);
       if (current !== undefined) {
         balances.set(accountId, current.add(delta));

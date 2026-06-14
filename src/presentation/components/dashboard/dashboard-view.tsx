@@ -59,8 +59,10 @@ interface CategorySlice {
 }
 export interface DashboardData {
   readonly saldoTotalCents: number;
-  /** Projected total balance at the end of the browsed month (discreet hint). */
+  /** Projected total balance at the end of the browsed month (general lens, discreet hint). */
   readonly projectedBalanceCents: number;
+  /** Same projection through the personal lens (only the user's share). */
+  readonly projectedBalancePersonalCents: number;
   /** Whether the browsed month is already in the past (no projection to show). */
   readonly isPast: boolean;
   readonly aReceberCents: number;
@@ -189,6 +191,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const savingsPct = Math.round((economia / (receitaMes || 1)) * 100);
   // Browsing a future month: the month KPIs fold in projected ("previsto") recurring.
   const isFuture = !data.isPast && !data.isCurrent;
+  // The "fim do mês" follows the active lens (general adds people; personal is only mine).
+  const projectedEom = isPersonal ? data.projectedBalancePersonalCents : data.projectedBalanceCents;
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -299,13 +303,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
                 </span>
-                {!data.isPast && data.projectedBalanceCents !== data.saldoTotalCents && (
+                {!data.isPast && projectedEom !== data.saldoTotalCents && (
                   <span
                     className="row gap-1"
-                    style={{ color: "var(--text-lo)", fontSize: 13.5 }}
+                    style={{ color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)", fontSize: 13.5 }}
                     title="Saldo previsto para o fim do mês"
                   >
-                    · fim do mês ~<AnimatedMoney cents={data.projectedBalanceCents} withSign={false} />
+                    · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
                   </span>
                 )}
               </div>

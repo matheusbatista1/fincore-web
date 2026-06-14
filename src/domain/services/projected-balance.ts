@@ -16,6 +16,7 @@ import {
   dateInMonth,
 } from "../value-objects/competence-month";
 import { accountDeltas, computeAccountBalances } from "./balance.calculator";
+import type { ViewMode } from "./personal-vs-general";
 import { projectRecurring } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
@@ -35,11 +36,12 @@ export function projectedMonthEndBalances(
   month: CompetenceMonth,
   competenceOf: CompetenceResolver,
   fromMonth: CompetenceMonth,
+  lens: ViewMode = "general",
 ): Map<string, Money> {
-  const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31));
+  const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31), lens);
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
-      for (const [accountId, delta] of accountDeltas(occurrence.source)) {
+      for (const [accountId, delta] of accountDeltas(occurrence.source, lens)) {
         const current = balances.get(accountId);
         if (current !== undefined) balances.set(accountId, current.add(delta));
       }
@@ -60,6 +62,7 @@ export function cardBillsDueThrough(
   fromMonth: CompetenceMonth,
   toMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  lens: ViewMode = "general",
 ): Money {
   if (compareMonths(fromMonth, toMonth) > 0) return Money.zero();
   let net = Money.zero();
@@ -67,7 +70,10 @@ export function cardBillsDueThrough(
     const due = competenceOf(tx);
     if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
     if (isExpense(tx) && tx.source === "card") {
-      net = net.add(Money.fromCents(tx.amountCents).abs());
+      // Personal lens counts only the user's own share of a shared card charge.
+      net = net.add(
+        lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs(),
+      );
     } else if (isCardCredit(tx)) {
       net = net.subtract(Money.fromCents(tx.amountCents));
     }

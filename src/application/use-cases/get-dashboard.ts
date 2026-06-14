@@ -61,10 +61,17 @@ export interface DashboardData {
   readonly month: CompetenceMonth;
   readonly totalBalanceCents: number;
   /**
-   * Projected total balance at the END of the browsed month: real movements up to
-   * month-end plus the recurring occurrences ('previsto') not yet booked.
+   * Projected total balance at the END of the browsed month (general lens): real
+   * movements up to month-end, plus the recurring ('previsto') occurrences, minus
+   * the card bills due, PLUS what people owe you this month (− what you owe).
    */
   readonly projectedBalanceCents: number;
+  /**
+   * Same projection through the personal lens — accounts count only the user's own
+   * share of shared expenses and exclude reimbursement income; people are not added
+   * (the lens already internalises the split).
+   */
+  readonly projectedBalancePersonalCents: number;
   readonly accounts: AccountSummary[];
   readonly cards: CardSummary[];
   /** People with a non-zero NET in the browsed month (sorted, they-owe-you first). */
@@ -160,6 +167,28 @@ export async function getDashboard(
   let projectedBalanceCents = 0;
   for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
   projectedBalanceCents -= cardBillsDueThrough(ws.transactions, currentMonth, month, competenceOf).cents;
+  // General "fim do mês" also reflects this month's receivables/payables with people.
+  projectedBalanceCents += aReceberCents - aPagarCents;
+
+  // Personal projection: accounts count only the user's share + drop reimbursements;
+  // people are NOT added (the personal lens already internalises shared splits).
+  const eomPersonal = projectedMonthEndBalances(
+    ws.accounts,
+    ws.transactions,
+    month,
+    competenceOf,
+    currentMonth,
+    "personal",
+  );
+  let projectedBalancePersonalCents = 0;
+  for (const value of eomPersonal.values()) projectedBalancePersonalCents += value.cents;
+  projectedBalancePersonalCents -= cardBillsDueThrough(
+    ws.transactions,
+    currentMonth,
+    month,
+    competenceOf,
+    "personal",
+  ).cents;
 
   // Trailing 6-month cumulative balance: re-run the balance calculator with the
   // cutoff at each month-end (small in-memory volumes).
@@ -176,6 +205,7 @@ export async function getDashboard(
     month,
     totalBalanceCents,
     projectedBalanceCents,
+    projectedBalancePersonalCents,
     accounts,
     cards,
     people,
