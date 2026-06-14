@@ -42,6 +42,7 @@ function expense(opts: ExpenseOpts): ExpenseTransaction {
     myShareCents,
     installment: null,
     recurrence: null,
+    billMonthOverride: null,
   };
 }
 

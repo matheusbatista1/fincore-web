@@ -98,6 +98,8 @@ export function billingCompetence(
   const overrides = cardBillOverridesByCard(billDates);
   return (tx) => {
     if (isExpense(tx) && tx.source === "card" && tx.cardId !== null) {
+      // A manual per-charge override (moved bill) wins over the computed cycle.
+      if (tx.billMonthOverride !== null) return tx.billMonthOverride;
       const card = byId.get(tx.cardId);
       if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay, overrides.get(card.id));
     }

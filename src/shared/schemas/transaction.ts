@@ -140,6 +140,12 @@ export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>;
 /** Stop a fixed transaction from recurring (keeps the row). */
 export const stopRecurringSchema = z.object({ id: idSchema });
 
+/** Move a card charge to the previous/next bill. */
+export const moveBillSchema = z.object({
+  id: idSchema,
+  direction: z.enum(["prev", "next"]),
+});
+
 export const settlementInputSchema = z.object({
   personId: idSchema,
   amountCents: centsSchema.positive("Informe um valor maior que zero."),

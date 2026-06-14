@@ -566,6 +566,15 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ billMonthOverride: month, updatedAt: new Date() })
+        .where(eq(schema.transactions.id, id));
+    });
+  }
+
   async createSettlement(userId: string, input: SettlementData): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.insert(schema.settlements).values({

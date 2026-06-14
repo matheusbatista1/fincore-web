@@ -25,6 +25,7 @@ function expense(
     myShareCents: 1000,
     installment: null,
     recurrence: null,
+    billMonthOverride: null,
     ...over,
   };
 }

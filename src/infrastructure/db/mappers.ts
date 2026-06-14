@@ -182,5 +182,6 @@ export function toTransaction(row: TransactionRow, splits: readonly SplitRow[] =
           }
         : null,
     recurrence,
+    billMonthOverride: row.billMonthOverride ?? null,
   };
 }

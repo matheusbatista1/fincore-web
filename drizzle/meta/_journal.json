@@ -57,6 +57,13 @@
       "when": 1781413803997,
       "tag": "0007_faithful_tana_nile",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781414573034,
+      "tag": "0008_majestic_sinister_six",
+      "breakpoints": true
     }
   ]
 }

@@ -61,7 +61,8 @@ export function CardsView({
             (t) =>
               t.cardId === card.id &&
               t.amountCents < 0 &&
-              cardBillMonth(t.date, card.closingDay, card.dueDay, overrides) === fatKey,
+              (t.billMonthOverride ?? cardBillMonth(t.date, card.closingDay, card.dueDay, overrides)) ===
+                fatKey,
           )
         : [],
     [transactions, fatKey, card, overrides],

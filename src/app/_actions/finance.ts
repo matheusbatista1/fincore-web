@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
+import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -22,6 +23,7 @@ import { importStatementSchema } from "@/shared/schemas/import";
 import {
   createTransactionSchema,
   deleteTransactionSchema,
+  moveBillSchema,
   settlementInputSchema,
   stopRecurringSchema,
   updateTransactionSchema,
@@ -105,6 +107,18 @@ export async function stopRecurringAction(raw: unknown): Promise<ActionState> {
   const parsed = stopRecurringSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
   await financeRepository.stopRecurrence(userId, parsed.data.id);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Move a card charge to the previous/next bill (keeps its real date). */
+export async function moveTransactionBillAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = moveBillSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await moveTransactionBill(financeRepository, userId, parsed.data.id, parsed.data.direction);
+  if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
 }
