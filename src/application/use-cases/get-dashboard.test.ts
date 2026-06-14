@@ -94,7 +94,10 @@ describe("getDashboard — projected end-of-month balance", () => {
     expect(data.projectedBalanceCents).toBe(110000);
   });
 
-  it("ignores card-paid recurring expenses (they never move an account balance)", async () => {
+  it("subtracts the card bill due in the month from the projected balance", async () => {
+    // The card charge never moves an account balance, but its bill (due June, given
+    // closes 24 / due 2) is subtracted from the projected end-of-month balance:
+    // 110000 (accounts) − 9999 (fatura) = 100001.
     const repo = stubRepo(
       [
         expense(),
@@ -105,14 +108,14 @@ describe("getDashboard — projected end-of-month balance", () => {
           accountId: null,
           date: "2026-05-15",
           amountCents: -9999,
-          recurrence: { dayOfMonth: 15 },
+          recurrence: null,
         }),
       ],
       [card],
     );
     const data = await getDashboard(repo, "u", "2026-06");
     expect(data.totalBalanceCents).toBe(80000);
-    expect(data.projectedBalanceCents).toBe(110000);
+    expect(data.projectedBalanceCents).toBe(100001);
   });
 
   it("for a past month, projected equals the realized month-end balance", async () => {
