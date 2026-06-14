@@ -9,7 +9,7 @@ import type {
   TransferTransaction,
 } from "../entities/transaction";
 import { Money } from "../money/money";
-import { cardUtilization, computeCardBill, computeCardBills } from "./card-bill.calculator";
+import { cardBillMonth, cardUtilization, computeCardBill, computeCardBills } from "./card-bill.calculator";
 
 // ---------------------------------------------------------------------------
 // Test factories — keep each fixture minimal but type-complete under strict mode.
@@ -399,5 +399,29 @@ describe("cardUtilization", () => {
         },
       ),
     );
+  });
+});
+
+describe("cardBillMonth", () => {
+  it("rolls a charge after the closing day into the next cycle (due month)", () => {
+    // Caixa: closes 24, due 2. Buy 26/05 → closes 24/06 → due 02/07.
+    expect(cardBillMonth("2026-05-26", 24, 2)).toBe("2026-07");
+  });
+
+  it("keeps a charge on/before the closing day in the closing cycle", () => {
+    expect(cardBillMonth("2026-05-20", 24, 2)).toBe("2026-06");
+    // On the closing day itself still counts in that cycle.
+    expect(cardBillMonth("2026-05-24", 24, 2)).toBe("2026-06");
+  });
+
+  it("labels by the same month when the due day comes after the closing day", () => {
+    // Closes 5, due 20 → due in the closing month.
+    expect(cardBillMonth("2026-05-03", 5, 20)).toBe("2026-05");
+    expect(cardBillMonth("2026-05-07", 5, 20)).toBe("2026-06");
+  });
+
+  it("crosses the year boundary", () => {
+    // Closes 24, due 2. Buy 30/12 → closes 24/01 → due 02/02.
+    expect(cardBillMonth("2026-12-30", 24, 2)).toBe("2027-02");
   });
 });
