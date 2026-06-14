@@ -8,7 +8,9 @@ import { useUIStore } from "@/presentation/stores/ui-store";
 import { monthLabel } from "@/shared/formatting/dates";
 
 const PRESETS = [3, 6, 12] as const;
-const OPTION_MONTHS = 24;
+/** Month-picker window: up to 12 months ahead (projected) down to 23 months back. */
+const FUTURE_MONTHS = 12;
+const PAST_MONTHS = 23;
 
 /**
  * Reports header controls: the Geral / Apenas meu lens toggle (when the People
@@ -30,9 +32,10 @@ export function ReportControls({
   const peopleOn = useModuleEnabled("people");
   const isPersonal = peopleOn && view === "personal";
 
-  // Last OPTION_MONTHS months ending at `current`, newest first.
+  // Months around `current`, newest (future) first → oldest, so the user can also
+  // pick months ahead and see projected reports.
   const options: CompetenceMonth[] = [];
-  for (let i = 0; i < OPTION_MONTHS; i++) options.push(addMonths(current, -i));
+  for (let i = FUTURE_MONTHS; i >= -PAST_MONTHS; i--) options.push(addMonths(current, i));
 
   const span = monthsBetween(from, to) + 1;
   const isPreset = (n: number): boolean => to === current && from !== to && span === n;
