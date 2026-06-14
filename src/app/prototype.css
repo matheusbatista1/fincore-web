@@ -2902,6 +2902,51 @@ select.input {
   }
 }
 
+/* ---- TransiÃ§Ã£o ao trocar de mÃªs (dashboard / mensal / carteiras) ---- */
+/* Slide direcional ao chegar o novo mÃªs (keyado por mÃªs). SÃ³ com motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .month-fade {
+    animation: month-in-next 0.34s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+  .month-fade[data-dir="prev"] {
+    animation-name: month-in-prev;
+  }
+}
+@keyframes month-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes month-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Enquanto a navegaÃ§Ã£o estÃ¡ pendente: escurece e desfoca o conteÃºdo do mÃªs. */
+.month-fade.is-pending {
+  opacity: 0.5;
+  filter: blur(1.5px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    filter 0.18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .month-fade.is-pending {
+    filter: none;
+  }
+}
+
 /* botÃµes e cards com resposta tÃ¡til */
 .btn,
 .kpi,
