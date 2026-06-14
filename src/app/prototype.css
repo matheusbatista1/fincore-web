@@ -638,6 +638,13 @@
   margin-top: 3px;
   letter-spacing: -0.02em;
 }
+/* Tone the KPI value itself (income green, expense red, savings conditional). */
+.kpi .kpi-val.kpi-val-mint {
+  color: var(--mint-500);
+}
+.kpi .kpi-val.kpi-val-rose {
+  color: var(--rose-500);
+}
 .kpi .kpi-foot {
   margin-top: 11px;
   display: flex;
