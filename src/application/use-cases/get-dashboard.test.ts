@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Account } from "@/domain/entities/account";
 import type { CreditCard } from "@/domain/entities/credit-card";
+import type { Person } from "@/domain/entities/person";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
@@ -68,11 +69,12 @@ const income = (over: Partial<IncomeTransaction> = {}): IncomeTransaction => ({
 function stubRepo(
   transactions: (ExpenseTransaction | IncomeTransaction)[],
   cards: CreditCard[] = [],
+  people: Person[] = [],
 ): FinanceRepository {
   const ws: Workspace = {
     accounts: [account],
     creditCards: cards,
-    people: [],
+    people,
     categories: [],
     transactions,
     settlements: [],
@@ -161,5 +163,30 @@ describe("getDashboard — future-month KPIs include projected recurring (today 
     const data = await getDashboard(repo, "u", "2026-06");
     expect(data.general.incomeCents).toBe(50000);
     expect(data.general.expenseCents).toBe(0);
+  });
+});
+
+describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)", () => {
+  it("general reflects this month's receivables; personal counts only the user's share", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    // Shared account expense in MAY (a past month vs the June projection): −300, my share 100,
+    // Ana owes 200. Its receivable belongs to May, not June.
+    const shared = expense({
+      id: "shared",
+      source: "account",
+      accountId: "acc-1",
+      cardId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 10000,
+      splits: [{ personId: "p1", shareCents: 20000 }],
+      recurrence: null,
+    });
+    const data = await getDashboard(stubRepo([shared], [], [ana]), "u", "2026-06");
+    // Account holds the full −30000 (real); June's a-receber is 0 (the expense is May).
+    expect(data.aReceberCents).toBe(0);
+    expect(data.projectedBalanceCents).toBe(70000); // 100000 − 30000
+    // Personal debits only my share (10000) → 90000.
+    expect(data.projectedBalancePersonalCents).toBe(90000);
   });
 });

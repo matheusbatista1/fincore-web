@@ -5,7 +5,6 @@ import { useState } from "react";
 import { settlePersonAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { PersonView } from "@/application/use-cases/get-workspace-view";
-import { addMonths } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import {

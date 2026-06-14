@@ -130,10 +130,13 @@ export function WalletsView({
                 </span>
                 <span
                   className="row gap-1"
-                  style={{ color: "var(--text-lo)", fontSize: 13.5 }}
-                  title="Saldo previsto para o fim do mês, após pagar as faturas do mês"
+                  style={{
+                    color: projectedTotalCents < 0 ? "var(--rose-500)" : "var(--text-lo)",
+                    fontSize: 13.5,
+                  }}
+                  title="Saldo previsto para o fim do mês (só o que é seu), após pagar as faturas do mês"
                 >
-                  · fim do mês ~<AnimatedMoney cents={projectedTotalCents} withSign={false} />
+                  · fim do mês ~<AnimatedMoney cents={projectedTotalCents} withSign />
                 </span>
               </div>
             </div>
@@ -238,12 +241,17 @@ export function WalletsView({
                         >
                           <AnimatedMoney cents={a.balanceCents} />
                         </div>
-                        <div className="ab-pct" title="Saldo previsto para o fim do mês">
+                        <div
+                          className="ab-pct"
+                          title="Saldo previsto para o fim do mês (só o que é seu)"
+                          style={
+                            (projectedByAccount[a.id] ?? a.balanceCents) < 0
+                              ? { color: "var(--rose-500)" }
+                              : {}
+                          }
+                        >
                           fim do mês ~
-                          <AnimatedMoney
-                            cents={projectedByAccount[a.id] ?? a.balanceCents}
-                            withSign={false}
-                          />
+                          <AnimatedMoney cents={projectedByAccount[a.id] ?? a.balanceCents} withSign />
                         </div>
                       </div>
                       <span className="acct-edit">
