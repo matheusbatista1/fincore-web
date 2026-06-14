@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-/** Tracks the prototype's mobile breakpoint (≤820px, matching mobile.css). */
-export function useIsMobile(query = "(max-width: 820px)"): boolean {
+/** Tracks the compact-layout breakpoint (≤1024px: phones + tablets), matching prototype.css. */
+export function useIsMobile(query = "(max-width: 1024px)"): boolean {
   const [mobile, setMobile] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia(query);
