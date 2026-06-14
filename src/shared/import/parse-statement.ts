@@ -63,7 +63,10 @@ export function parseAmountToCents(raw: string): number | null {
   return negative ? -cents : cents;
 }
 
-/** Parse `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY` or OFX `YYYYMMDD…` to an IsoDate. */
+/**
+ * Parse `YYYY-MM-DD`, `DD/MM/YYYY`, `DD.MM.YYYY`, `DD-MM-YY`, or OFX `YYYYMMDD…`
+ * to an IsoDate. Day/month may be 1–2 digits; a 2-digit year is read as `20YY`.
+ */
 export function parseDate(raw: string): IsoDate | null {
   const text = raw.trim();
   if (isValidIsoDate(text)) return text;
@@ -72,9 +75,14 @@ export function parseDate(raw: string): IsoDate | null {
   // so operate on a fresh binding for the remaining formats.
   const value: string = raw.trim();
 
-  const slash = value.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
-  if (slash) {
-    const candidate = `${slash[3]}-${slash[2]}-${slash[1]}`;
+  // DD/MM/YYYY with `/`, `.` or `-` separators; year may be 2 or 4 digits.
+  const dmy = value.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
+  if (dmy) {
+    const day = (dmy[1] ?? "").padStart(2, "0");
+    const month = (dmy[2] ?? "").padStart(2, "0");
+    const rawYear = dmy[3] ?? "";
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+    const candidate = `${year}-${month}-${day}`;
     return isValidIsoDate(candidate) ? candidate : null;
   }
 
@@ -86,9 +94,25 @@ export function parseDate(raw: string): IsoDate | null {
   return null;
 }
 
-const DATE_KEYS = ["data", "date", "dt"];
-const DESC_KEYS = ["descri", "histor", "memo", "lançamento", "lancamento", "name", "title"];
-const AMOUNT_KEYS = ["valor", "amount", "value", "montante"];
+// Header keywords are matched against diacritic-stripped, lower-cased cells (see
+// normalizeKey), so list them ASCII-only.
+const DATE_KEYS = ["data", "date", "dt", "compet"];
+const DESC_KEYS = [
+  "descri",
+  "histor",
+  "memo",
+  "lancamento",
+  "name",
+  "title",
+  "titulo",
+  "estabelec",
+  "transa",
+  "detalhe",
+];
+const AMOUNT_KEYS = ["valor", "amount", "value", "montante", "quantia"];
+// Some banks split money into separate debit/credit columns instead of one signed value.
+const DEBIT_KEYS = ["debito", "saida", "despesa", "debit"];
+const CREDIT_KEYS = ["credito", "entrada", "recebi", "credit"];
 
 function splitCsvLine(line: string, delimiter: string): string[] {
   // Minimal CSV: handles quoted fields containing the delimiter.
@@ -128,6 +152,29 @@ function indexOfKey(header: string[], keys: string[]): number {
   });
 }
 
+/** Guess the delimiter from the header line: prefer `;`/TAB (BR exports use comma decimals). */
+function detectDelimiter(headerLine: string): string {
+  const semi = (headerLine.match(/;/g) ?? []).length;
+  const tabs = (headerLine.match(/\t/g) ?? []).length;
+  if (semi > 0 || tabs > 0) return tabs > semi ? "\t" : ";";
+  return ",";
+}
+
+/** A row's signed amount: a single "valor" column, or a debit/credit pair (debit = expense). */
+function resolveAmount(
+  cells: string[],
+  amountIdx: number,
+  debitIdx: number,
+  creditIdx: number,
+): number | null {
+  if (amountIdx >= 0) return parseAmountToCents(cells[amountIdx] ?? "");
+  const credit = creditIdx >= 0 ? parseAmountToCents(cells[creditIdx] ?? "") : null;
+  if (credit !== null && credit !== 0) return Math.abs(credit);
+  const debit = debitIdx >= 0 ? parseAmountToCents(cells[debitIdx] ?? "") : null;
+  if (debit !== null && debit !== 0) return -Math.abs(debit);
+  return null;
+}
+
 function parseCsv(content: string): ParsedEntry[] {
   const lines = content
     .split(/\r?\n/)
@@ -136,28 +183,35 @@ function parseCsv(content: string): ParsedEntry[] {
   if (lines.length === 0) return [];
 
   const first = lines[0] ?? "";
-  const delimiter = (first.match(/;/g)?.length ?? 0) > (first.match(/,/g)?.length ?? 0) ? ";" : ",";
+  const delimiter = detectDelimiter(first);
 
   const firstCells = splitCsvLine(first, delimiter);
-  const looksLikeHeader = indexOfKey(firstCells, [...DATE_KEYS, ...AMOUNT_KEYS, ...DESC_KEYS]) !== -1;
+  const looksLikeHeader =
+    indexOfKey(firstCells, [...DATE_KEYS, ...AMOUNT_KEYS, ...DESC_KEYS, ...DEBIT_KEYS, ...CREDIT_KEYS]) !==
+    -1;
 
   let dateIdx = 0;
   let descIdx = 1;
   let amountIdx = 2;
+  let debitIdx = -1;
+  let creditIdx = -1;
   let startRow = 0;
   if (looksLikeHeader) {
     dateIdx = indexOfKey(firstCells, DATE_KEYS);
     descIdx = indexOfKey(firstCells, DESC_KEYS);
     amountIdx = indexOfKey(firstCells, AMOUNT_KEYS);
+    debitIdx = indexOfKey(firstCells, DEBIT_KEYS);
+    creditIdx = indexOfKey(firstCells, CREDIT_KEYS);
     startRow = 1;
   }
-  if (dateIdx === -1 || amountIdx === -1) return [];
+  // Need a date column and at least one amount source (single value or debit/credit).
+  if (dateIdx === -1 || (amountIdx === -1 && debitIdx === -1 && creditIdx === -1)) return [];
 
   const entries: ParsedEntry[] = [];
   for (let i = startRow; i < lines.length; i++) {
     const cells = splitCsvLine(lines[i] ?? "", delimiter);
     const date = parseDate(cells[dateIdx] ?? "");
-    const amountCents = parseAmountToCents(cells[amountIdx] ?? "");
+    const amountCents = resolveAmount(cells, amountIdx, debitIdx, creditIdx);
     if (date === null || amountCents === null || amountCents === 0) continue;
     const description = (descIdx >= 0 ? cells[descIdx] : undefined)?.trim() || "Lançamento importado";
     entries.push({ date, description, amountCents });
@@ -185,5 +239,8 @@ function parseOfx(content: string): ParsedEntry[] {
 
 /** Parse a statement file's text into normalized, signed-cents entries. */
 export function parseStatement(content: string, format: StatementFormat): ParsedEntry[] {
-  return format === "ofx" ? parseOfx(content) : parseCsv(content);
+  // Strip a leading UTF-8 BOM (common in Excel/online-banking exports) so it
+  // doesn't poison the first header cell.
+  const clean = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  return format === "ofx" ? parseOfx(clean) : parseCsv(clean);
 }

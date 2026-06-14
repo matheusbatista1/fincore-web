@@ -25,6 +25,11 @@ describe("parseDate", () => {
     expect(parseDate("10/06/2026")).toBe("2026-06-10");
     expect(parseDate("20260610120000[-3:GMT]")).toBe("2026-06-10");
   });
+  it("accepts dot separators and 2-digit years", () => {
+    expect(parseDate("10.06.2026")).toBe("2026-06-10");
+    expect(parseDate("10/06/26")).toBe("2026-06-10");
+    expect(parseDate("1.6.2026")).toBe("2026-06-01");
+  });
   it("rejects invalid dates", () => {
     expect(parseDate("2026-13-40")).toBeNull();
     expect(parseDate("nope")).toBeNull();
@@ -53,6 +58,39 @@ describe("parseStatement CSV", () => {
   it("skips rows with invalid date or zero amount", () => {
     const csv = ["Data;Descrição;Valor", "bad;x;-1,00", "10/06/2026;ok;0,00"].join("\n");
     expect(parseStatement(csv, "csv")).toEqual([]);
+  });
+
+  it("strips a leading UTF-8 BOM before reading the header", () => {
+    const csv = `﻿${["Data;Descrição;Valor", "10/06/2026;Mercado;-150,90"].join("\n")}`;
+    expect(parseStatement(csv, "csv")).toEqual([
+      { date: "2026-06-10", description: "Mercado", amountCents: -15090 },
+    ]);
+  });
+
+  it("detects a TAB delimiter", () => {
+    const csv = ["Data\tDescrição\tValor", "10/06/2026\tMercado\t-150,90"].join("\n");
+    expect(parseStatement(csv, "csv")).toEqual([
+      { date: "2026-06-10", description: "Mercado", amountCents: -15090 },
+    ]);
+  });
+
+  it("recognizes extra header names (Competência/Estabelecimento)", () => {
+    const csv = ["Competência;Estabelecimento;Valor", "10.06.2026;Padaria;-9,90"].join("\n");
+    expect(parseStatement(csv, "csv")).toEqual([
+      { date: "2026-06-10", description: "Padaria", amountCents: -990 },
+    ]);
+  });
+
+  it("builds the signed amount from separate Débito/Crédito columns", () => {
+    const csv = [
+      "Data;Histórico;Débito;Crédito",
+      "10/06/2026;Compra;150,90;",
+      "12/06/2026;Salário;;3.000,00",
+    ].join("\n");
+    expect(parseStatement(csv, "csv")).toEqual([
+      { date: "2026-06-10", description: "Compra", amountCents: -15090 },
+      { date: "2026-06-12", description: "Salário", amountCents: 300000 },
+    ]);
   });
 });
 
