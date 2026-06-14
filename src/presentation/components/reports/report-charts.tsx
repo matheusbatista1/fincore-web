@@ -27,6 +27,8 @@ export function ReportCharts({
   totalExpenseCents,
   totalExpensePersonalCents,
   byCard,
+  includesProjected,
+  projectedLabel,
 }: {
   months: MonthBar[];
   monthsPersonal: MonthBar[];
@@ -35,6 +37,8 @@ export function ReportCharts({
   totalExpenseCents: number;
   totalExpensePersonalCents: number;
   byCard: CardSpend[];
+  includesProjected: boolean;
+  projectedLabel: string;
 }) {
   const view = useUIStore((s) => s.view);
   const peopleOn = useModuleEnabled("people");
@@ -51,7 +55,10 @@ export function ReportCharts({
         <div className="card">
           <div className="card-head">
             <div>
-              <h3>Fluxo de caixa</h3>
+              <div className="row gap-2">
+                <h3>Fluxo de caixa</h3>
+                {includesProjected && <span className="pill purple">previsto</span>}
+              </div>
               <div className="ch-sub">Receitas x despesas {isPersonal ? "· só o que é seu" : ""}</div>
             </div>
             <div className="legend">
@@ -67,12 +74,18 @@ export function ReportCharts({
           </div>
           <div className="card-pad">
             <BarsChart months={chartMonths} />
+            {includesProjected && (
+              <div className="ch-sub" style={{ marginTop: 12 }}>
+                Tracejado = previsto ({projectedLabel})
+              </div>
+            )}
           </div>
         </div>
         <div className="card">
           <div className="card-head">
-            <div>
+            <div className="row gap-2">
               <h3>Por categoria</h3>
+              {includesProjected && <span className="pill purple">previsto</span>}
             </div>
           </div>
           <div className="card-pad">

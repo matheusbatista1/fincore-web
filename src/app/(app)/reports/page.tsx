@@ -77,6 +77,8 @@ export default async function ReportsPage({
         totalExpenseCents={data.totalExpenseCents}
         totalExpensePersonalCents={data.totalExpensePersonalCents}
         byCard={byCard}
+        includesProjected={data.includesProjected}
+        projectedLabel={data.projectedLabel}
       />
 
       <div className="card card-pad" style={{ marginTop: 16 }}>

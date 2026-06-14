@@ -166,4 +166,28 @@ describe("getReports — future months include projected recurring (current = 20
     const data = await getReports(repo, "u", { from: "2026-06", to: "2026-06" });
     expect(data.months.at(-1)?.expenseCents).toBe(0);
   });
+
+  it("flags future months and the window as projected", async () => {
+    const data = await getReports(stubRepo([]), "u", {
+      from: "2026-06",
+      to: "2026-08",
+      categoryFrom: "2026-06",
+      categoryTo: "2026-08",
+    });
+    expect(data.months.map((m) => [m.month, m.projected])).toEqual([
+      ["2026-06", false],
+      ["2026-07", true],
+      ["2026-08", true],
+    ]);
+    expect(data.monthsPersonal.map((m) => m.projected)).toEqual([false, true, true]);
+    expect(data.includesProjected).toBe(true);
+    expect(data.projectedLabel).not.toBe("");
+  });
+
+  it("marks a past/current-only window as not projected", async () => {
+    const data = await getReports(stubRepo([]), "u", { from: "2026-04", to: "2026-06" });
+    expect(data.months.every((m) => !m.projected)).toBe(true);
+    expect(data.includesProjected).toBe(false);
+    expect(data.projectedLabel).toBe("");
+  });
 });

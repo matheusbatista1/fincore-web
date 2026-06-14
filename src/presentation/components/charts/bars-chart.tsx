@@ -2,6 +2,8 @@ interface MonthBar {
   readonly label: string;
   readonly incomeCents: number;
   readonly expenseCents: number;
+  /** Future month whose totals are projected ("previsto") — rendered dashed/dimmed. */
+  readonly projected?: boolean;
 }
 
 /** Grouped income/expense bars per month — prototype classes (.bars/.bargrp/.bar). */
@@ -12,17 +14,17 @@ export function BarsChart({ months }: { months: MonthBar[] }) {
       <div className="bars">
         {months.map((m, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: positional key is intentional so the Nth bar tweens its height to the new month's value.
-          <div className="bargrp" key={i}>
+          <div className={`bargrp${m.projected ? " is-projected" : ""}`} key={i}>
             <div className="barpair">
               <div
                 className="bar inc"
                 style={{ height: `${(m.incomeCents / max) * 100}%` }}
-                title={`Receitas ${m.label}`}
+                title={`${m.projected ? "Receitas previstas" : "Receitas"} ${m.label}`}
               />
               <div
                 className="bar exp"
                 style={{ height: `${(m.expenseCents / max) * 100}%` }}
-                title={`Despesas ${m.label}`}
+                title={`${m.projected ? "Despesas previstas" : "Despesas"} ${m.label}`}
               />
             </div>
             <div className="blabel">{m.label}</div>

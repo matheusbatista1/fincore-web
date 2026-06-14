@@ -39,6 +39,10 @@ export interface ReportData {
   }>;
   readonly transactions: TransactionListItem[];
   readonly today: string;
+  /** True when the report window reaches into the future (some figures are projected). */
+  readonly includesProjected: boolean;
+  /** Human label of the future portion ("jul – set 2026"); "" when none. */
+  readonly projectedLabel: string;
 }
 
 const TITLES: Record<ReportMode, string> = {
@@ -130,9 +134,14 @@ export function ReportModal({
         ? `relatorio-pessoal-${data.today}`
         : `relatorio-mes-${data.today}`;
 
+  const projectedNote = data.includesProjected
+    ? `Inclui valores previstos (meses futuros: ${data.projectedLabel})`
+    : "";
+
   function onCsv() {
     if (mode === "month") {
       const rows: string[][] = [
+        ...(data.includesProjected ? [["Observação", projectedNote, ""]] : []),
         ["Resumo", "Receitas", csvMoney(summary.generalIncomeCents)],
         ["Resumo", "Despesas", csvMoney(summary.generalExpenseCents)],
         ["Resumo", "Resultado", csvMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
@@ -147,6 +156,7 @@ export function ReportModal({
         `${fileSlug}.csv`,
         ["Item", "Valor"],
         [
+          ...(data.includesProjected ? [["Observação", projectedNote]] : []),
           ["Minha renda (sem reembolsos)", csvMoney(summary.personalIncomeCents)],
           ["Meu gasto real (só minha parte)", csvMoney(summary.personalExpenseCents)],
           ["Minha sobra real", csvMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
@@ -175,7 +185,9 @@ export function ReportModal({
       await exportPDF({
         filename: `${fileSlug}.pdf`,
         title,
-        subtitle: `Resultado do mês ${pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)}`,
+        subtitle: `Resultado do mês ${pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)}${
+          data.includesProjected ? ` · ${projectedNote}` : ""
+        }`,
         sections: [
           {
             heading: "Resumo",
@@ -210,6 +222,7 @@ export function ReportModal({
       await exportPDF({
         filename: `${fileSlug}.pdf`,
         title,
+        ...(data.includesProjected ? { subtitle: projectedNote } : {}),
         sections: [
           {
             heading: "Resumo pessoal",
@@ -263,6 +276,28 @@ export function ReportModal({
 
           {mode === "month" && (
             <div className="rep-month">
+              {data.includesProjected && (
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-lo)",
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    marginBottom: 14,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <Icon
+                    name="info"
+                    size={15}
+                    style={{ color: "var(--purple-300)", flex: "none", marginTop: 1 }}
+                  />
+                  <span>
+                    Inclui valores <b>previstos</b> para meses futuros ({data.projectedLabel}).
+                  </span>
+                </div>
+              )}
               <div className="summary-box" style={{ marginTop: 0, marginBottom: 16 }}>
                 <div className="sb-row">
                   <span className="k">Receitas</span>

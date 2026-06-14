@@ -1041,6 +1041,15 @@
 .bars .bar.exp {
   background: linear-gradient(180deg, var(--purple-400), var(--purple-600));
 }
+/* Projected ("previsto") months: dimmed bars with a dashed outline. */
+.bars .bargrp.is-projected .bar {
+  opacity: 0.45;
+  outline: 1.5px dashed var(--line-2);
+  outline-offset: -1.5px;
+}
+.bars .bargrp.is-projected .blabel {
+  font-style: italic;
+}
 .bars .blabel {
   font-size: 11px;
   color: var(--text-lo);

@@ -52,5 +52,7 @@ export function buildReportData({
     })),
     transactions,
     today,
+    includesProjected: reports.includesProjected,
+    projectedLabel: reports.projectedLabel,
   };
 }
