@@ -80,15 +80,17 @@ export async function updateTransactionAction(raw: unknown): Promise<ActionState
   if (!userId) return UNAUTHORIZED;
   const parsed = updateTransactionSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
+  let count = 1;
   try {
     const result = await updateTransaction(financeRepository, userId, parsed.data);
     if (!result.ok) return { ok: false, error: result.error.message };
+    count = result.value;
   } catch (error) {
     console.error("updateTransactionAction failed", error);
     return { ok: false, error: "Não foi possível atualizar o lançamento." };
   }
   revalidatePath("/", "layout");
-  return { ok: true };
+  return { ok: true, count };
 }
 
 export async function deleteTransactionAction(raw: unknown): Promise<ActionState> {

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type {
   CreateTransactionCommand,
   FinanceRepository,
@@ -469,18 +469,87 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
-  async updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void> {
-    await this.run(userId, async (tx) => {
-      const existing = one(
+  async updateTransaction(
+    userId: string,
+    command: UpdateTransactionCommand,
+    scope: "one" | "forward" | "all" = "one",
+  ): Promise<number> {
+    return this.run(userId, async (tx) => {
+      // Read the target's CURRENT values first — used to locate sibling rows of an
+      // installment group / recurring series before the target is overwritten.
+      const target = one(
         await tx
-          .select({ kind: schema.transactions.kind })
+          .select({
+            kind: schema.transactions.kind,
+            groupId: schema.transactions.installmentGroupId,
+            parcelaNo: schema.transactions.parcelaNo,
+            recurrenceDayOfMonth: schema.transactions.recurrenceDayOfMonth,
+            description: schema.transactions.description,
+            source: schema.transactions.source,
+            cardId: schema.transactions.cardId,
+            accountId: schema.transactions.accountId,
+            linkedAccountId: schema.transactions.linkedAccountId,
+          })
           .from(schema.transactions)
           .where(and(eq(schema.transactions.id, command.id), isNull(schema.transactions.deletedAt))),
       );
-      if (existing.kind !== command.kind) {
+      if (target.kind !== command.kind) {
         throw new Error("Transaction kind cannot change on update");
       }
 
+      // Sibling rows that the scope propagates classification to (target excluded).
+      let siblingIds: string[] = [];
+      if (scope !== "one") {
+        if (target.groupId) {
+          const groupRows = await tx
+            .select({ id: schema.transactions.id, parcelaNo: schema.transactions.parcelaNo })
+            .from(schema.transactions)
+            .where(
+              and(
+                eq(schema.transactions.installmentGroupId, target.groupId),
+                isNull(schema.transactions.deletedAt),
+              ),
+            );
+          siblingIds = groupRows
+            .filter(
+              (row) =>
+                row.id !== command.id && (scope === "all" || (row.parcelaNo ?? 0) >= (target.parcelaNo ?? 0)),
+            )
+            .map((row) => row.id);
+        } else if (target.recurrenceDayOfMonth !== null) {
+          // A recurring series: same kind + same identity (description + payment source).
+          const recurringRows = await tx
+            .select({
+              id: schema.transactions.id,
+              description: schema.transactions.description,
+              source: schema.transactions.source,
+              cardId: schema.transactions.cardId,
+              accountId: schema.transactions.accountId,
+              linkedAccountId: schema.transactions.linkedAccountId,
+            })
+            .from(schema.transactions)
+            .where(
+              and(
+                eq(schema.transactions.kind, target.kind),
+                isNotNull(schema.transactions.recurrenceDayOfMonth),
+                isNull(schema.transactions.deletedAt),
+              ),
+            );
+          siblingIds = recurringRows
+            .filter(
+              (row) =>
+                row.id !== command.id &&
+                row.description === target.description &&
+                row.source === target.source &&
+                row.cardId === target.cardId &&
+                row.accountId === target.accountId &&
+                row.linkedAccountId === target.linkedAccountId,
+            )
+            .map((row) => row.id);
+        }
+      }
+
+      // Full update of the target row (amount, splits, recurrence — as edited).
       await tx
         .update(schema.transactions)
         .set({
@@ -516,6 +585,28 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           })),
         );
       }
+
+      // Propagate ONLY the classification fields to the siblings — never their
+      // amount, share, date, parcela or recurrence.
+      if (siblingIds.length > 0) {
+        await tx
+          .update(schema.transactions)
+          .set({
+            description: command.description,
+            note: command.note ?? null,
+            categoryId: command.categoryId ?? null,
+            source: command.source ?? null,
+            cardId: command.cardId ?? null,
+            accountId: command.accountId ?? null,
+            linkedAccountId: command.linkedAccountId ?? null,
+            fromPersonId: command.fromPersonId ?? null,
+            isReimbursement: command.isReimbursement ?? false,
+            updatedAt: new Date(),
+          })
+          .where(inArray(schema.transactions.id, siblingIds));
+      }
+
+      return 1 + siblingIds.length;
     });
   }
 

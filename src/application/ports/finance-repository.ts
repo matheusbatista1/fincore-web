@@ -176,8 +176,19 @@ export interface FinanceRepository {
 
   /** Persist a transaction (single or installment schedule) atomically. */
   createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;
-  /** Update a single transaction row (kind immutable) and replace its splits atomically. */
-  updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void>;
+  /**
+   * Update a transaction row (kind immutable) and replace its splits atomically.
+   * `scope` propagates the classification fields (description, note, category,
+   * payment source) to sibling rows of an installment group or recurring series:
+   * `"forward"` = this + later parcelas, `"all"` = the whole series. The target
+   * row always gets the full update (amount/splits); siblings only the
+   * classification. Returns the number of rows touched.
+   */
+  updateTransaction(
+    userId: string,
+    command: UpdateTransactionCommand,
+    scope?: "one" | "forward" | "all",
+  ): Promise<number>;
   /** Soft-delete a single row and persist `command` (an installment group) in its place, atomically. */
   replaceWithInstallment(
     userId: string,

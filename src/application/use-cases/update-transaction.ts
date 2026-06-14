@@ -189,15 +189,17 @@ export async function updateTransaction(
   repo: FinanceRepository,
   userId: string,
   input: UpdateTransactionInput,
-): Promise<Result<void, UpdateTransactionError>> {
+): Promise<Result<number, UpdateTransactionError>> {
   if (input.kind === "expense" && input.installment) {
     const command = buildInstallmentCommand(input);
     if (!command.ok) return command;
     await repo.replaceWithInstallment(userId, input.id, command.value);
-    return ok(undefined);
+    return ok(command.value.entries.length);
   }
   const command = buildCommand(input);
   if (!command.ok) return command;
-  await repo.updateTransaction(userId, command.value);
-  return ok(undefined);
+  // Transfers never carry a scope; expense/income edits propagate it to siblings.
+  const scope = input.kind === "transfer" ? "one" : input.scope;
+  const count = await repo.updateTransaction(userId, command.value, scope);
+  return ok(count);
 }
