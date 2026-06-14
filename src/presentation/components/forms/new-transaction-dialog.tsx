@@ -14,7 +14,11 @@ import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { createTransactionSchema, updateTransactionSchema } from "@/shared/schemas/transaction";
+import {
+  createTransactionSchema,
+  type EditScope,
+  updateTransactionSchema,
+} from "@/shared/schemas/transaction";
 import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
 export interface TxFormAccount {
@@ -324,7 +328,7 @@ function TransactionForm({
           : Boolean(acctId)
         : Boolean(fromAcct) && Boolean(toAcct) && fromAcct !== toAcct);
 
-  function buildPayload(): unknown {
+  function buildPayload(scope: EditScope): unknown {
     // Preserve an existing note on edit (the form has no note field).
     const noteField = editing && initial?.note ? { note: initial.note } : {};
     if (tab === "transfer") {
@@ -352,6 +356,7 @@ function TransactionForm({
         cardId: isCard ? cardId : null,
         fromPersonId: isCard ? null : fromPerson,
         fixed,
+        ...(editing ? { scope } : {}),
       };
     }
     const customCents: Record<string, number> = {};
@@ -378,6 +383,7 @@ function TransactionForm({
           parcelado && canParcel
             ? { total: n, current: cur, includePrevious: parcPrev, includeNext: parcNext }
             : null,
+        scope,
       };
     }
     return {
@@ -399,11 +405,11 @@ function TransactionForm({
     };
   }
 
-  async function submit() {
+  async function submit(scope: EditScope = "one") {
     if (!canSubmit || submitting) return;
     setServerError(null);
     const schema = editing ? updateTransactionSchema : createTransactionSchema;
-    const parsed = schema.safeParse(buildPayload());
+    const parsed = schema.safeParse(buildPayload(scope));
     if (!parsed.success) {
       setServerError("Revise os campos do lançamento.");
       return;
@@ -417,9 +423,12 @@ function TransactionForm({
       setServerError(result.error);
       return;
     }
+    const affected = result.count ?? 1;
     toast(
       editing
-        ? "Lançamento atualizado."
+        ? affected > 1
+          ? `Aplicado a ${affected} lançamentos.`
+          : "Lançamento atualizado."
         : tab === "income"
           ? "Receita adicionada."
           : tab === "transfer"
@@ -429,9 +438,120 @@ function TransactionForm({
     onDone();
   }
 
+  // Editing a row that belongs to an installment group or a recurring series:
+  // ask which rows the edit applies to before saving.
+  const needsScope = editing && (Boolean(initial?.isFixed) || initial?.parcela != null);
+  const [choosingScope, setChoosingScope] = useState(false);
+  function onPrimary() {
+    if (needsScope && !choosingScope) {
+      setChoosingScope(true);
+      return;
+    }
+    void submit("one");
+  }
+
   const amountColor =
     tab === "income" ? "var(--mint-500)" : tab === "transfer" ? "var(--sky-500)" : "var(--text-hi)";
   const createdCount = (parcPrev ? cur - 1 : 0) + 1 + (parcNext ? n - cur : 0);
+
+  // Scope step: which rows the edit applies to (installment group / recurring series).
+  if (choosingScope && initial) {
+    const parcela = initial.parcela;
+    const forwardCount = parcela ? parcela.total - parcela.number + 1 : 0;
+    return (
+      <>
+        <div className="modal-body">
+          <p style={{ margin: "0 0 18px", color: "var(--text-mid)", fontSize: 14, lineHeight: 1.5 }}>
+            {parcela ? (
+              <>
+                <b style={{ color: "var(--text-hi)" }}>{initial.description}</b> faz parte de um parcelamento
+                de <b style={{ color: "var(--text-hi)" }}>{parcela.total}x</b>. Aplicar esta edição a quais
+                parcelas?
+              </>
+            ) : (
+              <>
+                <b style={{ color: "var(--text-hi)" }}>{initial.description}</b> se repete todo mês. Aplicar
+                esta edição a quais meses?
+              </>
+            )}
+          </p>
+
+          {parcela ? (
+            <>
+              <button type="button" className="scope-opt" disabled={submitting} onClick={() => submit("one")}>
+                <span className="so-ic">
+                  <Icon name="pencil" size={18} />
+                </span>
+                <span>
+                  <b>Apenas esta parcela</b>
+                  <small>
+                    Altera só a parcela {parcela.number}/{parcela.total}
+                  </small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="scope-opt"
+                disabled={submitting}
+                onClick={() => submit("forward")}
+              >
+                <span className="so-ic">
+                  <Icon name="layers" size={18} />
+                </span>
+                <span>
+                  <b>Esta e as próximas</b>
+                  <small>
+                    Da parcela {parcela.number} em diante ({forwardCount}{" "}
+                    {forwardCount === 1 ? "lançamento" : "lançamentos"})
+                  </small>
+                </span>
+              </button>
+              <button type="button" className="scope-opt" disabled={submitting} onClick={() => submit("all")}>
+                <span className="so-ic">
+                  <Icon name="list" size={18} />
+                </span>
+                <span>
+                  <b>Todas as parcelas</b>
+                  <small>O parcelamento inteiro ({parcela.total} parcelas)</small>
+                </span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="scope-opt" disabled={submitting} onClick={() => submit("one")}>
+                <span className="so-ic">
+                  <Icon name="pencil" size={18} />
+                </span>
+                <span>
+                  <b>Só este mês</b>
+                  <small>Altera apenas este lançamento</small>
+                </span>
+              </button>
+              <button type="button" className="scope-opt" disabled={submitting} onClick={() => submit("all")}>
+                <span className="so-ic">
+                  <Icon name="repeat" size={18} />
+                </span>
+                <span>
+                  <b>Todos os meses</b>
+                  <small>Altera a regra — vale para todos os meses</small>
+                </span>
+              </button>
+            </>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={submitting}
+            onClick={() => setChoosingScope(false)}
+          >
+            Voltar
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -1360,13 +1480,15 @@ function TransactionForm({
             opacity: canSubmit && !submitting ? 1 : 0.45,
             pointerEvents: canSubmit && !submitting ? "auto" : "none",
           }}
-          onClick={submit}
+          onClick={onPrimary}
         >
           <Icon name="check" size={17} />
           {submitting
             ? "Salvando…"
             : editing
-              ? "Salvar"
+              ? needsScope
+                ? "Salvar…"
+                : "Salvar"
               : tab === "income"
                 ? "Adicionar receita"
                 : tab === "transfer"

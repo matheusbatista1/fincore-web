@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { centsSchema, idSchema, isoDateSchema } from "./common";
 
+/**
+ * Which rows an edit (or delete) applies to: just this one, this + later, or the
+ * whole series (installment group / recurring series).
+ */
+export const editScopeSchema = z.enum(["one", "forward", "all"]).default("one");
+export type EditScope = z.infer<typeof editScopeSchema>;
+
 /** Split parameters — the server re-computes shares from these (never trusts client math). */
 export const splitParamsSchema = z.object({
   method: z.enum(["equal", "custom"]).default("equal"),
@@ -104,6 +111,8 @@ const expenseUpdateSchema = z.object({
   split: splitParamsSchema.default({ method: "equal", meIn: true, selected: [], custom: {} }),
   /** Set to convert this non-installment expense into an installment schedule. */
   installment: installmentParamsSchema.nullable().default(null),
+  /** For a fixed/installment edit: just this row, this + later, or the whole series. */
+  scope: editScopeSchema,
 });
 
 const incomeUpdateSchema = z
@@ -118,6 +127,8 @@ const incomeUpdateSchema = z
     cardId: idSchema.nullable().default(null),
     fromPersonId: idSchema.nullable().default(null),
     fixed: z.boolean().default(false),
+    /** For a fixed-income edit: just this row, or the whole recurring series. */
+    scope: editScopeSchema,
   })
   .refine(incomeDestination, incomeDestinationError);
 

@@ -8,14 +8,21 @@ import { updateTransaction } from "./update-transaction";
 
 interface Captured {
   updateCommand?: UpdateTransactionCommand;
+  updateScope?: "one" | "forward" | "all" | undefined;
   replace?: { originalId: string; command: CreateTransactionCommand };
 }
 
 /** Stub repo recording the update command and any installment replacement. */
 function stubRepo(captured: Captured): FinanceRepository {
   return {
-    updateTransaction: async (_userId: string, command: UpdateTransactionCommand) => {
+    updateTransaction: async (
+      _userId: string,
+      command: UpdateTransactionCommand,
+      scope?: "one" | "forward" | "all",
+    ) => {
       captured.updateCommand = command;
+      captured.updateScope = scope;
+      return 1;
     },
     replaceWithInstallment: async (
       _userId: string,
@@ -46,6 +53,7 @@ describe("updateTransaction use-case", () => {
       fixed: false,
       installment: null,
       split: { method: "equal", meIn: true, selected: ["p1", "p2"], custom: {} },
+      scope: "one",
     });
 
     expect(result.ok).toBe(true);
@@ -76,6 +84,7 @@ describe("updateTransaction use-case", () => {
       fixed: false,
       installment: null,
       split: { method: "equal", meIn: true, selected: [], custom: {} },
+      scope: "one",
     });
 
     expect(result.ok).toBe(false);
@@ -99,6 +108,7 @@ describe("updateTransaction use-case", () => {
       fixed: true,
       installment: null,
       split: { method: "equal", meIn: true, selected: [], custom: {} },
+      scope: "all",
     });
 
     expect(result.ok).toBe(true);
@@ -117,6 +127,7 @@ describe("updateTransaction use-case", () => {
       cardId: null,
       fromPersonId: "p1",
       fixed: false,
+      scope: "one",
     });
 
     expect(result.ok).toBe(true);
@@ -158,6 +169,7 @@ describe("updateTransaction use-case", () => {
       fixed: false,
       installment: { total: 3, current: 1, includePrevious: false, includeNext: true },
       split: { method: "equal", meIn: true, selected: [], custom: {} },
+      scope: "one",
     });
 
     expect(result.ok).toBe(true);
@@ -192,10 +204,35 @@ describe("updateTransaction use-case", () => {
       fixed: false,
       installment: { total: 2, current: 1, includePrevious: false, includeNext: true },
       split: { method: "equal", meIn: true, selected: [], custom: {} },
+      scope: "one",
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("invalid_source");
     expect(captured.replace).toBeUndefined();
+  });
+
+  it("forwards the edit scope to the repository", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(stubRepo(captured), USER, {
+      kind: "expense",
+      id: "tx-1",
+      description: "Mercado",
+      date: "2026-06-10",
+      amountCents: 3000,
+      categoryId: "cat-x",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      linkedAccountId: null,
+      fixed: false,
+      installment: null,
+      split: { method: "equal", meIn: true, selected: [], custom: {} },
+      scope: "all",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toBe(1);
+    expect(captured.updateScope).toBe("all");
   });
 });
