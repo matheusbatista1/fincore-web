@@ -6,14 +6,13 @@ import type { MonthlyItem } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import {
-  MonthFade,
   MonthNavButton,
   MonthNavPending,
   MonthTransition,
 } from "@/presentation/components/shell/month-transition";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
-import { Money } from "@/presentation/components/ui/money";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel } from "@/shared/formatting/dates";
@@ -27,6 +26,8 @@ export function WalletsView({
   items,
   month,
   isCurrent,
+  projectedTotalCents,
+  projectedByAccount,
   prevHref,
   nextHref,
 }: {
@@ -35,6 +36,10 @@ export function WalletsView({
   items: MonthlyItem[];
   month: string;
   isCurrent: boolean;
+  /** Projected total at month-end (after the month's card bills). */
+  projectedTotalCents: number;
+  /** Projected end-of-month balance per account (account movements only). */
+  projectedByAccount: Record<string, number>;
   prevHref: string;
   nextHref: string;
 }) {
@@ -119,9 +124,16 @@ export function WalletsView({
               >
                 <CountMoney cents={total} />
               </div>
-              <div className="row gap-3" style={{ marginTop: 12 }}>
+              <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap" }}>
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   distribuído em {accounts.length} {accounts.length === 1 ? "carteira" : "carteiras"}
+                </span>
+                <span
+                  className="row gap-1"
+                  style={{ color: "var(--text-lo)", fontSize: 13.5 }}
+                  title="Saldo previsto para o fim do mês, após pagar as faturas do mês"
+                >
+                  · fim do mês ~<AnimatedMoney cents={projectedTotalCents} withSign={false} />
                 </span>
               </div>
             </div>
@@ -168,90 +180,90 @@ export function WalletsView({
           </div>
         </div>
 
-        {/* lista de contas — o movimento (entradas/saídas) é do mês navegado */}
-        <MonthFade month={month}>
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h3>Suas carteiras</h3>
-                <div className="ch-sub">
-                  {accounts.length} {accounts.length === 1 ? "conta conectada" : "contas conectadas"} ·
-                  movimento de {monthLabel(month, { long: true })}
-                </div>
+        {/* lista de contas — sem MonthFade: as linhas ficam montadas e os valores animam ao mudar de mês */}
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Suas carteiras</h3>
+              <div className="ch-sub">
+                {accounts.length} {accounts.length === 1 ? "conta conectada" : "contas conectadas"} ·
+                movimento de {monthLabel(month, { long: true })}
               </div>
             </div>
-            <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 10 }}>
-              {sorted.map((a) => {
-                const accent = themeAccent(a.themeKey, a.bank);
-                const fl = flow.get(a.id) ?? { in: 0, out: 0 };
-                return (
-                  <AccountFormDialog
-                    account={a}
-                    key={a.id}
-                    trigger={
-                      <button type="button" className="acct-row">
-                        <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
-                          {a.bank.slice(0, 2).toUpperCase()}
-                        </span>
-                        <div className="acct-info">
-                          <div className="acct-name">
-                            {a.bank}
-                            <span className="type-badge">{a.type}</span>
-                            {a.balanceCents < 0 && (
-                              <span
-                                className="type-badge"
-                                style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
-                              >
-                                Cheque especial
-                              </span>
-                            )}
-                          </div>
-                          <div className="acct-meta">
-                            {a.name} · {a.maskedNumber}
-                          </div>
-                        </div>
-                        <div className="acct-flow">
-                          <span className="af up">
-                            <Icon name="arrow-down-left" size={13} />
-                            {cash(fl.in)}
-                          </span>
-                          <span className="af down">
-                            <Icon name="arrow-up-right" size={13} />
-                            {cash(fl.out)}
-                          </span>
-                        </div>
-                        <div className="acct-bal">
-                          <div
-                            className="ab-val"
-                            style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}
-                          >
-                            <Money cents={a.balanceCents} />
-                          </div>
-                          <div className="ab-pct">
-                            {a.balanceCents < 0
-                              ? "negativada"
-                              : `${Math.round((a.balanceCents / posTotal) * 100)}% do total`}
-                          </div>
-                        </div>
-                        <span className="acct-edit">
-                          <Icon name="pencil" size={16} />
-                        </span>
-                      </button>
-                    }
-                  />
-                );
-              })}
-              <AccountFormDialog
-                trigger={
-                  <button type="button" className="acct-add">
-                    <Icon name="plus" size={18} />
-                    Adicionar carteira
-                  </button>
-                }
-              />
-            </div>
           </div>
-        </MonthFade>
+          <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 10 }}>
+            {sorted.map((a) => {
+              const accent = themeAccent(a.themeKey, a.bank);
+              const fl = flow.get(a.id) ?? { in: 0, out: 0 };
+              return (
+                <AccountFormDialog
+                  account={a}
+                  key={a.id}
+                  trigger={
+                    <button type="button" className="acct-row">
+                      <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
+                        {a.bank.slice(0, 2).toUpperCase()}
+                      </span>
+                      <div className="acct-info">
+                        <div className="acct-name">
+                          {a.bank}
+                          <span className="type-badge">{a.type}</span>
+                          {a.balanceCents < 0 && (
+                            <span
+                              className="type-badge"
+                              style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
+                            >
+                              Cheque especial
+                            </span>
+                          )}
+                        </div>
+                        <div className="acct-meta">
+                          {a.name} · {a.maskedNumber}
+                        </div>
+                      </div>
+                      <div className="acct-flow">
+                        <span className="af up">
+                          <Icon name="arrow-down-left" size={13} />
+                          <AnimatedMoney cents={fl.in} withSign={false} />
+                        </span>
+                        <span className="af down">
+                          <Icon name="arrow-up-right" size={13} />
+                          <AnimatedMoney cents={fl.out} withSign={false} />
+                        </span>
+                      </div>
+                      <div className="acct-bal">
+                        <div
+                          className="ab-val"
+                          style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}
+                        >
+                          <AnimatedMoney cents={a.balanceCents} />
+                        </div>
+                        <div className="ab-pct" title="Saldo previsto para o fim do mês">
+                          fim do mês ~
+                          <AnimatedMoney
+                            cents={projectedByAccount[a.id] ?? a.balanceCents}
+                            withSign={false}
+                          />
+                        </div>
+                      </div>
+                      <span className="acct-edit">
+                        <Icon name="pencil" size={16} />
+                      </span>
+                    </button>
+                  }
+                />
+              );
+            })}
+            <AccountFormDialog
+              trigger={
+                <button type="button" className="acct-add">
+                  <Icon name="plus" size={18} />
+                  Adicionar carteira
+                </button>
+              }
+            />
+          </div>
+        </div>
       </div>
     </MonthTransition>
   );
