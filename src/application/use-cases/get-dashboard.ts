@@ -74,7 +74,7 @@ export async function getDashboard(
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
   // Card charges count in their bill's due month; everything else by its date's month.
-  const competenceOf = billingCompetence(ws.creditCards);
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const general = computeViewTotals(ws.transactions, "general", month, competenceOf);
   const personal = computeViewTotals(ws.transactions, "personal", month, competenceOf);
 

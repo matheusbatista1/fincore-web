@@ -430,6 +430,16 @@ describe("cardBillMonth", () => {
     // Closes 24, due 2. Buy 30/12 → closes 24/01 → due 02/02.
     expect(cardBillMonth("2026-12-30", 24, 2)).toBe("2027-02");
   });
+
+  it("honors a per-bill closing-day override only for that bill", () => {
+    // Closes 24, due 2 (dueOffset +1). The July bill closes early on the 22nd.
+    const overrides = new Map([["2026-07", { closingDay: 22, dueDay: 4 }]]);
+    // A 23/06 charge: default closes 24/06 → bill JULY; override closes 22/06 → rolls to AUGUST.
+    expect(cardBillMonth("2026-06-23", 24, 2)).toBe("2026-07");
+    expect(cardBillMonth("2026-06-23", 24, 2, overrides)).toBe("2026-08");
+    // Other months keep the default (no override for the June bill that closes in May).
+    expect(cardBillMonth("2026-05-23", 24, 2, overrides)).toBe("2026-06");
+  });
 });
 
 describe("billingCompetence", () => {

@@ -44,7 +44,7 @@ export async function getReports(
 ): Promise<ReportsData> {
   const ws = await loadWorkspaceCached(repo, userId);
   // Card charges count in their bill's due month; everything else by its date's month.
-  const competenceOf = billingCompetence(ws.creditCards);
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
 
   const months: MonthBar[] = [];
   for (let i = TRAILING_MONTHS - 1; i >= 0; i--) {

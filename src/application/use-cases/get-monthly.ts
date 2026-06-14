@@ -51,7 +51,7 @@ export async function getMonthly(
   const ws = await loadWorkspaceCached(repo, userId);
   const map = createTransactionMapper(ws);
   // Card charges count in their bill's due month; everything else by its date's month.
-  const competenceOf = billingCompetence(ws.creditCards);
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
 
   const realItems: MonthlyItem[] = real.map((tx) => ({ ...map(tx), projected: false, anchor: null }));

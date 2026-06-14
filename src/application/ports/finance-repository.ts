@@ -1,5 +1,6 @@
 import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
+import type { CardBillDate } from "@/domain/entities/card-bill-date";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
@@ -45,6 +46,8 @@ export interface Workspace {
   readonly settlements: Settlement[];
   readonly budgets: Budget[];
   readonly goals: Goal[];
+  /** Per-bill closing/due-day overrides (one row per card+competence month). */
+  readonly cardBillDates: CardBillDate[];
 }
 
 /** One transaction row to persist (a single tx, or one parcela of an installment). */
@@ -144,6 +147,14 @@ export interface FinanceRepository {
   createCreditCard(userId: string, input: CreditCardInput): Promise<CreditCard>;
   updateCreditCard(userId: string, id: string, input: CreditCardInput): Promise<void>;
   deleteCreditCard(userId: string, id: string): Promise<void>;
+
+  /** Set (upsert) a card's closing/due-day override for one competence month. */
+  upsertCardBillDate(
+    userId: string,
+    input: { cardId: string; month: string; closingDay: number; dueDay: number },
+  ): Promise<void>;
+  /** Remove a card's per-month override, restoring the card's default days for that bill. */
+  deleteCardBillDate(userId: string, cardId: string, month: string): Promise<void>;
 
   createPerson(userId: string, input: PersonInput): Promise<Person>;
   updatePerson(userId: string, id: string, input: PersonInput): Promise<void>;

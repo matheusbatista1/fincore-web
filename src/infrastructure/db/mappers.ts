@@ -4,6 +4,7 @@
  */
 import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
+import type { CardBillDate } from "@/domain/entities/card-bill-date";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
@@ -13,6 +14,7 @@ import type { Transaction, TransactionSplit } from "@/domain/entities/transactio
 import type {
   accounts,
   budgets,
+  cardBillDates,
   categories,
   creditCards,
   goals,
@@ -24,6 +26,7 @@ import type {
 
 type AccountRow = typeof accounts.$inferSelect;
 type CreditCardRow = typeof creditCards.$inferSelect;
+type CardBillDateRow = typeof cardBillDates.$inferSelect;
 type PersonRow = typeof people.$inferSelect;
 type CategoryRow = typeof categories.$inferSelect;
 type TransactionRow = typeof transactions.$inferSelect;
@@ -61,6 +64,15 @@ export function toCreditCard(row: CreditCardRow): CreditCard {
     themeKey: row.themeKey,
     maskedNumber: row.maskedNumber,
     limitCents: row.limitCents,
+    closingDay: row.closingDay,
+    dueDay: row.dueDay,
+  };
+}
+
+export function toCardBillDate(row: CardBillDateRow): CardBillDate {
+  return {
+    cardId: row.cardId,
+    month: row.month,
     closingDay: row.closingDay,
     dueDay: row.dueDay,
   };

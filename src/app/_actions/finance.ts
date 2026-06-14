@@ -10,6 +10,8 @@ import { financeRepository } from "@/infrastructure/composition";
 import {
   accountInputSchema,
   budgetInputSchema,
+  cardBillDateInputSchema,
+  cardBillDateResetSchema,
   categoryInputSchema,
   creditCardInputSchema,
   goalContributionSchema,
@@ -149,6 +151,17 @@ export async function updateCreditCardAction(id: string, raw: unknown): Promise<
 }
 export async function deleteCreditCardAction(id: string): Promise<ActionState> {
   return withUser((u) => financeRepository.deleteCreditCard(u, id));
+}
+
+/** Override a card's closing/due day for one bill (competence month). */
+export async function setCardBillDatesAction(raw: unknown): Promise<ActionState> {
+  return withParsed(cardBillDateInputSchema, raw, (u, i) => financeRepository.upsertCardBillDate(u, i));
+}
+/** Restore a card's default closing/due day for one bill. */
+export async function resetCardBillDatesAction(raw: unknown): Promise<ActionState> {
+  return withParsed(cardBillDateResetSchema, raw, (u, i) =>
+    financeRepository.deleteCardBillDate(u, i.cardId, i.month),
+  );
 }
 
 // --- people ---

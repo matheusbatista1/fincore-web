@@ -1,4 +1,5 @@
 import type { Account } from "@/domain/entities/account";
+import type { CardBillDate } from "@/domain/entities/card-bill-date";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
@@ -19,6 +20,7 @@ export interface WorkspaceView {
   readonly cards: CardView[];
   readonly people: PersonView[];
   readonly categories: Category[];
+  readonly cardBillDates: CardBillDate[];
 }
 
 /** A user's entities enriched with derived balances/bills/ledger — serializable for RSC. */
@@ -43,5 +45,6 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
       balanceCents: (ledger.get(person.id) ?? Money.zero()).cents,
     })),
     categories: ws.categories,
+    cardBillDates: ws.cardBillDates,
   };
 }
