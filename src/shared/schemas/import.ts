@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { centsSchema, idSchema, isoDateSchema } from "./common";
+import { installmentParamsSchema } from "./transaction";
 
 /** One reviewed statement line to import (sign decides expense vs income). */
 export const importEntrySchema = z.object({
@@ -7,6 +8,10 @@ export const importEntrySchema = z.object({
   description: z.string().trim().max(120).default(""),
   amountCents: centsSchema.refine((value) => value !== 0, "Valor não pode ser zero."),
   categoryId: idSchema.nullable().default(null),
+  /** Mark this line as a recurring ("fixed") transaction. */
+  fixed: z.boolean().default(false),
+  /** Card-bill lines only: split this charge into an installment schedule. */
+  installment: installmentParamsSchema.nullable().default(null),
 });
 
 /** Where the reviewed lines land: a wallet (bank statement) or a card (bill). */

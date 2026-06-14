@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { importTransactionsAction } from "@/app/_actions/finance";
 import { Icon } from "@/presentation/components/ui/icon";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
@@ -31,16 +31,31 @@ interface WizardCategory {
 }
 
 type Mode = "account" | "card";
-type Row = ParsedEntry & { id: string; categoryId: string | null };
+type Row = ParsedEntry & {
+  id: string;
+  categoryId: string | null;
+  /** Recurring ("fixed"); mutually exclusive with installment. */
+  fixed: boolean;
+  /** Number of installments (card charges only); null = not an installment. */
+  installmentTotal: number | null;
+  installmentCurrent: number;
+};
 /** How a reviewed row will be imported (drives its color, category cell and inclusion). */
 type RowState = "expense" | "income" | "charge" | "credit";
+
+/** Parse a digits-only field to an int no smaller than `min`. */
+function toIntAtLeast(value: string, min: number): number {
+  const n = Number.parseInt(value.replace(/\D/g, ""), 10);
+  return Number.isFinite(n) && n >= min ? n : min;
+}
 
 /**
  * Import CSV/OFX wizard — bank statement (into a wallet) or card bill (into a
  * card). For a card the purchases are detected by the dominant amount sign
  * (OFX files carry them negative, CSV positive); the minority sign is a
  * credit/refund, which can't be represented as a card transaction and is
- * excluded. Prototype visual language (.card/.field/.input/.tbl/.btn).
+ * excluded. Each line's description, category and fixed/installment options are
+ * editable before importing. Prototype visual language (.card/.field/.input/.tbl/.btn).
  */
 export function ImportWizard({
   accounts,
@@ -57,6 +72,7 @@ export function ImportWizard({
   const [fileName, setFileName] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [cardId, setCardId] = useState(cards[0]?.id ?? "");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [importedCount, setImportedCount] = useState<number | null>(null);
@@ -85,16 +101,31 @@ export function ImportWizard({
       return;
     }
     setFileName(file.name);
-    setRows(parsed.map((entry, index) => ({ ...entry, id: String(index), categoryId: null })));
+    setRows(
+      parsed.map((entry, index) => ({
+        ...entry,
+        id: String(index),
+        categoryId: null,
+        fixed: false,
+        installmentTotal: null,
+        installmentCurrent: 1,
+      })),
+    );
   }
 
-  function setRowCategory(id: string, categoryId: string | null) {
-    setRows((current) => current.map((row) => (row.id === id ? { ...row, categoryId } : row)));
+  function patchRow(id: string, patch: Partial<Row>) {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
-
-  function removeRow(id: string) {
-    setRows((current) => current.filter((row) => row.id !== id));
-  }
+  const setRowDescription = (id: string, description: string) => patchRow(id, { description });
+  const setRowCategory = (id: string, categoryId: string | null) => patchRow(id, { categoryId });
+  // Fixed and installment are mutually exclusive (mirrors the manual form).
+  const setRowFixed = (id: string, fixed: boolean) =>
+    patchRow(id, fixed ? { fixed: true, installmentTotal: null } : { fixed: false });
+  const setRowInstallment = (id: string, total: number | null) =>
+    patchRow(id, total === null ? { installmentTotal: null } : { installmentTotal: total, fixed: false });
+  const setRowInstallmentCurrent = (id: string, current: number) =>
+    patchRow(id, { installmentCurrent: current });
+  const removeRow = (id: string) => setRows((current) => current.filter((row) => row.id !== id));
 
   async function confirm() {
     if (!canImport) return;
@@ -106,6 +137,17 @@ export function ImportWizard({
       amountCents: row.amountCents,
       // A category only applies to expense-like rows (account debits / card charges).
       categoryId: mode === "card" || row.amountCents < 0 ? row.categoryId : null,
+      fixed: row.fixed,
+      // Installments are only meaningful on a card bill.
+      installment:
+        mode === "card" && row.installmentTotal !== null && row.installmentTotal >= 2
+          ? {
+              total: row.installmentTotal,
+              current: Math.min(row.installmentCurrent, row.installmentTotal),
+              includePrevious: false,
+              includeNext: true,
+            }
+          : null,
     }));
     const result = await importTransactionsAction({
       target: mode === "card" ? { type: "card", cardId } : { type: "account", accountId },
@@ -305,7 +347,13 @@ export function ImportWizard({
                   row={row}
                   state={rowState(row)}
                   categories={categories}
+                  expanded={expandedId === row.id}
+                  onToggleExpand={() => setExpandedId(expandedId === row.id ? null : row.id)}
+                  onDescription={setRowDescription}
                   onCategory={setRowCategory}
+                  onFixed={setRowFixed}
+                  onInstallment={setRowInstallment}
+                  onInstallmentCurrent={setRowInstallmentCurrent}
                   onRemove={removeRow}
                 />
               ))}
@@ -320,6 +368,7 @@ export function ImportWizard({
                       <th>Descrição</th>
                       <th className="r">Valor</th>
                       <th>Categoria</th>
+                      <th aria-label="Opções" />
                       <th aria-label="Remover" />
                     </tr>
                   </thead>
@@ -328,40 +377,81 @@ export function ImportWizard({
                       const state = rowState(row);
                       const expenseLike = state === "expense" || state === "charge";
                       const credit = state === "credit";
+                      const expanded = expandedId === row.id;
                       return (
-                        <tr key={row.id} style={{ opacity: credit ? 0.55 : 1 }}>
-                          <td className="tnum" style={{ color: "var(--text-lo)", whiteSpace: "nowrap" }}>
-                            {row.date}
-                          </td>
-                          <td>
-                            <span className="t-strong">{row.description}</span>
-                          </td>
-                          <td className="r">
-                            <span className="tnum t-strong" style={{ color: amountColor(state) }}>
-                              {formatBRL(row.amountCents)}
-                            </span>
-                          </td>
-                          <td>
-                            {credit ? (
-                              <span className="pill neutral">Crédito</span>
-                            ) : expenseLike ? (
-                              <CategorySelect row={row} categories={categories} onCategory={setRowCategory} />
-                            ) : (
-                              <span className="pill mint">Receita</span>
-                            )}
-                          </td>
-                          <td className="r">
-                            <button
-                              type="button"
-                              className="icon-btn btn-sm"
-                              style={{ width: 32, height: 32 }}
-                              title="Remover"
-                              onClick={() => removeRow(row.id)}
-                            >
-                              <Icon name="x" size={15} />
-                            </button>
-                          </td>
-                        </tr>
+                        <Fragment key={row.id}>
+                          <tr style={{ opacity: credit ? 0.55 : 1 }}>
+                            <td className="tnum" style={{ color: "var(--text-lo)", whiteSpace: "nowrap" }}>
+                              {row.date}
+                            </td>
+                            <td style={{ minWidth: 200 }}>
+                              <input
+                                className="input"
+                                aria-label="Descrição"
+                                style={{ height: 34, fontSize: 13.5 }}
+                                value={row.description}
+                                onChange={(e) => setRowDescription(row.id, e.target.value)}
+                              />
+                            </td>
+                            <td className="r">
+                              <span className="tnum t-strong" style={{ color: amountColor(state) }}>
+                                {formatBRL(row.amountCents)}
+                              </span>
+                            </td>
+                            <td>
+                              {credit ? (
+                                <span className="pill neutral">Crédito</span>
+                              ) : expenseLike ? (
+                                <CategorySelect
+                                  row={row}
+                                  categories={categories}
+                                  onCategory={setRowCategory}
+                                />
+                              ) : (
+                                <span className="pill mint">Receita</span>
+                              )}
+                            </td>
+                            <td>
+                              {!credit && (
+                                <button
+                                  type="button"
+                                  className={`btn btn-ghost btn-sm${expanded ? " on" : ""}`}
+                                  onClick={() => setExpandedId(expanded ? null : row.id)}
+                                >
+                                  <Icon name={expanded ? "chevron-up" : "sliders-horizontal"} size={14} />
+                                  {rowSummary(row)}
+                                </button>
+                              )}
+                            </td>
+                            <td className="r">
+                              <button
+                                type="button"
+                                className="icon-btn btn-sm"
+                                style={{ width: 32, height: 32 }}
+                                title="Remover"
+                                onClick={() => removeRow(row.id)}
+                              >
+                                <Icon name="x" size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded && !credit && (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                style={{ background: "var(--surface-2)", padding: "10px 14px" }}
+                              >
+                                <RowOptions
+                                  row={row}
+                                  canInstallment={state === "charge"}
+                                  onFixed={setRowFixed}
+                                  onInstallment={setRowInstallment}
+                                  onInstallmentCurrent={setRowInstallmentCurrent}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -398,6 +488,13 @@ function amountColor(state: RowState): string {
   return "var(--text-lo)";
 }
 
+/** Short label for the per-row options button (reflects the current choice). */
+function rowSummary(row: Row): string {
+  if (row.fixed) return "Fixo";
+  if (row.installmentTotal !== null) return `${row.installmentTotal}×`;
+  return "Opções";
+}
+
 /** Category dropdown for an importable expense/charge row. */
 function CategorySelect({
   row,
@@ -426,18 +523,89 @@ function CategorySelect({
   );
 }
 
+/** Per-row "fixed" / "installment" controls (shared by desktop and mobile). */
+function RowOptions({
+  row,
+  canInstallment,
+  onFixed,
+  onInstallment,
+  onInstallmentCurrent,
+}: {
+  row: Row;
+  canInstallment: boolean;
+  onFixed: (id: string, fixed: boolean) => void;
+  onInstallment: (id: string, total: number | null) => void;
+  onInstallmentCurrent: (id: string, current: number) => void;
+}) {
+  return (
+    <div className="row gap-2" style={{ flexWrap: "wrap", alignItems: "center" }}>
+      <button
+        type="button"
+        className={`person-chip${row.fixed ? " on" : ""}`}
+        onClick={() => onFixed(row.id, !row.fixed)}
+      >
+        <Icon name="repeat" size={14} />
+        Fixo (todo mês)
+      </button>
+      {canInstallment && (
+        <button
+          type="button"
+          className={`person-chip${row.installmentTotal !== null ? " on" : ""}`}
+          onClick={() => onInstallment(row.id, row.installmentTotal !== null ? null : 2)}
+        >
+          <Icon name="layers" size={14} />
+          Parcelado
+        </button>
+      )}
+      {canInstallment && row.installmentTotal !== null && (
+        <span className="row gap-2" style={{ alignItems: "center", color: "var(--text-lo)", fontSize: 13 }}>
+          <input
+            className="input tnum"
+            aria-label="Total de parcelas"
+            inputMode="numeric"
+            style={{ width: 58, height: 34 }}
+            value={String(row.installmentTotal)}
+            onChange={(e) => onInstallment(row.id, toIntAtLeast(e.target.value, 2))}
+          />
+          parcelas, atual
+          <input
+            className="input tnum"
+            aria-label="Parcela atual"
+            inputMode="numeric"
+            style={{ width: 54, height: 34 }}
+            value={String(row.installmentCurrent)}
+            onChange={(e) => onInstallmentCurrent(row.id, toIntAtLeast(e.target.value, 1))}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Stacked row for the mobile preview (the desktop table overflows on narrow screens). */
 function ImportRowMobile({
   row,
   state,
   categories,
+  expanded,
+  onToggleExpand,
+  onDescription,
   onCategory,
+  onFixed,
+  onInstallment,
+  onInstallmentCurrent,
   onRemove,
 }: {
   row: Row;
   state: RowState;
   categories: WizardCategory[];
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onDescription: (id: string, description: string) => void;
   onCategory: (id: string, categoryId: string | null) => void;
+  onFixed: (id: string, fixed: boolean) => void;
+  onInstallment: (id: string, total: number | null) => void;
+  onInstallmentCurrent: (id: string, current: number) => void;
   onRemove: (id: string) => void;
 }) {
   const expenseLike = state === "expense" || state === "charge";
@@ -455,10 +623,20 @@ function ImportRowMobile({
     >
       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="t-strong" style={{ overflowWrap: "anywhere" }}>
-            {row.description}
-          </div>
-          <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 2 }}>{row.date}</div>
+          {credit ? (
+            <div className="t-strong" style={{ overflowWrap: "anywhere" }}>
+              {row.description}
+            </div>
+          ) : (
+            <input
+              className="input"
+              aria-label="Descrição"
+              style={{ height: 34, fontSize: 13.5 }}
+              value={row.description}
+              onChange={(e) => onDescription(row.id, e.target.value)}
+            />
+          )}
+          <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 4 }}>{row.date}</div>
         </div>
         <span className="tnum t-strong" style={{ color: amountColor(state), whiteSpace: "nowrap" }}>
           {formatBRL(row.amountCents)}
@@ -476,9 +654,28 @@ function ImportRowMobile({
       {credit ? (
         <span className="pill neutral">Crédito — não importado</span>
       ) : expenseLike ? (
-        <CategorySelect row={row} categories={categories} onCategory={onCategory} />
+        <div className="row gap-2" style={{ flexWrap: "wrap", alignItems: "center" }}>
+          <CategorySelect row={row} categories={categories} onCategory={onCategory} />
+          <button
+            type="button"
+            className={`btn btn-ghost btn-sm${expanded ? " on" : ""}`}
+            onClick={onToggleExpand}
+          >
+            <Icon name={expanded ? "chevron-up" : "sliders-horizontal"} size={14} />
+            {rowSummary(row)}
+          </button>
+        </div>
       ) : (
         <span className="pill mint">Receita</span>
+      )}
+      {expanded && !credit && (
+        <RowOptions
+          row={row}
+          canInstallment={state === "charge"}
+          onFixed={onFixed}
+          onInstallment={onInstallment}
+          onInstallmentCurrent={onInstallmentCurrent}
+        />
       )}
     </div>
   );
