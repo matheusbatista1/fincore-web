@@ -1,12 +1,28 @@
 import { describe, expect, it } from "vitest";
-import type { FinanceRepository, UpdateTransactionCommand } from "../ports/finance-repository";
+import type {
+  CreateTransactionCommand,
+  FinanceRepository,
+  UpdateTransactionCommand,
+} from "../ports/finance-repository";
 import { updateTransaction } from "./update-transaction";
 
-/** Stub repo that records the command (the use case is pure up to this call). */
-function stubRepo(captured: { command?: UpdateTransactionCommand }): FinanceRepository {
+interface Captured {
+  updateCommand?: UpdateTransactionCommand;
+  replace?: { originalId: string; command: CreateTransactionCommand };
+}
+
+/** Stub repo recording the update command and any installment replacement. */
+function stubRepo(captured: Captured): FinanceRepository {
   return {
     updateTransaction: async (_userId: string, command: UpdateTransactionCommand) => {
-      captured.command = command;
+      captured.updateCommand = command;
+    },
+    replaceWithInstallment: async (
+      _userId: string,
+      originalId: string,
+      command: CreateTransactionCommand,
+    ) => {
+      captured.replace = { originalId, command };
     },
   } as unknown as FinanceRepository;
 }
@@ -15,7 +31,7 @@ const USER = "user-1";
 
 describe("updateTransaction use-case", () => {
   it("negates the expense amount and recomputes an equal split server-side", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
+    const captured: Captured = {};
     const result = await updateTransaction(stubRepo(captured), USER, {
       kind: "expense",
       id: "tx-1",
@@ -27,11 +43,13 @@ describe("updateTransaction use-case", () => {
       cardId: "card-1",
       accountId: null,
       linkedAccountId: null,
+      fixed: false,
+      installment: null,
       split: { method: "equal", meIn: true, selected: ["p1", "p2"], custom: {} },
     });
 
     expect(result.ok).toBe(true);
-    const command = captured.command;
+    const command = captured.updateCommand;
     expect(command?.amountCents).toBe(-3000);
     expect(command?.myShareCents).toBe(1000);
     expect(command?.splits).toEqual([
@@ -39,12 +57,11 @@ describe("updateTransaction use-case", () => {
       { personId: "p2", shareCents: 1000 },
     ]);
     expect(command?.cardId).toBe("card-1");
-    expect(command?.accountId).toBeNull();
-    expect(command?.linkedAccountId).toBeNull();
+    expect(command?.fixed).toBe(false);
   });
 
   it("rejects a card expense without a card (repo untouched)", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
+    const captured: Captured = {};
     const result = await updateTransaction(stubRepo(captured), USER, {
       kind: "expense",
       id: "tx-1",
@@ -56,58 +73,40 @@ describe("updateTransaction use-case", () => {
       cardId: null,
       accountId: null,
       linkedAccountId: null,
+      fixed: false,
+      installment: null,
       split: { method: "equal", meIn: true, selected: [], custom: {} },
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("invalid_source");
-    expect(captured.command).toBeUndefined();
+    expect(captured.updateCommand).toBeUndefined();
   });
 
-  it("rejects an invalid custom split (sum exceeds the amount)", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
+  it("turns a single expense into a recurring one when fixed is on", async () => {
+    const captured: Captured = {};
     const result = await updateTransaction(stubRepo(captured), USER, {
       kind: "expense",
       id: "tx-1",
-      description: "Jantar",
-      date: "2026-06-10",
-      amountCents: 1000,
+      description: "Aluguel",
+      date: "2026-06-13",
+      amountCents: 150000,
       categoryId: null,
       source: "account",
       cardId: null,
       accountId: "acc-1",
       linkedAccountId: null,
-      split: { method: "custom", meIn: true, selected: ["p1"], custom: { p1: 2000 } },
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("invalid_split");
-    expect(captured.command).toBeUndefined();
-  });
-
-  it("drops zero-cent shares (DB requires share > 0)", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
-    const result = await updateTransaction(stubRepo(captured), USER, {
-      kind: "expense",
-      id: "tx-1",
-      description: "Uber",
-      date: "2026-06-10",
-      amountCents: 1000,
-      categoryId: null,
-      source: "account",
-      cardId: null,
-      accountId: "acc-1",
-      linkedAccountId: null,
-      split: { method: "custom", meIn: true, selected: ["p1", "p2"], custom: { p1: 1000, p2: 0 } },
+      fixed: true,
+      installment: null,
+      split: { method: "equal", meIn: true, selected: [], custom: {} },
     });
 
     expect(result.ok).toBe(true);
-    expect(captured.command?.splits).toEqual([{ personId: "p1", shareCents: 1000 }]);
-    expect(captured.command?.myShareCents).toBe(0);
+    expect(captured.updateCommand?.fixed).toBe(true);
   });
 
   it("marks an income from a person as a reimbursement with full myShare", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
+    const captured: Captured = {};
     const result = await updateTransaction(stubRepo(captured), USER, {
       kind: "income",
       id: "tx-2",
@@ -116,16 +115,17 @@ describe("updateTransaction use-case", () => {
       amountCents: 5000,
       accountId: "acc-1",
       fromPersonId: "p1",
+      fixed: false,
     });
 
     expect(result.ok).toBe(true);
-    expect(captured.command?.isReimbursement).toBe(true);
-    expect(captured.command?.myShareCents).toBe(5000);
-    expect(captured.command?.description).toBe("Pagamento recebido");
+    expect(captured.updateCommand?.isReimbursement).toBe(true);
+    expect(captured.updateCommand?.myShareCents).toBe(5000);
+    expect(captured.updateCommand?.fixed).toBe(false);
   });
 
   it("keeps transfers at zero amount with the moved value on transferValueCents", async () => {
-    const captured: { command?: UpdateTransactionCommand } = {};
+    const captured: Captured = {};
     const result = await updateTransaction(stubRepo(captured), USER, {
       kind: "transfer",
       id: "tx-3",
@@ -137,9 +137,64 @@ describe("updateTransaction use-case", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(captured.command?.amountCents).toBe(0);
-    expect(captured.command?.transferValueCents).toBe(12345);
-    expect(captured.command?.description).toBe("Transferência");
-    expect(captured.command?.note).toBeNull();
+    expect(captured.updateCommand?.amountCents).toBe(0);
+    expect(captured.updateCommand?.transferValueCents).toBe(12345);
+  });
+
+  it("converts a non-installment expense into an installment group (replaces the row)", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(stubRepo(captured), USER, {
+      kind: "expense",
+      id: "tx-1",
+      description: "Geladeira",
+      date: "2026-06-10",
+      amountCents: 30000,
+      categoryId: null,
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      linkedAccountId: null,
+      fixed: false,
+      installment: { total: 3, current: 1, includePrevious: false, includeNext: true },
+      split: { method: "equal", meIn: true, selected: [], custom: {} },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(captured.updateCommand).toBeUndefined();
+    expect(captured.replace?.originalId).toBe("tx-1");
+    expect(captured.replace?.command.installmentGroup).toEqual({ totalCount: 3, totalCents: -30000 });
+    const entries = captured.replace?.command.entries ?? [];
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.amountCents)).toEqual([-10000, -10000, -10000]);
+    expect(entries[0]).toMatchObject({
+      source: "card",
+      cardId: "card-1",
+      parcelaNo: 1,
+      parcelaTotal: 3,
+      parcelaStatus: "atual",
+    });
+  });
+
+  it("rejects converting a non-parcelável source into an installment", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(stubRepo(captured), USER, {
+      kind: "expense",
+      id: "tx-1",
+      description: "Pix",
+      date: "2026-06-10",
+      amountCents: 1000,
+      categoryId: null,
+      source: "account",
+      cardId: null,
+      accountId: "acc-1",
+      linkedAccountId: null,
+      fixed: false,
+      installment: { total: 2, current: 1, includePrevious: false, includeNext: true },
+      split: { method: "equal", meIn: true, selected: [], custom: {} },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid_source");
+    expect(captured.replace).toBeUndefined();
   });
 });

@@ -387,37 +387,58 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  /** Insert a create command (optional installment group + entries + splits) within a tx. */
+  private async insertCommand(
+    tx: RlsTransaction,
+    userId: string,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    let groupId: string | null = null;
+    if (command.installmentGroup) {
+      const group = one(
+        await tx
+          .insert(schema.installmentGroups)
+          .values({ userId, ...command.installmentGroup })
+          .returning({ id: schema.installmentGroups.id }),
+      );
+      groupId = group.id;
+    }
+
+    const inserted = await tx
+      .insert(schema.transactions)
+      .values(command.entries.map((entry) => toTransactionValues(userId, entry, groupId)))
+      .returning({ id: schema.transactions.id });
+
+    const splitValues = command.entries.flatMap((entry, index) => {
+      const transactionId = inserted[index]?.id;
+      if (transactionId === undefined || !entry.splits) return [];
+      return entry.splits.map((split) => ({
+        userId,
+        transactionId,
+        personId: split.personId,
+        shareCents: split.shareCents,
+      }));
+    });
+    if (splitValues.length > 0) {
+      await tx.insert(schema.transactionSplits).values(splitValues);
+    }
+  }
+
   async createTransaction(userId: string, command: CreateTransactionCommand): Promise<void> {
+    await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+  }
+
+  async replaceWithInstallment(
+    userId: string,
+    originalId: string,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
     await this.run(userId, async (tx) => {
-      let groupId: string | null = null;
-      if (command.installmentGroup) {
-        const group = one(
-          await tx
-            .insert(schema.installmentGroups)
-            .values({ userId, ...command.installmentGroup })
-            .returning({ id: schema.installmentGroups.id }),
-        );
-        groupId = group.id;
-      }
-
-      const inserted = await tx
-        .insert(schema.transactions)
-        .values(command.entries.map((entry) => toTransactionValues(userId, entry, groupId)))
-        .returning({ id: schema.transactions.id });
-
-      const splitValues = command.entries.flatMap((entry, index) => {
-        const transactionId = inserted[index]?.id;
-        if (transactionId === undefined || !entry.splits) return [];
-        return entry.splits.map((split) => ({
-          userId,
-          transactionId,
-          personId: split.personId,
-          shareCents: split.shareCents,
-        }));
-      });
-      if (splitValues.length > 0) {
-        await tx.insert(schema.transactionSplits).values(splitValues);
-      }
+      await tx
+        .update(schema.transactions)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.transactions.id, originalId));
+      await this.insertCommand(tx, userId, command);
     });
   }
 
@@ -425,10 +446,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     await this.run(userId, async (tx) => {
       const existing = one(
         await tx
-          .select({
-            kind: schema.transactions.kind,
-            recurrenceDayOfMonth: schema.transactions.recurrenceDayOfMonth,
-          })
+          .select({ kind: schema.transactions.kind })
           .from(schema.transactions)
           .where(and(eq(schema.transactions.id, command.id), isNull(schema.transactions.deletedAt))),
       );
@@ -454,9 +472,8 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           transferFromAccountId: command.transferFromAccountId ?? null,
           transferToAccountId: command.transferToAccountId ?? null,
           transferValueCents: command.transferValueCents ?? null,
-          // A fixed transaction stays fixed, re-anchored to the new date's day.
-          recurrenceDayOfMonth:
-            existing.recurrenceDayOfMonth === null ? null : Number.parseInt(command.date.slice(8, 10), 10),
+          // `fixed` toggles recurrence on/off, anchored to the (possibly new) date's day.
+          recurrenceDayOfMonth: command.fixed ? Number.parseInt(command.date.slice(8, 10), 10) : null,
           updatedAt: new Date(),
         })
         .where(eq(schema.transactions.id, command.id));
