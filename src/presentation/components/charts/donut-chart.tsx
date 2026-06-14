@@ -1,4 +1,5 @@
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
+import { AnimatedNumber } from "@/presentation/components/ui/animated-number";
 
 interface DonutSlice {
   readonly id: string;
@@ -57,7 +58,11 @@ export function DonutChart({ slices, totalCents }: { slices: DonutSlice[]; total
           <div className="cl" key={slice.id}>
             <span className="dot" style={{ background: slice.color }} />
             <span className="nm">{slice.name}</span>
-            <span className="pc">{Math.round((slice.valueCents / total) * 100)}%</span>
+            <AnimatedNumber
+              className="pc"
+              value={Math.round((slice.valueCents / total) * 100)}
+              format={(n) => `${n}%`}
+            />
           </div>
         ))}
       </div>
