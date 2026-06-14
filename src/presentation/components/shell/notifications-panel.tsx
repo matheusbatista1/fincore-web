@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/presentation/components/ui/icon";
 import { useNotificationsStore } from "@/presentation/stores/notifications-store";
 import type { NotifItem } from "./notifications";
@@ -22,7 +23,11 @@ export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onC
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  // Portal to <body>: the header has `backdrop-filter`, which would otherwise make it
+  // the containing block for this `position: fixed` scrim and clamp it to the topbar.
+  return createPortal(
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-close, 1:1 with the prototype (Escape also closes).
     <div className="popover-scrim" onClick={onClose} onKeyDown={(e) => e.key === "Escape" && onClose()}>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: stops scrim close inside the panel. */}
@@ -74,6 +79,7 @@ export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onC
           Marcar todas como lidas
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
