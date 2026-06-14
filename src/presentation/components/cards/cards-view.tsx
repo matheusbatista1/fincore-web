@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { CardView } from "@/application/use-cases/get-workspace-view";
-import { addMonths, monthOf } from "@/domain/value-objects/competence-month";
+import { cardBillMonth } from "@/domain/services/card-bill.calculator";
+import { addMonths } from "@/domain/value-objects/competence-month";
 import { CreditCardFormDialog } from "@/presentation/components/forms/credit-card-form-dialog";
 import { CreditCardWidget } from "@/presentation/components/ui/credit-card-widget";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -38,12 +39,21 @@ export function CardsView({
   const toast = useUIStore((s) => s.toast);
   const [sel, setSel] = useState<string | undefined>(cards[0]?.id);
   const card = cards.find((c) => c.id === sel) ?? cards[0];
-  const [fatKey, setFatKey] = useState(currentMonth);
+  // Navigate whole bills relative to the selected card's currently-open one, so a
+  // charge lands in the cycle decided by the card's closing/due days, not its date's month.
+  const [offset, setOffset] = useState(0);
+  const currentBillMonth = card ? cardBillMonth(today, card.closingDay, card.dueDay) : currentMonth;
+  const fatKey = addMonths(currentBillMonth, offset);
 
   const compras = useMemo(
     () =>
       card
-        ? transactions.filter((t) => t.cardId === card.id && t.amountCents < 0 && monthOf(t.date) === fatKey)
+        ? transactions.filter(
+            (t) =>
+              t.cardId === card.id &&
+              t.amountCents < 0 &&
+              cardBillMonth(t.date, card.closingDay, card.dueDay) === fatKey,
+          )
         : [],
     [transactions, fatKey, card],
   );
@@ -105,7 +115,7 @@ export function CardsView({
   const pct = card.limitCents > 0 ? Math.round((used / card.limitCents) * 100) : 0;
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
   const faturaMes = compras.reduce((s, t) => s + Math.abs(t.amountCents), 0);
-  const isFatAtual = fatKey === currentMonth;
+  const isFatAtual = offset === 0;
 
   return (
     <div className="cards-page">
@@ -275,8 +285,8 @@ export function CardsView({
                   type="button"
                   className="icon-btn btn-sm"
                   style={{ width: 34, height: 34 }}
-                  onClick={() => setFatKey(addMonths(fatKey, -1))}
-                  title="Mês anterior"
+                  onClick={() => setOffset((o) => o - 1)}
+                  title="Fatura anterior"
                 >
                   <Icon name="chevron-left" size={17} />
                 </button>
@@ -291,8 +301,8 @@ export function CardsView({
                   type="button"
                   className="icon-btn btn-sm"
                   style={{ width: 34, height: 34 }}
-                  onClick={() => setFatKey(addMonths(fatKey, 1))}
-                  title="Próximo mês"
+                  onClick={() => setOffset((o) => o + 1)}
+                  title="Próxima fatura"
                 >
                   <Icon name="chevron-right" size={17} />
                 </button>

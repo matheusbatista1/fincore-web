@@ -22,6 +22,27 @@ import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, Transaction } from "../entities/transaction";
 import { isExpense } from "../entities/transaction";
 import { Money } from "../money/money";
+import {
+  addMonths,
+  type CompetenceMonth,
+  dayOf,
+  type IsoDate,
+  monthOf,
+} from "../value-objects/competence-month";
+
+/**
+ * The competence month of the bill (fatura) a card charge falls into, labelled
+ * by its **due** month. A charge made after the closing day rolls into the next
+ * cycle; the bill is then due in the closing month, or the month after when the
+ * due day precedes the closing day (the common BR case, e.g. closes 24, due 2).
+ *
+ * Example: closes 24, due 2 — a charge on 2026-05-26 closes 2026-06-24 and is
+ * due 2026-07-02, so it belongs to the `2026-07` bill.
+ */
+export function cardBillMonth(date: IsoDate, closingDay: number, dueDay: number): CompetenceMonth {
+  const closeMonth = addMonths(monthOf(date), dayOf(date) > closingDay ? 1 : 0);
+  return addMonths(closeMonth, dueDay <= closingDay ? 1 : 0);
+}
 
 /**
  * Does this expense count toward the current bill of `cardId`?
