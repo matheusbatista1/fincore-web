@@ -133,7 +133,6 @@ export function CardsView({
   const pct = card.limitCents > 0 ? Math.round((used / card.limitCents) * 100) : 0;
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
   const faturaMes = compras.reduce((s, t) => s + Math.abs(t.amountCents), 0);
-  const isFatAtual = offset === 0;
   // Effective closing/due day for the bill being viewed (override for this month or the card default).
   const billOverride = overrides?.get(fatKey);
   const effClosingDay = billOverride?.closingDay ?? card.closingDay;
