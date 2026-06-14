@@ -111,6 +111,31 @@ export const creditCards = pgTable(
   ],
 );
 
+/** Per-bill (per competence month) override of a card's closing/due day. */
+export const cardBillDates = pgTable(
+  "card_bill_dates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => creditCards.id, { onDelete: "cascade" }),
+    /** The bill's competence month, `YYYY-MM`. */
+    month: text("month").notNull(),
+    closingDay: smallint("closing_day").notNull(),
+    dueDay: smallint("due_day").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("uq_card_bill_dates_card_month").on(t.cardId, t.month),
+    check("chk_cbd_closing_day", sql`closing_day BETWEEN 1 AND 31`),
+    check("chk_cbd_due_day", sql`due_day BETWEEN 1 AND 31`),
+    ownerPolicy("card_bill_dates_owner"),
+  ],
+);
+
 export const people = pgTable(
   "people",
   {

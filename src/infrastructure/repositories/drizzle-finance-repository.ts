@@ -27,6 +27,7 @@ import type { Database } from "../db/client";
 import {
   toAccount,
   toBudget,
+  toCardBillDate,
   toCategory,
   toCreditCard,
   toGoal,
@@ -178,6 +179,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         settlementRows,
         budgetRows,
         goalRows,
+        cardBillDateRows,
       ] = await Promise.all([
         tx.select().from(schema.accounts).where(isNull(schema.accounts.deletedAt)),
         tx.select().from(schema.creditCards).where(isNull(schema.creditCards.deletedAt)),
@@ -188,6 +190,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         tx.select().from(schema.settlements),
         tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt)),
         tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt)),
+        tx.select().from(schema.cardBillDates),
       ]);
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
@@ -206,6 +209,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         settlements: settlementRows.map(toSettlement),
         budgets: budgetRows.map(toBudget),
         goals: goalRows.map(toGoal),
+        cardBillDates: cardBillDateRows.map(toCardBillDate),
       };
     });
   }
@@ -263,6 +267,29 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   async deleteCreditCard(userId: string, id: string): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.update(schema.creditCards).set({ deletedAt: new Date() }).where(eq(schema.creditCards.id, id));
+    });
+  }
+
+  async upsertCardBillDate(
+    userId: string,
+    input: { cardId: string; month: string; closingDay: number; dueDay: number },
+  ): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .insert(schema.cardBillDates)
+        .values({ userId, ...input })
+        .onConflictDoUpdate({
+          target: [schema.cardBillDates.cardId, schema.cardBillDates.month],
+          set: { closingDay: input.closingDay, dueDay: input.dueDay, updatedAt: new Date() },
+        });
+    });
+  }
+
+  async deleteCardBillDate(userId: string, cardId: string, month: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .delete(schema.cardBillDates)
+        .where(and(eq(schema.cardBillDates.cardId, cardId), eq(schema.cardBillDates.month, month)));
     });
   }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { centsSchema, dayOfMonthSchema, idSchema } from "./common";
+import { centsSchema, competenceMonthSchema, dayOfMonthSchema, idSchema } from "./common";
 
 export const accountInputSchema = z.object({
   bank: z.string().trim().min(1, "Informe o banco.").max(60),
@@ -22,6 +22,21 @@ export const creditCardInputSchema = z.object({
   dueDay: dayOfMonthSchema,
 });
 export type CreditCardInput = z.infer<typeof creditCardInputSchema>;
+
+/** Override a card's closing/due day for a single bill (competence month). */
+export const cardBillDateInputSchema = z.object({
+  cardId: idSchema,
+  month: competenceMonthSchema,
+  closingDay: dayOfMonthSchema,
+  dueDay: dayOfMonthSchema,
+});
+export type CardBillDateInput = z.infer<typeof cardBillDateInputSchema>;
+
+/** Clear a card's per-month override (restore the default days for that bill). */
+export const cardBillDateResetSchema = z.object({
+  cardId: idSchema,
+  month: competenceMonthSchema,
+});
 
 export const personInputSchema = z.object({
   name: z.string().trim().min(1, "Informe um nome.").max(80),

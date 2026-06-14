@@ -11,7 +11,7 @@ export default async function CardsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [{ cards }, transactions, profile] = await Promise.all([
+  const [{ cards, cardBillDates }, transactions, profile] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
     financeRepository.getProfile(user.id),
@@ -22,6 +22,7 @@ export default async function CardsPage() {
     <CardsView
       cards={cards}
       transactions={transactions}
+      cardBillDates={cardBillDates}
       today={todayInBrazil()}
       currentMonth={currentMonthInBrazil()}
       holderName={holderName}

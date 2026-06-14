@@ -13,3 +13,8 @@ export const isoDateSchema = z
 
 /** Day of month for recurrence / billing (1–31). */
 export const dayOfMonthSchema = z.number().int().min(1).max(31);
+
+/** Competence month `YYYY-MM`. */
+export const competenceMonthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mês inválido (use AAAA-MM).");

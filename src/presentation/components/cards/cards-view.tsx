@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { CardView } from "@/application/use-cases/get-workspace-view";
-import { cardBillMonth } from "@/domain/services/card-bill.calculator";
+import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import { cardBillMonth, cardBillOverridesByCard } from "@/domain/services/card-bill.calculator";
 import { addMonths } from "@/domain/value-objects/competence-month";
+import { CardBillDatesDialog } from "@/presentation/components/cards/card-bill-dates-dialog";
 import { CreditCardFormDialog } from "@/presentation/components/forms/credit-card-form-dialog";
 import { CreditCardWidget } from "@/presentation/components/ui/credit-card-widget";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -26,12 +28,14 @@ interface ActiveInstallment {
 export function CardsView({
   cards,
   transactions,
+  cardBillDates,
   today,
   currentMonth,
   holderName,
 }: {
   cards: CardView[];
   transactions: TransactionListItem[];
+  cardBillDates: CardBillDate[];
   today: string;
   currentMonth: string;
   holderName: string;
@@ -39,10 +43,15 @@ export function CardsView({
   const toast = useUIStore((s) => s.toast);
   const [sel, setSel] = useState<string | undefined>(cards[0]?.id);
   const card = cards.find((c) => c.id === sel) ?? cards[0];
+  // Per-bill closing/due overrides for the selected card (month → days).
+  const overridesByCard = useMemo(() => cardBillOverridesByCard(cardBillDates), [cardBillDates]);
+  const overrides = card ? overridesByCard.get(card.id) : undefined;
   // Navigate whole bills relative to the selected card's currently-open one, so a
   // charge lands in the cycle decided by the card's closing/due days, not its date's month.
   const [offset, setOffset] = useState(0);
-  const currentBillMonth = card ? cardBillMonth(today, card.closingDay, card.dueDay) : currentMonth;
+  const currentBillMonth = card
+    ? cardBillMonth(today, card.closingDay, card.dueDay, overrides)
+    : currentMonth;
   const fatKey = addMonths(currentBillMonth, offset);
 
   const compras = useMemo(
@@ -52,10 +61,10 @@ export function CardsView({
             (t) =>
               t.cardId === card.id &&
               t.amountCents < 0 &&
-              cardBillMonth(t.date, card.closingDay, card.dueDay) === fatKey,
+              cardBillMonth(t.date, card.closingDay, card.dueDay, overrides) === fatKey,
           )
         : [],
-    [transactions, fatKey, card],
+    [transactions, fatKey, card, overrides],
   );
 
   const parcelas = useMemo<ActiveInstallment[]>(() => {
@@ -116,6 +125,10 @@ export function CardsView({
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
   const faturaMes = compras.reduce((s, t) => s + Math.abs(t.amountCents), 0);
   const isFatAtual = offset === 0;
+  // Effective closing/due day for the bill being viewed (override for this month or the card default).
+  const billOverride = overrides?.get(fatKey);
+  const effClosingDay = billOverride?.closingDay ?? card.closingDay;
+  const effDueDay = billOverride?.dueDay ?? card.dueDay;
 
   return (
     <div className="cards-page">
@@ -293,8 +306,8 @@ export function CardsView({
                 <div style={{ textAlign: "center", minWidth: 132 }}>
                   <h3 style={{ fontSize: 15 }}>Fatura · {monthLabel(fatKey, { long: false })}</h3>
                   <div className="ch-sub">
-                    {compras.length} {compras.length === 1 ? "lançamento" : "lançamentos"} ·{" "}
-                    {isFatAtual ? "aberta" : "fechada"}
+                    Fecha dia {effClosingDay} · vence dia {effDueDay}
+                    {billOverride ? " · ajustado" : ""}
                   </div>
                 </div>
                 <button
@@ -307,18 +320,28 @@ export function CardsView({
                   <Icon name="chevron-right" size={17} />
                 </button>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="ch-sub">Total</div>
-                <div
-                  className="tnum"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontWeight: 600,
-                    fontSize: 18,
-                    color: "var(--text-hi)",
-                  }}
-                >
-                  <Money cents={faturaMes} withSign={false} />
+              <div className="row gap-3" style={{ alignItems: "center" }}>
+                <CardBillDatesDialog
+                  cardId={card.id}
+                  month={fatKey}
+                  monthLabel={monthLabel(fatKey, { long: false })}
+                  closingDay={effClosingDay}
+                  dueDay={effDueDay}
+                  hasOverride={billOverride !== undefined}
+                />
+                <div style={{ textAlign: "right" }}>
+                  <div className="ch-sub">Total</div>
+                  <div
+                    className="tnum"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 600,
+                      fontSize: 18,
+                      color: "var(--text-hi)",
+                    }}
+                  >
+                    <Money cents={faturaMes} withSign={false} />
+                  </div>
                 </div>
               </div>
             </div>

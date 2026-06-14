@@ -18,6 +18,7 @@
  * float drift — the prototype's r2() on Reais is replaced by exact cent math.
  */
 
+import type { CardBillDate } from "../entities/card-bill-date";
 import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, Transaction } from "../entities/transaction";
 import { isExpense } from "../entities/transaction";
@@ -30,18 +31,54 @@ import {
   monthOf,
 } from "../value-objects/competence-month";
 
+/** Per-fatura override of the closing/due day, keyed by the bill's competence (due) month. */
+export type CardBillOverrides = ReadonlyMap<
+  CompetenceMonth,
+  { readonly closingDay?: number; readonly dueDay?: number }
+>;
+
 /**
  * The competence month of the bill (fatura) a card charge falls into, labelled
  * by its **due** month. A charge made after the closing day rolls into the next
  * cycle; the bill is then due in the closing month, or the month after when the
  * due day precedes the closing day (the common BR case, e.g. closes 24, due 2).
  *
+ * `overrides` (keyed by competence month) pins a different closing day for a
+ * single bill — only the closing day affects which fatura a charge falls in; the
+ * due-day override is for display only and never moves the competence month.
+ *
  * Example: closes 24, due 2 — a charge on 2026-05-26 closes 2026-06-24 and is
  * due 2026-07-02, so it belongs to the `2026-07` bill.
  */
-export function cardBillMonth(date: IsoDate, closingDay: number, dueDay: number): CompetenceMonth {
-  const closeMonth = addMonths(monthOf(date), dayOf(date) > closingDay ? 1 : 0);
-  return addMonths(closeMonth, dueDay <= closingDay ? 1 : 0);
+export function cardBillMonth(
+  date: IsoDate,
+  closingDay: number,
+  dueDay: number,
+  overrides?: CardBillOverrides,
+): CompetenceMonth {
+  const m = monthOf(date);
+  // A bill that closes in month `m` is due `dueOffset` months later (BR: closes 24, due 2 → +1).
+  const dueOffset = dueDay <= closingDay ? 1 : 0;
+  const candidate = addMonths(m, dueOffset);
+  const closeDay = overrides?.get(candidate)?.closingDay ?? closingDay;
+  const closeMonth = dayOf(date) > closeDay ? addMonths(m, 1) : m;
+  return addMonths(closeMonth, dueOffset);
+}
+
+/** Group per-bill date overrides by card id, for `billingCompetence` / the cards view. */
+export function cardBillOverridesByCard(
+  billDates: readonly CardBillDate[],
+): Map<string, Map<CompetenceMonth, { closingDay: number; dueDay: number }>> {
+  const byCard = new Map<string, Map<CompetenceMonth, { closingDay: number; dueDay: number }>>();
+  for (const d of billDates) {
+    let inner = byCard.get(d.cardId);
+    if (!inner) {
+      inner = new Map();
+      byCard.set(d.cardId, inner);
+    }
+    inner.set(d.month, { closingDay: d.closingDay, dueDay: d.dueDay });
+  }
+  return byCard;
 }
 
 /** A transaction's competence month: a card charge by its bill's due month, everything else by date. */
@@ -49,17 +86,20 @@ export type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
 
 /**
  * Build a competence resolver for a set of cards. Card-source expenses land in
- * the month their bill is due ({@link cardBillMonth}); every other transaction
- * (account debit, boleto, loan, financing, overdraft, income, transfer) keeps the
- * calendar month of its date. Use this wherever a view buckets by month so card
- * charges follow the billing cycle, not the purchase date's month.
+ * the month their bill is due ({@link cardBillMonth}, honoring per-bill date
+ * overrides); every other transaction (account debit, boleto, loan, financing,
+ * overdraft, income, transfer) keeps the calendar month of its date.
  */
-export function billingCompetence(cards: readonly CreditCard[]): CompetenceResolver {
+export function billingCompetence(
+  cards: readonly CreditCard[],
+  billDates: readonly CardBillDate[] = [],
+): CompetenceResolver {
   const byId = new Map(cards.map((card) => [card.id, card]));
+  const overrides = cardBillOverridesByCard(billDates);
   return (tx) => {
     if (isExpense(tx) && tx.source === "card" && tx.cardId !== null) {
       const card = byId.get(tx.cardId);
-      if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay);
+      if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay, overrides.get(card.id));
     }
     return monthOf(tx.date);
   };

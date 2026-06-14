@@ -50,6 +50,13 @@
       "when": 1781332475301,
       "tag": "0006_curvy_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781413803997,
+      "tag": "0007_faithful_tana_nile",
+      "breakpoints": true
     }
   ]
 }
