@@ -90,10 +90,11 @@ export default async function DashboardPage({
   const last = dash.trend.at(-1)?.valueCents ?? 0;
   const deltaPct = prev !== 0 ? ((last - prev) / Math.abs(prev)) * 100 : null;
 
-  const toBar = (m: { label: string; incomeCents: number; expenseCents: number }) => ({
+  const toBar = (m: { label: string; incomeCents: number; expenseCents: number; projected: boolean }) => ({
     label: m.label,
     incomeCents: m.incomeCents,
     expenseCents: m.expenseCents,
+    projected: m.projected,
   });
   const toSlice = (c: { id: string; name: string; color: string; valueCents: number }) => ({
     id: c.id,

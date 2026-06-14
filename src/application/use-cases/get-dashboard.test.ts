@@ -128,3 +128,38 @@ describe("getDashboard — projected end-of-month balance", () => {
     expect(data.projectedBalanceCents).toBe(data.totalBalanceCents);
   });
 });
+
+describe("getDashboard — future-month KPIs include projected recurring (today = 2026-06-14)", () => {
+  it("folds projected income and expense into a future month's totals", async () => {
+    const repo = stubRepo([
+      // Recurring salary (June anchor) and recurring expense (May anchor) → both project into July.
+      income({ amountCents: 50000, date: "2026-06-20", recurrence: { dayOfMonth: 20 } }),
+      expense({
+        amountCents: -20000,
+        myShareCents: 20000,
+        date: "2026-05-10",
+        recurrence: { dayOfMonth: 10 },
+      }),
+    ]);
+    const data = await getDashboard(repo, "u", "2026-07");
+    expect(data.general.incomeCents).toBe(50000);
+    expect(data.general.expenseCents).toBe(20000);
+    expect(data.general.netCents).toBe(30000);
+  });
+
+  it("keeps the current month real-only (no projection in KPIs)", async () => {
+    const repo = stubRepo([
+      // Recurring May expense would project into June, but the current month stays real-only.
+      expense({
+        amountCents: -20000,
+        myShareCents: 20000,
+        date: "2026-05-10",
+        recurrence: { dayOfMonth: 10 },
+      }),
+      income({ amountCents: 50000, date: "2026-06-20", recurrence: null }),
+    ]);
+    const data = await getDashboard(repo, "u", "2026-06");
+    expect(data.general.incomeCents).toBe(50000);
+    expect(data.general.expenseCents).toBe(0);
+  });
+});
