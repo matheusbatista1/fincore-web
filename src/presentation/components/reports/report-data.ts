@@ -54,5 +54,24 @@ export function buildReportData({
     today,
     includesProjected: reports.includesProjected,
     projectedLabel: reports.projectedLabel,
+    rangeLabel: reports.rangeLabel,
+    months: reports.months.map((m) => ({
+      label: m.label,
+      incomeCents: m.incomeCents,
+      expenseCents: m.expenseCents,
+      netCents: m.netCents,
+      projected: m.projected,
+    })),
+    monthsPersonal: reports.monthsPersonal.map((m) => ({
+      label: m.label,
+      incomeCents: m.incomeCents,
+      expenseCents: m.expenseCents,
+      netCents: m.netCents,
+      projected: m.projected,
+    })),
+    categoriesPersonal: reports.categoriesPersonal.map((c) => ({
+      name: c.name,
+      totalCents: c.valueCents,
+    })),
   };
 }

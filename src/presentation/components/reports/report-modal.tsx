@@ -43,6 +43,22 @@ export interface ReportData {
   readonly includesProjected: boolean;
   /** Human label of the future portion ("jul – set 2026"); "" when none. */
   readonly projectedLabel: string;
+  /** Per-month income/expense/net over the window (general lens). */
+  readonly months: ReadonlyArray<MonthRow>;
+  /** Same per-month breakdown through the personal lens. */
+  readonly monthsPersonal: ReadonlyArray<MonthRow>;
+  /** Expense-by-category through the personal lens (name + total only — for export). */
+  readonly categoriesPersonal: ReadonlyArray<{ readonly name: string; readonly totalCents: number }>;
+  /** Human label of the covered window ("Junho de 2026" or "jan – jun 2026"). */
+  readonly rangeLabel: string;
+}
+
+interface MonthRow {
+  readonly label: string;
+  readonly incomeCents: number;
+  readonly expenseCents: number;
+  readonly netCents: number;
+  readonly projected: boolean;
 }
 
 const TITLES: Record<ReportMode, string> = {
@@ -138,6 +154,11 @@ export function ReportModal({
     ? `Inclui valores previstos (meses futuros: ${data.projectedLabel})`
     : "";
 
+  const monthLbl = (m: MonthRow): string => (m.projected ? `${m.label} (previsto)` : m.label);
+  /** Full per-month table for the PDF (Mês · Receitas · Despesas · Resultado). */
+  const pdfMonthRows = (rows: ReadonlyArray<MonthRow>): string[][] =>
+    rows.map((m) => [monthLbl(m), pdfMoney(m.incomeCents), pdfMoney(m.expenseCents), pdfMoney(m.netCents)]);
+
   function onCsv() {
     if (mode === "month") {
       const rows: string[][] = [
@@ -145,6 +166,11 @@ export function ReportModal({
         ["Resumo", "Receitas", csvMoney(summary.generalIncomeCents)],
         ["Resumo", "Despesas", csvMoney(summary.generalExpenseCents)],
         ["Resumo", "Resultado", csvMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
+        ...data.months.flatMap((m) => [
+          ["Por mês", `${monthLbl(m)} · receitas`, csvMoney(m.incomeCents)],
+          ["Por mês", `${monthLbl(m)} · despesas`, csvMoney(m.expenseCents)],
+          ["Por mês", `${monthLbl(m)} · resultado`, csvMoney(m.netCents)],
+        ]),
         ...data.categories.map((c) => ["Por categoria", c.name, csvMoney(c.totalCents)]),
         ...data.byCard.map((c) => ["Por cartão", c.name, csvMoney(c.valueCents)]),
         ["Pessoas", "A receber", csvMoney(summary.aReceberCents)],
@@ -161,6 +187,12 @@ export function ReportModal({
           ["Meu gasto real (só minha parte)", csvMoney(summary.personalExpenseCents)],
           ["Minha sobra real", csvMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
           ["Taxa de poupança", `${savingsRate}%`],
+          ...data.categoriesPersonal.map((c) => [`Categoria: ${c.name}`, csvMoney(c.totalCents)]),
+          ...data.monthsPersonal.flatMap((m) => [
+            [`${monthLbl(m)} · minha renda`, csvMoney(m.incomeCents)],
+            [`${monthLbl(m)} · meu gasto`, csvMoney(m.expenseCents)],
+            [`${monthLbl(m)} · minha sobra`, csvMoney(m.netCents)],
+          ]),
         ],
       );
     } else {
@@ -185,9 +217,9 @@ export function ReportModal({
       await exportPDF({
         filename: `${fileSlug}.pdf`,
         title,
-        subtitle: `Resultado do mês ${pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)}${
-          data.includesProjected ? ` · ${projectedNote}` : ""
-        }`,
+        subtitle: `${data.rangeLabel} · Resultado ${pdfMoney(
+          summary.generalIncomeCents - summary.generalExpenseCents,
+        )}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
         sections: [
           {
             heading: "Resumo",
@@ -198,6 +230,15 @@ export function ReportModal({
             ],
             foot: ["Resultado", pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
           },
+          ...(data.months.length > 1
+            ? [
+                {
+                  heading: "Por mês",
+                  head: ["Mês", "Receitas", "Despesas", "Resultado"],
+                  body: pdfMonthRows(data.months),
+                },
+              ]
+            : []),
           {
             heading: "Por categoria",
             head: ["Categoria", "Valor"],
@@ -222,7 +263,7 @@ export function ReportModal({
       await exportPDF({
         filename: `${fileSlug}.pdf`,
         title,
-        ...(data.includesProjected ? { subtitle: projectedNote } : {}),
+        subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
         sections: [
           {
             heading: "Resumo pessoal",
@@ -234,6 +275,24 @@ export function ReportModal({
             ],
             foot: ["Minha sobra real", pdfMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
           },
+          ...(data.categoriesPersonal.length > 0
+            ? [
+                {
+                  heading: "Por categoria (pessoal)",
+                  head: ["Categoria", "Valor"],
+                  body: data.categoriesPersonal.map((c) => [c.name, pdfMoney(c.totalCents)]),
+                },
+              ]
+            : []),
+          ...(data.monthsPersonal.length > 1
+            ? [
+                {
+                  heading: "Por mês (pessoal)",
+                  head: ["Mês", "Minha renda", "Meu gasto", "Minha sobra"],
+                  body: pdfMonthRows(data.monthsPersonal),
+                },
+              ]
+            : []),
         ],
       });
     } else {

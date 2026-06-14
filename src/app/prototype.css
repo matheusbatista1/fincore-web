@@ -1351,6 +1351,14 @@ textarea.input {
   font-weight: 600;
   transition: all 0.15s;
 }
+/* Base avatar/icon square: centers its icon or initials (the report modal uses a
+   standalone `.pa` for the category chips). Scoped variants below refine size/shape. */
+.pa {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+}
 .person-chip .pa {
   width: 26px;
   height: 26px;
