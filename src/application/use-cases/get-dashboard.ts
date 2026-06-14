@@ -4,7 +4,13 @@ import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/s
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { cardBillsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
-import { addMonths, type CompetenceMonth, dateInMonth } from "@/domain/value-objects/competence-month";
+import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import {
+  addMonths,
+  type CompetenceMonth,
+  compareMonths,
+  dateInMonth,
+} from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
@@ -74,6 +80,7 @@ export async function getDashboard(
 ): Promise<DashboardData> {
   const ws = await loadWorkspaceCached(repo, userId);
   const today = todayInBrazil();
+  const currentMonth = today.slice(0, 7);
 
   // Headline balances are "live" (as of today), independent of the browsed month.
   const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
@@ -81,8 +88,14 @@ export async function getDashboard(
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
-  const general = computeViewTotals(ws.transactions, "general", month, competenceOf);
-  const personal = computeViewTotals(ws.transactions, "personal", month, competenceOf);
+  // The month's set: real movements always, plus the projected ("previsto") recurring
+  // occurrences for FUTURE months — so browsing months ahead shows expected income and
+  // spending. Past/current stay real-only (history/actuals unchanged).
+  const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
+  const monthSet =
+    compareMonths(month, currentMonth) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+  const general = computeViewTotals(monthSet, "general");
+  const personal = computeViewTotals(monthSet, "personal");
 
   const accounts = ws.accounts.map((account) => ({
     id: account.id,
@@ -119,7 +132,6 @@ export async function getDashboard(
   // Projected balance at the end of the browsed month: real movements up to month-end
   // plus the recurring occurrences (accumulated from the current month onward), MINUS
   // the credit-card bills that fall due along the way (assumed paid from an account).
-  const currentMonth = today.slice(0, 7);
   const eomBalances = projectedMonthEndBalances(
     ws.accounts,
     ws.transactions,

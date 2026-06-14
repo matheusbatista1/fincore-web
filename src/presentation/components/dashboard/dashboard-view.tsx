@@ -48,6 +48,8 @@ interface MonthBar {
   readonly label: string;
   readonly incomeCents: number;
   readonly expenseCents: number;
+  /** Future month whose totals are projected ("previsto") — rendered dashed in the bars. */
+  readonly projected?: boolean;
 }
 interface CategorySlice {
   readonly id: string;
@@ -185,6 +187,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const gastoMes = isPersonal ? personalExp : data.general.expenseCents;
   const economia = receitaMes - gastoMes;
   const savingsPct = Math.round((economia / (receitaMes || 1)) * 100);
+  // Browsing a future month: the month KPIs fold in projected ("previsto") recurring.
+  const isFuture = !data.isPast && !data.isCurrent;
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -397,6 +401,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
         )}
 
         {/* KPIs */}
+        {isFuture && (
+          <div className="row gap-2" style={{ margin: "0 2px 12px", color: "var(--text-lo)", fontSize: 13 }}>
+            <span className="pill purple">previsto</span>
+            <span>
+              Estimativa com base nos lançamentos fixos de {monthLabel(data.month)} — quanto deve entrar, sair
+              e sobrar.
+            </span>
+          </div>
+        )}
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
           <KpiCard
             icon="arrow-down-left"
