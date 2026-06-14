@@ -1,0 +1,1 @@
+ALTER TABLE "transactions" ADD CONSTRAINT "chk_income_account_xor_card" CHECK (kind <> 'income' OR ((account_id IS NOT NULL) <> (card_id IS NOT NULL)));

@@ -114,6 +114,7 @@ describe("updateTransaction use-case", () => {
       date: "2026-06-11",
       amountCents: 5000,
       accountId: "acc-1",
+      cardId: null,
       fromPersonId: "p1",
       fixed: false,
     });

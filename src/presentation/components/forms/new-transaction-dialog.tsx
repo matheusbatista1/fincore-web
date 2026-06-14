@@ -267,6 +267,10 @@ function TransactionForm({
 
   // income
   const [fromPerson, setFromPerson] = useState<string | null>(initial?.fromPersonId ?? null);
+  // Income destination: a normal account, or a credit card (estorno/reembolso).
+  const [incomeDest, setIncomeDest] = useState<"account" | "card">(
+    initial?.kind === "income" && initial.cardId ? "card" : "account",
+  );
 
   // transfer
   const [fromAcct, setFromAcct] = useState<string | null>(
@@ -315,7 +319,9 @@ function TransactionForm({
     (tab === "expense"
       ? split.valid && srcOk
       : tab === "income"
-        ? Boolean(acctId)
+        ? incomeDest === "card"
+          ? Boolean(cardId)
+          : Boolean(acctId)
         : Boolean(fromAcct) && Boolean(toAcct) && fromAcct !== toAcct);
 
   function buildPayload(): unknown {
@@ -334,6 +340,7 @@ function TransactionForm({
       };
     }
     if (tab === "income") {
+      const isCard = incomeDest === "card";
       return {
         kind: "income",
         ...(editing && initial ? { id: initial.id } : {}),
@@ -341,8 +348,9 @@ function TransactionForm({
         date: ymd,
         ...noteField,
         amountCents: cents,
-        accountId: acctId,
-        fromPersonId: fromPerson,
+        accountId: isCard ? null : acctId,
+        cardId: isCard ? cardId : null,
+        fromPersonId: isCard ? null : fromPerson,
         fixed,
       };
     }
@@ -626,93 +634,171 @@ function TransactionForm({
         {/* RECEITA */}
         {tab === "income" && (
           <>
-            <div className="field">
-              <label>Cai em qual carteira?</label>
-              <div className="chip-select">
-                {accounts.map((a) => (
+            {cards.length > 0 && (
+              <div className="field">
+                <label>Onde entra?</label>
+                <div className="seg">
                   <button
                     type="button"
-                    key={a.id}
-                    className={`person-chip${acctId === a.id ? " on" : ""}`}
-                    onClick={() => setAcctId(a.id)}
+                    className={incomeDest === "account" ? "on" : ""}
+                    onClick={() => setIncomeDest("account")}
                   >
-                    <Icon
-                      name="wallet"
-                      size={15}
-                      style={{ color: acctId === a.id ? "var(--purple-300)" : "var(--text-lo)" }}
-                    />
-                    {a.bank} · {a.name}
+                    Conta / carteira
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className={incomeDest === "card" ? "on" : ""}
+                    onClick={() => setIncomeDest("card")}
+                  >
+                    Cartão de crédito
+                  </button>
+                </div>
               </div>
-            </div>
-            {peopleOn && (
+            )}
+
+            {incomeDest === "account" ? (
+              <>
+                <div className="field">
+                  <label>Cai em qual carteira?</label>
+                  <div className="chip-select">
+                    {accounts.map((a) => (
+                      <button
+                        type="button"
+                        key={a.id}
+                        className={`person-chip${acctId === a.id ? " on" : ""}`}
+                        onClick={() => setAcctId(a.id)}
+                      >
+                        <Icon
+                          name="wallet"
+                          size={15}
+                          style={{ color: acctId === a.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                        />
+                        {a.bank} · {a.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {peopleOn && (
+                  <div className="field">
+                    <label>
+                      É pagamento de alguém?{" "}
+                      <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· opcional</span>
+                    </label>
+                    <div className="chip-select">
+                      <button
+                        type="button"
+                        className={`person-chip${!fromPerson ? " on" : ""}`}
+                        onClick={() => setFromPerson(null)}
+                      >
+                        <Icon
+                          name="briefcase"
+                          size={15}
+                          style={{ color: !fromPerson ? "var(--purple-300)" : "var(--text-lo)" }}
+                        />
+                        Ganho próprio
+                      </button>
+                      {people.map((p) => (
+                        <button
+                          type="button"
+                          key={p.id}
+                          className={`person-chip${fromPerson === p.id ? " on" : ""}`}
+                          onClick={() => setFromPerson(p.id)}
+                        >
+                          <span className="pa" style={{ background: p.color }}>
+                            {p.name[0]}
+                          </span>
+                          {firstName(p.name)}
+                        </button>
+                      ))}
+                    </div>
+                    {fromPerson && (
+                      <div style={INFO_STYLE}>
+                        <Icon
+                          name="info"
+                          size={14}
+                          style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
+                        />
+                        <span>
+                          Abate <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(cents)}</b> da
+                          dívida de {personFirst(fromPerson)}. Não conta como sua renda no modo Pessoal.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
               <div className="field">
                 <label>
-                  É pagamento de alguém?{" "}
-                  <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· opcional</span>
+                  Em qual cartão?{" "}
+                  <span style={{ color: "var(--text-lo)", fontWeight: 400 }}>· estorno / reembolso</span>
                 </label>
                 <div className="chip-select">
-                  <button
-                    type="button"
-                    className={`person-chip${!fromPerson ? " on" : ""}`}
-                    onClick={() => setFromPerson(null)}
-                  >
-                    <Icon
-                      name="briefcase"
-                      size={15}
-                      style={{ color: !fromPerson ? "var(--purple-300)" : "var(--text-lo)" }}
-                    />
-                    Ganho próprio
-                  </button>
-                  {people.map((p) => (
+                  {cards.map((c) => (
                     <button
                       type="button"
-                      key={p.id}
-                      className={`person-chip${fromPerson === p.id ? " on" : ""}`}
-                      onClick={() => setFromPerson(p.id)}
+                      key={c.id}
+                      className={`person-chip${cardId === c.id ? " on" : ""}`}
+                      onClick={() => setCardId(c.id)}
                     >
-                      <span className="pa" style={{ background: p.color }}>
-                        {p.name[0]}
-                      </span>
-                      {firstName(p.name)}
+                      <Icon
+                        name="credit-card"
+                        size={15}
+                        style={{ color: cardId === c.id ? "var(--purple-300)" : "var(--text-lo)" }}
+                      />
+                      {c.bank}
                     </button>
                   ))}
                 </div>
-                {fromPerson && (
-                  <div style={INFO_STYLE}>
-                    <Icon
-                      name="info"
-                      size={14}
-                      style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
-                    />
-                    <span>
-                      Abate <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(cents)}</b> da dívida de{" "}
-                      {personFirst(fromPerson)}. Não conta como sua renda no modo Pessoal.
-                    </span>
-                  </div>
-                )}
+                <div style={INFO_STYLE}>
+                  <Icon
+                    name="info"
+                    size={14}
+                    style={{ marginTop: 1, color: "var(--mint-500)", flex: "none" }}
+                  />
+                  <span>Reduz a fatura deste cartão. Não conta como receita nos seus totais.</span>
+                </div>
               </div>
             )}
+
             <div className="summary-box">
-              <div className="sb-row">
-                <span className="k">Entrada na carteira</span>
-                <span className="v" style={{ color: "var(--mint-500)" }}>
-                  + {formatBRLAbsolute(cents)}
-                </span>
-              </div>
-              {fromPerson && (
-                <div className="sb-row">
-                  <span className="k">Abate da dívida de {personFirst(fromPerson)}</span>
-                  <span className="v" style={{ color: "var(--purple-300)" }}>
-                    - {formatBRLAbsolute(cents)}
-                  </span>
-                </div>
+              {incomeDest === "card" ? (
+                <>
+                  <div className="sb-row">
+                    <span className="k">
+                      Crédito na fatura {cards.find((c) => c.id === cardId)?.bank ?? ""}
+                    </span>
+                    <span className="v" style={{ color: "var(--mint-500)" }}>
+                      - {formatBRLAbsolute(cents)}
+                    </span>
+                  </div>
+                  <div className="sb-row total">
+                    <span className="k">Estorno registrado</span>
+                    <span className="v">{formatBRLAbsolute(cents)}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="sb-row">
+                    <span className="k">Entrada na carteira</span>
+                    <span className="v" style={{ color: "var(--mint-500)" }}>
+                      + {formatBRLAbsolute(cents)}
+                    </span>
+                  </div>
+                  {fromPerson && (
+                    <div className="sb-row">
+                      <span className="k">Abate da dívida de {personFirst(fromPerson)}</span>
+                      <span className="v" style={{ color: "var(--purple-300)" }}>
+                        - {formatBRLAbsolute(cents)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="sb-row total">
+                    <span className="k">{fromPerson ? "Pagamento recebido" : "Receita registrada"}</span>
+                    <span className="v">{formatBRLAbsolute(cents)}</span>
+                  </div>
+                </>
               )}
-              <div className="sb-row total">
-                <span className="k">{fromPerson ? "Pagamento recebido" : "Receita registrada"}</span>
-                <span className="v">{formatBRLAbsolute(cents)}</span>
-              </div>
             </div>
           </>
         )}

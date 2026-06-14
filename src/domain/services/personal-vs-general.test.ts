@@ -51,6 +51,8 @@ interface IncomeOpts {
   readonly amountCents: number;
   readonly isReimbursement?: boolean;
   readonly date?: string;
+  /** When set, the income is a card credit (estorno) bound to this card, not an account. */
+  readonly cardId?: string;
 }
 
 function income(opts: IncomeOpts): IncomeTransaction {
@@ -60,7 +62,8 @@ function income(opts: IncomeOpts): IncomeTransaction {
     description: opts.id,
     date: opts.date ?? "2026-06-05",
     amountCents: opts.amountCents,
-    accountId: "it",
+    accountId: opts.cardId ? null : "it",
+    cardId: opts.cardId ?? null,
     fromPersonId: null,
     isReimbursement: opts.isReimbursement ?? false,
     recurrence: null,
@@ -154,6 +157,18 @@ describe("computeViewTotals — reimbursements", () => {
       income({ id: "refund", amountCents: 12_000, isReimbursement: true }),
     ];
     expect(computeViewTotals(txs, "general").income.cents).toBe(512_000);
+    expect(computeViewTotals(txs, "personal").income.cents).toBe(500_000);
+  });
+});
+
+describe("computeViewTotals — card credits (estorno)", () => {
+  it("never counts a card credit as income, in either lens", () => {
+    const txs: Transaction[] = [
+      income({ id: "salary", amountCents: 500_000 }),
+      income({ id: "estorno", amountCents: 600, cardId: "card-1" }),
+    ];
+    // The card credit only reduces a card bill — it is invisible to both lenses.
+    expect(computeViewTotals(txs, "general").income.cents).toBe(500_000);
     expect(computeViewTotals(txs, "personal").income.cents).toBe(500_000);
   });
 });

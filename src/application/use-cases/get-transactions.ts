@@ -168,12 +168,20 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
 
     if (isIncome(tx)) {
       const person = tx.fromPersonId ? personById.get(tx.fromPersonId) : undefined;
+      // A card credit (estorno) is bound to a card; a normal income to an account.
+      const sourceLabel =
+        tx.cardId !== null
+          ? (cardName.get(tx.cardId) ?? "Cartão")
+          : tx.accountId !== null
+            ? (accountName.get(tx.accountId) ?? null)
+            : null;
       return {
         ...base,
         kind: "income" as const,
         amountCents: tx.amountCents,
-        sourceLabel: accountName.get(tx.accountId) ?? null,
+        sourceLabel,
         accountId: tx.accountId,
+        cardId: tx.cardId,
         isFixed: tx.recurrence !== null,
         isReimbursement: tx.isReimbursement,
         fromPersonId: tx.fromPersonId,

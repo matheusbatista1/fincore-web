@@ -35,17 +35,23 @@ function buildCommand(
   }
 
   if (input.kind === "income") {
+    // A card credit (estorno) targets a card instead of an account: it only
+    // reduces the card bill, never counts as income, and carries no person/share.
+    const isCardCredit = input.cardId !== null;
     const entry: NewTransactionEntry = {
       kind: "income",
-      description: input.description || (input.fromPersonId ? "Pagamento recebido" : "Receita"),
+      description:
+        input.description ||
+        (isCardCredit ? "Estorno no cartão" : input.fromPersonId ? "Pagamento recebido" : "Receita"),
       date: input.date,
       amountCents: input.amountCents,
       ...(input.note ? { note: input.note } : {}),
-      accountId: input.accountId,
-      fromPersonId: input.fromPersonId,
-      isReimbursement: input.fromPersonId !== null,
+      accountId: isCardCredit ? null : input.accountId,
+      cardId: isCardCredit ? input.cardId : null,
+      fromPersonId: isCardCredit ? null : input.fromPersonId,
+      isReimbursement: !isCardCredit && input.fromPersonId !== null,
       recurrenceDayOfMonth: input.fixed ? dayOf(input.date) : null,
-      myShareCents: input.amountCents,
+      myShareCents: isCardCredit ? 0 : input.amountCents,
     };
     return ok({ entries: [entry] });
   }

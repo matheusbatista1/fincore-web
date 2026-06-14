@@ -36,6 +36,7 @@ function income(
   return {
     kind: "income",
     amountCents: 100000,
+    cardId: null,
     fromPersonId: null,
     isReimbursement: false,
     recurrence: null,
@@ -314,6 +315,7 @@ describe("projectRecurring — invariants", () => {
       date: "2026-07-02",
       amountCents: 920_000,
       accountId: "it",
+      cardId: null,
       fromPersonId: null,
       isReimbursement: false,
       recurrence: { dayOfMonth: 2 },

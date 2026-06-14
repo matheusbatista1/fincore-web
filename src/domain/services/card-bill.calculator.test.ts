@@ -92,6 +92,23 @@ function income(cents: number, accountId: string): IncomeTransaction {
     date: "2026-06-05",
     amountCents: cents,
     accountId,
+    cardId: null,
+    fromPersonId: null,
+    isReimbursement: false,
+    recurrence: null,
+  };
+}
+
+/** A card credit (estorno): a positive income whose destination is a card. */
+function cardCredit(cents: number, cardId: string, date = "2026-06-05"): IncomeTransaction {
+  return {
+    id: nextId(),
+    kind: "income",
+    description: "Estorno",
+    date,
+    amountCents: cents,
+    accountId: null,
+    cardId,
     fromPersonId: null,
     isReimbursement: false,
     recurrence: null,
@@ -466,5 +483,42 @@ describe("billingCompetence", () => {
   it("falls back to the date month for a charge on an unknown card", () => {
     const charge: ExpenseTransaction = { ...cardExpense(-1000, "ghost"), date: "2026-05-26" };
     expect(resolve(charge)).toBe("2026-05");
+  });
+
+  it("buckets a card credit (estorno) by the card's bill due month, like a charge", () => {
+    const caixa2: CreditCard = { ...card("card-1", 100000), closingDay: 24, dueDay: 2 };
+    const resolve2 = billingCompetence([caixa2]);
+    expect(resolve2({ ...cardCredit(600, "card-1", "2026-05-26") })).toBe("2026-07");
+  });
+});
+
+describe("card credits (estorno) reduce the bill", () => {
+  it("subtracts a card credit from the card's bill", () => {
+    const txs: Transaction[] = [cardExpense(-20000, "card-1"), cardCredit(600, "card-1")];
+    expect(computeCardBill("card-1", txs).cents).toBe(19400);
+  });
+
+  it("ignores a credit recorded against a different card", () => {
+    const txs: Transaction[] = [cardExpense(-20000, "card-1"), cardCredit(600, "card-2")];
+    expect(computeCardBill("card-1", txs).cents).toBe(20000);
+  });
+
+  it("lets a bill go negative when credits exceed charges (credit balance)", () => {
+    const txs: Transaction[] = [cardExpense(-500, "card-1"), cardCredit(600, "card-1")];
+    const bill = computeCardBill("card-1", txs);
+    expect(bill.cents).toBe(-100);
+    expect(bill.isNegative()).toBe(true);
+  });
+
+  it("nets charges and credits per card in computeCardBills", () => {
+    const cards = [card("card-1", 100000), card("card-2", 100000)];
+    const txs: Transaction[] = [
+      cardExpense(-20000, "card-1"),
+      cardCredit(600, "card-1"),
+      cardExpense(-5000, "card-2"),
+    ];
+    const bills = computeCardBills(cards, txs);
+    expect(bills.get("card-1")?.cents).toBe(19400);
+    expect(bills.get("card-2")?.cents).toBe(5000);
   });
 });

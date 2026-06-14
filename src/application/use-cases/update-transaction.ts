@@ -43,17 +43,21 @@ function buildCommand(
   }
 
   if (input.kind === "income") {
+    const isCardCredit = input.cardId !== null;
     return ok({
       id: input.id,
       kind: "income",
-      description: input.description || (input.fromPersonId ? "Pagamento recebido" : "Receita"),
+      description:
+        input.description ||
+        (isCardCredit ? "Estorno no cartão" : input.fromPersonId ? "Pagamento recebido" : "Receita"),
       date: input.date,
       amountCents: input.amountCents,
       note: input.note || null,
-      accountId: input.accountId,
-      fromPersonId: input.fromPersonId,
-      isReimbursement: input.fromPersonId !== null,
-      myShareCents: input.amountCents,
+      accountId: isCardCredit ? null : input.accountId,
+      cardId: isCardCredit ? input.cardId : null,
+      fromPersonId: isCardCredit ? null : input.fromPersonId,
+      isReimbursement: !isCardCredit && input.fromPersonId !== null,
+      myShareCents: isCardCredit ? 0 : input.amountCents,
       fixed: input.fixed,
     });
   }

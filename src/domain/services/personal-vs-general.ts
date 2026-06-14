@@ -66,9 +66,9 @@ export function computeViewTotals(
 
   for (const tx of inScope) {
     if (isIncome(tx)) {
-      // TODO(card-credit): once IncomeTransaction carries a `cardId`, a card credit
-      // (estorno/reembolso) reduces only the card bill and must be excluded from
-      // both lenses here — guard with `if (tx.cardId !== null) continue;`.
+      // A card credit (estorno/reembolso) only reduces a card bill — it is never
+      // income in either lens.
+      if (tx.cardId !== null) continue;
       // General counts every income; personal drops reimbursements (refunds).
       if (mode === "general" || !tx.isReimbursement) {
         incomeParts.push(Money.fromCents(tx.amountCents));
