@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "@/presentation/lib/use-reduced-motion";
+
 interface AreaPoint {
   readonly label: string;
   readonly valueCents: number;
@@ -7,23 +12,81 @@ const W = 720;
 const H = 220;
 const P = 8;
 
-/** Smooth area sparkline (net worth over months). Pure SVG, ported from the prototype. */
+/**
+ * Tweens a numeric series from its previous values to `target` (ease-out-quart),
+ * re-rendering each frame. Snaps when reduced motion is requested or the array
+ * length changes (a length change would warp the x-axis). The effect keys on a
+ * value-signature so it does not restart mid-tween on incidental re-renders.
+ */
+function useTweenedSeries(target: number[], animate: boolean, dur = 700): number[] {
+  const sig = target.join("|");
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const settled = useRef(target);
+  const [vals, setVals] = useState(target);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `sig` is the value-signature trigger; the latest array is read via `targetRef` so the tween doesn't restart on incidental re-renders.
+  useEffect(() => {
+    const from = settled.current;
+    const to = targetRef.current;
+    if (!animate || from.length !== to.length) {
+      setVals(to);
+      settled.current = to;
+      return;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / dur);
+      const e = 1 - (1 - p) ** 4;
+      setVals(
+        to.map((v, i) => {
+          const f = from[i] ?? v;
+          return f + (v - f) * e;
+        }),
+      );
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else settled.current = to;
+    };
+    raf = requestAnimationFrame(tick);
+    const safety = setTimeout(() => {
+      setVals(to);
+      settled.current = to;
+    }, dur + 120);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(safety);
+    };
+  }, [sig, animate, dur]);
+
+  return vals;
+}
+
+/** Smooth area sparkline (net worth over months). The curve morphs as the data changes. */
 export function AreaChart({ data }: { data: AreaPoint[] }) {
+  const reduced = useReducedMotion();
+  const vals = useTweenedSeries(
+    data.map((d) => d.valueCents),
+    !reduced,
+  );
+
   if (data.length < 2) {
     return (
       <div className="grid h-full min-h-32 place-items-center text-sm text-text-lo">Sem histórico ainda.</div>
     );
   }
 
-  const values = data.map((d) => d.valueCents);
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
+  // Use the animated values for both the scale and the points so the whole chart
+  // reshapes smoothly. Fall back to the raw value if the tween array is shorter.
+  const animated = data.map((d, i) => vals[i] ?? d.valueCents);
+  const rawMin = Math.min(...animated);
+  const rawMax = Math.max(...animated);
   const min = rawMin === rawMax ? rawMin - 1 : rawMin * (rawMin < 0 ? 1.04 : 0.96);
   const max = rawMin === rawMax ? rawMax + 1 : rawMax * (rawMax < 0 ? 0.96 : 1.02);
 
   const x = (i: number) => P + (i * (W - P * 2)) / (data.length - 1);
   const y = (v: number) => H - 28 - ((v - min) / (max - min)) * (H - 48);
-  const pts = data.map((d, i) => [x(i), y(d.valueCents)] as const);
+  const pts = animated.map((v, i) => [x(i), y(v)] as const);
 
   const line = pts
     .map((p, i) => {

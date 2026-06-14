@@ -10,8 +10,9 @@ export function BarsChart({ months }: { months: MonthBar[] }) {
   return (
     <div>
       <div className="bars">
-        {months.map((m) => (
-          <div className="bargrp" key={m.label}>
+        {months.map((m, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: positional key is intentional so the Nth bar tweens its height to the new month's value.
+          <div className="bargrp" key={i}>
             <div className="barpair">
               <div
                 className="bar inc"

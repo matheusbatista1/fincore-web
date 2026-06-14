@@ -2932,18 +2932,19 @@ select.input {
     transform: none;
   }
 }
-/* Enquanto a navegaÃ§Ã£o estÃ¡ pendente: escurece e desfoca o conteÃºdo do mÃªs. */
+/* Enquanto a navegaÃ§Ã£o estÃ¡ pendente: leve esmaecida (sem desfoque). O dashboard
+ * nÃ£o usa .month-fade â€” lÃ¡ os grÃ¡ficos/valores se adaptam com animaÃ§Ã£o. */
 .month-fade.is-pending {
-  opacity: 0.5;
-  filter: blur(1.5px);
+  opacity: 0.6;
   pointer-events: none;
-  transition:
-    opacity 0.18s ease,
-    filter 0.18s ease;
+  transition: opacity 0.18s ease;
 }
-@media (prefers-reduced-motion: reduce) {
-  .month-fade.is-pending {
-    filter: none;
+/* Donut: fatias remodelam suavemente ao mudar de mÃªs / alternar a lente. */
+@media (prefers-reduced-motion: no-preference) {
+  .donut-slice {
+    transition:
+      stroke-dasharray 0.5s cubic-bezier(0.2, 0.7, 0.3, 1),
+      stroke-dashoffset 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
   }
 }
 
