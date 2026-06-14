@@ -79,6 +79,7 @@ import {
   X,
 } from "lucide-react";
 import type { CSSProperties } from "react";
+import { CATEGORY_ICON_COMPONENTS } from "./category-icon";
 
 /** Maps the prototype's lucide icon-name strings to lucide-react components. */
 const ICONS: Record<string, LucideIcon> = {
@@ -176,6 +177,8 @@ export function Icon({
   className?: string;
   style?: CSSProperties;
 }) {
-  const Cmp = ICONS[name] ?? HelpCircle;
+  // Fall back to the category-icon set (its names aren't all in ICONS) before the "?" glyph,
+  // so a category's icon renders correctly anywhere it's shown via the generic <Icon>.
+  const Cmp = ICONS[name] ?? CATEGORY_ICON_COMPONENTS[name] ?? HelpCircle;
   return <Cmp size={size} strokeWidth={sw} className={className} style={style} aria-hidden="true" />;
 }

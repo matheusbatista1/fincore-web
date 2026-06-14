@@ -157,6 +157,9 @@ const REGISTRY: Record<string, LucideIcon> = {
 /** The icon names offered in the category picker, in display order. */
 export const CATEGORY_ICON_NAMES = Object.keys(REGISTRY);
 
+/** Lucide components by category-icon name — lets the generic <Icon> resolve these too. */
+export const CATEGORY_ICON_COMPONENTS = REGISTRY;
+
 export const DEFAULT_CATEGORY_ICON = "tag";
 
 /** Render a category's lucide icon by name, falling back to a generic tag. */
