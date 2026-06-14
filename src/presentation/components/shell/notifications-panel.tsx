@@ -3,11 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useNotificationsStore } from "@/presentation/stores/notifications-store";
 import type { NotifItem } from "./notifications";
 
 /** Notificações — ported 1:1 from the prototype (extras.jsx NotificationsPanel). */
 export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onClose: () => void }) {
   const router = useRouter();
+  const readKeys = useNotificationsStore((s) => s.readKeys);
+  const markRead = useNotificationsStore((s) => s.markRead);
+  const markAllRead = useNotificationsStore((s) => s.markAllRead);
+  const unread = items.filter((it) => !readKeys.includes(it.id)).length;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -24,7 +29,7 @@ export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onC
       <div className="popover notif" onClick={(e) => e.stopPropagation()} onKeyDown={() => {}}>
         <div className="popover-head">
           <h4>Notificações</h4>
-          <span className="pill purple">{items.length}</span>
+          <span className="pill purple">{unread}</span>
         </div>
         <div className="popover-body">
           {items.length === 0 && (
@@ -35,9 +40,11 @@ export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onC
           {items.map((it) => (
             <button
               type="button"
-              key={`${it.title}-${it.sub}`}
+              key={it.id}
               className="notif-item"
+              style={{ opacity: readKeys.includes(it.id) ? 0.5 : 1 }}
               onClick={() => {
+                markRead(it.id);
                 router.push(it.href);
                 onClose();
               }}
@@ -56,7 +63,14 @@ export function NotificationsPanel({ items, onClose }: { items: NotifItem[]; onC
             </button>
           ))}
         </div>
-        <button type="button" className="popover-foot" onClick={onClose}>
+        <button
+          type="button"
+          className="popover-foot"
+          onClick={() => {
+            markAllRead(items.map((it) => it.id));
+            onClose();
+          }}
+        >
           Marcar todas como lidas
         </button>
       </div>
