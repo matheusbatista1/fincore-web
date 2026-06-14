@@ -8,12 +8,12 @@ import { AreaChart } from "@/presentation/components/charts/area-chart";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
 import {
-  MonthFade,
   MonthNavButton,
   MonthNavPending,
   MonthTransition,
 } from "@/presentation/components/shell/month-transition";
 import { TxRow } from "@/presentation/components/transactions/tx-row";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -160,7 +160,7 @@ function KpiCard({
       </div>
       <div className="kpi-label">{label}</div>
       <div className={valueTone === "neutral" ? "kpi-val" : `kpi-val kpi-val-${valueTone}`}>
-        <Money cents={valueCents} withSign={signedValue} />
+        <AnimatedMoney cents={valueCents} withSign={signedValue} />
       </div>
       {sub && <div className="kpi-foot">{sub}</div>}
     </div>
@@ -223,419 +223,415 @@ export function DashboardView({ data }: { data: DashboardData }) {
             </MonthNavButton>
           </div>
         </div>
-        <MonthFade month={data.month}>
-          {peopleOn && (
-            <div
-              className="row"
-              style={{ justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}
-            >
-              <div className="view-toggle">
-                <button type="button" className={!isPersonal ? "on" : ""} onClick={() => setView("general")}>
-                  <Icon name="users" size={15} />
-                  Geral
-                </button>
-                <button type="button" className={isPersonal ? "on" : ""} onClick={() => setView("personal")}>
-                  <Icon name="user" size={15} />
-                  Apenas meu
-                </button>
-              </div>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-lo)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  maxWidth: 460,
-                }}
-              >
-                <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
-                {isPersonal
-                  ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
-                  : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
-              </span>
+        {/* No MonthFade wrapper: the charts/values stay mounted and morph as `data` changes. */}
+        {peopleOn && (
+          <div
+            className="row"
+            style={{ justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}
+          >
+            <div className="view-toggle">
+              <button type="button" className={!isPersonal ? "on" : ""} onClick={() => setView("general")}>
+                <Icon name="users" size={15} />
+                Geral
+              </button>
+              <button type="button" className={isPersonal ? "on" : ""} onClick={() => setView("personal")}>
+                <Icon name="user" size={15} />
+                Apenas meu
+              </button>
             </div>
-          )}
+            <span
+              style={{
+                fontSize: 13,
+                color: "var(--text-lo)",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                maxWidth: 460,
+              }}
+            >
+              <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
+              {isPersonal
+                ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
+                : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
+            </span>
+          </div>
+        )}
 
-          {/* HERO */}
-          <div className="card rise" style={{ overflow: "hidden", marginBottom: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.05fr", gap: 0 }} className="dash-hero">
-              <div className="card-pad" style={{ padding: "28px 28px 26px" }}>
-                <div className="row gap-2" style={{ justifyContent: "space-between" }}>
-                  <span className="kicker">Saldo total disponível</span>
-                  <button type="button" className="eye-btn" onClick={togglePrivacy} title="Ocultar valores">
-                    <Icon name={privacy ? "eye-off" : "eye"} size={18} />
-                  </button>
-                </div>
-                <div
-                  className="fc-bignum"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontSize: 52,
-                    fontWeight: 600,
-                    color: "var(--text-hi)",
-                    letterSpacing: "-0.03em",
-                    marginTop: 6,
-                    lineHeight: 1,
-                  }}
-                >
-                  <CountMoney cents={data.saldoTotalCents} />
-                </div>
-                <div className="row gap-3" style={{ marginTop: 12 }}>
-                  {data.deltaPct !== null && (
-                    <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
-                      <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
-                      {data.deltaPct >= 0 ? "+" : ""}
-                      {data.deltaPct.toFixed(1).replace(".", ",")}%
-                    </span>
-                  )}
-                  <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
-                    em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
-                  </span>
-                  {!data.isPast && data.projectedBalanceCents !== data.saldoTotalCents && (
-                    <span
-                      className="row gap-1"
-                      style={{ color: "var(--text-lo)", fontSize: 13.5 }}
-                      title="Saldo previsto para o fim do mês"
-                    >
-                      · fim do mês ~<Money cents={data.projectedBalanceCents} withSign={false} />
-                    </span>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: peopleOn ? "1fr 1fr 1fr" : "1fr 1fr",
-                    gap: 14,
-                    marginTop: 26,
-                    paddingTop: 22,
-                    borderTop: "1px solid var(--line)",
-                  }}
-                >
-                  <div>
-                    <div
-                      className="row gap-2"
-                      style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
-                    >
-                      <Icon name="trending-up" size={14} />
-                      Investido
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
-                      <Money cents={data.investedCents} withSign={false} />
-                    </div>
-                  </div>
-                  {peopleOn && (
-                    <div>
-                      <div
-                        className="row gap-2"
-                        style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
-                      >
-                        <Icon name="hand-coins" size={14} />A receber
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 18, color: "var(--mint-500)" }}>
-                        <Money cents={data.aReceberCents} withSign={false} />
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <div
-                      className="row gap-2"
-                      style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
-                    >
-                      <Icon name="landmark" size={14} />
-                      Patrimônio
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
-                      <Money cents={data.saldoTotalCents + data.investedCents} withSign={false} />
-                    </div>
-                  </div>
-                </div>
+        {/* HERO */}
+        <div className="card rise" style={{ overflow: "hidden", marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.05fr", gap: 0 }} className="dash-hero">
+            <div className="card-pad" style={{ padding: "28px 28px 26px" }}>
+              <div className="row gap-2" style={{ justifyContent: "space-between" }}>
+                <span className="kicker">Saldo total disponível</span>
+                <button type="button" className="eye-btn" onClick={togglePrivacy} title="Ocultar valores">
+                  <Icon name={privacy ? "eye-off" : "eye"} size={18} />
+                </button>
               </div>
               <div
-                className="dash-hero-spark"
+                className="fc-bignum"
                 style={{
-                  background: "linear-gradient(180deg, rgba(124,92,255,0.05), transparent)",
-                  borderLeft: "1px solid var(--line)",
-                  padding: "22px 24px",
-                  display: "flex",
-                  flexDirection: "column",
+                  fontFamily: "var(--font-display)",
+                  fontSize: 52,
+                  fontWeight: 600,
+                  color: "var(--text-hi)",
+                  letterSpacing: "-0.03em",
+                  marginTop: 6,
+                  lineHeight: 1,
                 }}
               >
-                <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                  <span className="kicker">Evolução do patrimônio</span>
-                  <span className="pill purple">6 meses</span>
+                <CountMoney cents={data.saldoTotalCents} />
+              </div>
+              <div className="row gap-3" style={{ marginTop: 12 }}>
+                {data.deltaPct !== null && (
+                  <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
+                    <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
+                    {data.deltaPct >= 0 ? "+" : ""}
+                    {data.deltaPct.toFixed(1).replace(".", ",")}%
+                  </span>
+                )}
+                <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
+                  em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
+                </span>
+                {!data.isPast && data.projectedBalanceCents !== data.saldoTotalCents && (
+                  <span
+                    className="row gap-1"
+                    style={{ color: "var(--text-lo)", fontSize: 13.5 }}
+                    title="Saldo previsto para o fim do mês"
+                  >
+                    · fim do mês ~<Money cents={data.projectedBalanceCents} withSign={false} />
+                  </span>
+                )}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: peopleOn ? "1fr 1fr 1fr" : "1fr 1fr",
+                  gap: 14,
+                  marginTop: 26,
+                  paddingTop: 22,
+                  borderTop: "1px solid var(--line)",
+                }}
+              >
+                <div>
+                  <div
+                    className="row gap-2"
+                    style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
+                  >
+                    <Icon name="trending-up" size={14} />
+                    Investido
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
+                    <Money cents={data.investedCents} withSign={false} />
+                  </div>
                 </div>
-                <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
-                  <AreaChart data={data.trend} />
+                {peopleOn && (
+                  <div>
+                    <div
+                      className="row gap-2"
+                      style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
+                    >
+                      <Icon name="hand-coins" size={14} />A receber
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: "var(--mint-500)" }}>
+                      <Money cents={data.aReceberCents} withSign={false} />
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div
+                    className="row gap-2"
+                    style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
+                  >
+                    <Icon name="landmark" size={14} />
+                    Patrimônio
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
+                    <Money cents={data.saldoTotalCents + data.investedCents} withSign={false} />
+                  </div>
                 </div>
+              </div>
+            </div>
+            <div
+              className="dash-hero-spark"
+              style={{
+                background: "linear-gradient(180deg, rgba(124,92,255,0.05), transparent)",
+                borderLeft: "1px solid var(--line)",
+                padding: "22px 24px",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+                <span className="kicker">Evolução do patrimônio</span>
+                <span className="pill purple">6 meses</span>
+              </div>
+              <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
+                <AreaChart data={data.trend} />
               </div>
             </div>
           </div>
+        </div>
 
-          {/* MINI CARDS */}
-          {data.cards.length > 0 && (
+        {/* MINI CARDS */}
+        {data.cards.length > 0 && (
+          <>
+            <div className="row" style={{ justifyContent: "space-between", margin: "26px 2px 12px" }}>
+              <span className="kicker">Seus cartões</span>
+              <Link className="card-link" href="/cards">
+                Ver todos
+                <Icon name="arrow-right" size={14} />
+              </Link>
+            </div>
+            <div
+              className="cards-row-scroll"
+              style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26 }}
+            >
+              {data.cards.map((c) => (
+                <MiniCard key={c.id} card={c} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* KPIs */}
+        <div className="kpi-grid" style={{ marginBottom: 16 }}>
+          <KpiCard
+            icon="arrow-down-left"
+            tone="mint"
+            valueTone="mint"
+            label={isPersonal ? "Minha renda no mês" : "Receitas do mês"}
+            valueCents={receitaMes}
+            sub={
+              <span className="row gap-2">
+                <Icon name="calendar" size={14} />
+                {isPersonal ? "Sem reembolsos" : "Tudo que entrou"}
+              </span>
+            }
+          />
+          <KpiCard
+            icon="arrow-up-right"
+            tone="rose"
+            valueTone="rose"
+            label={isPersonal ? "Meu gasto real" : "Gasto do mês"}
+            valueCents={gastoMes}
+            sub={
+              <span className="row gap-2">
+                <Icon name="receipt" size={14} />
+                {isPersonal ? "Só a sua parte" : "Inclui partes de outros"}
+              </span>
+            }
+          />
+          <KpiCard
+            icon="piggy-bank"
+            tone="purple"
+            valueTone={economia >= 0 ? "mint" : "rose"}
+            signedValue
+            label={isPersonal ? "Sobra real" : "Economia do mês"}
+            valueCents={economia}
+            sub={
+              <span className="row gap-2">
+                <Icon name="target" size={14} />
+                <span>{savingsPct}% da renda</span>
+              </span>
+            }
+          />
+        </div>
+
+        {/* INSIGHTS */}
+        <div
+          className="insight-grid"
+          style={{
+            display: "grid",
+            gridTemplateColumns: peopleOn ? "repeat(4,1fr)" : "repeat(2,1fr)",
+            gap: 14,
+            marginBottom: 26,
+          }}
+        >
+          <div className="insight">
+            <span className="ii" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
+              <Icon name="piggy-bank" size={17} />
+            </span>
+            <p>
+              Sua taxa de poupança é <b>{savingsPct}%</b> da renda do mês.
+            </p>
+          </div>
+          {peopleOn && (
             <>
-              <div className="row" style={{ justifyContent: "space-between", margin: "26px 2px 12px" }}>
-                <span className="kicker">Seus cartões</span>
-                <Link className="card-link" href="/cards">
-                  Ver todos
-                  <Icon name="arrow-right" size={14} />
-                </Link>
+              <div className="insight">
+                <span className="ii" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
+                  <Icon name="handshake" size={17} />
+                </span>
+                <p>
+                  Você tem{" "}
+                  <b>
+                    <Money cents={data.aReceberCents} withSign={false} />
+                  </b>{" "}
+                  a receber de outras pessoas.
+                </p>
               </div>
-              <div
-                className="cards-row-scroll"
-                style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26 }}
-              >
-                {data.cards.map((c) => (
-                  <MiniCard key={c.id} card={c} />
-                ))}
+              <div className="insight">
+                <span className="ii" style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}>
+                  <Icon name="wallet" size={17} />
+                </span>
+                <p>
+                  <b>
+                    <Money cents={data.othersCents} withSign={false} />
+                  </b>{" "}
+                  dos gastos são partes de outras pessoas.
+                </p>
               </div>
             </>
           )}
-
-          {/* KPIs */}
-          <div className="kpi-grid" style={{ marginBottom: 16 }}>
-            <KpiCard
-              icon="arrow-down-left"
-              tone="mint"
-              valueTone="mint"
-              label={isPersonal ? "Minha renda no mês" : "Receitas do mês"}
-              valueCents={receitaMes}
-              sub={
-                <span className="row gap-2">
-                  <Icon name="calendar" size={14} />
-                  {isPersonal ? "Sem reembolsos" : "Tudo que entrou"}
-                </span>
-              }
-            />
-            <KpiCard
-              icon="arrow-up-right"
-              tone="rose"
-              valueTone="rose"
-              label={isPersonal ? "Meu gasto real" : "Gasto do mês"}
-              valueCents={gastoMes}
-              sub={
-                <span className="row gap-2">
-                  <Icon name="receipt" size={14} />
-                  {isPersonal ? "Só a sua parte" : "Inclui partes de outros"}
-                </span>
-              }
-            />
-            <KpiCard
-              icon="piggy-bank"
-              tone="purple"
-              valueTone={economia >= 0 ? "mint" : "rose"}
-              signedValue
-              label={isPersonal ? "Sobra real" : "Economia do mês"}
-              valueCents={economia}
-              sub={
-                <span className="row gap-2">
-                  <Icon name="target" size={14} />
-                  <span>{savingsPct}% da renda</span>
-                </span>
-              }
-            />
+          <div className="insight">
+            <span className="ii" style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}>
+              <Icon name="chart-pie" size={17} />
+            </span>
+            <p>
+              {topCat ? (
+                <>
+                  <b>{topCat.name}</b> é sua maior categoria de gasto.
+                </>
+              ) : (
+                "Cadastre lançamentos para ver insights por categoria."
+              )}
+            </p>
           </div>
+        </div>
 
-          {/* INSIGHTS */}
-          <div
-            className="insight-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: peopleOn ? "repeat(4,1fr)" : "repeat(2,1fr)",
-              gap: 14,
-              marginBottom: 26,
-            }}
-          >
-            <div className="insight">
-              <span className="ii" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
-                <Icon name="piggy-bank" size={17} />
-              </span>
-              <p>
-                Sua taxa de poupança é <b>{savingsPct}%</b> da renda do mês.
-              </p>
-            </div>
-            {peopleOn && (
-              <>
-                <div className="insight">
-                  <span className="ii" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
-                    <Icon name="handshake" size={17} />
-                  </span>
-                  <p>
-                    Você tem{" "}
-                    <b>
-                      <Money cents={data.aReceberCents} withSign={false} />
-                    </b>{" "}
-                    a receber de outras pessoas.
-                  </p>
-                </div>
-                <div className="insight">
-                  <span
-                    className="ii"
-                    style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}
-                  >
-                    <Icon name="wallet" size={17} />
-                  </span>
-                  <p>
-                    <b>
-                      <Money cents={data.othersCents} withSign={false} />
-                    </b>{" "}
-                    dos gastos são partes de outras pessoas.
-                  </p>
-                </div>
-              </>
-            )}
-            <div className="insight">
-              <span className="ii" style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}>
-                <Icon name="chart-pie" size={17} />
-              </span>
-              <p>
-                {topCat ? (
-                  <>
-                    <b>{topCat.name}</b> é sua maior categoria de gasto.
-                  </>
-                ) : (
-                  "Cadastre lançamentos para ver insights por categoria."
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* MAIN GRID */}
-          <div
-            className="dash-grid"
-            style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 16, alignItems: "start" }}
-          >
-            <div className="col gap-4">
-              <div className="card">
-                <div className="card-head">
-                  <div>
-                    <h3>Receitas x Despesas</h3>
-                    <div className="ch-sub">Comparativo dos últimos 6 meses</div>
-                  </div>
-                </div>
-                <div className="card-pad">
-                  <BarsChart months={chartMonths} />
+        {/* MAIN GRID */}
+        <div
+          className="dash-grid"
+          style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 16, alignItems: "start" }}
+        >
+          <div className="col gap-4">
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h3>Receitas x Despesas</h3>
+                  <div className="ch-sub">Comparativo dos últimos 6 meses</div>
                 </div>
               </div>
+              <div className="card-pad">
+                <BarsChart months={chartMonths} />
+              </div>
+            </div>
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h3>Atividade recente</h3>
+                </div>
+                <Link className="card-link" href="/transactions">
+                  Ver tudo
+                  <Icon name="arrow-right" size={14} />
+                </Link>
+              </div>
+              <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                {data.recent.length === 0 ? (
+                  <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
+                    Nenhum lançamento ainda.
+                  </div>
+                ) : (
+                  data.recent.map((t) => <TxRow key={t.id} item={t} today={data.today} />)
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="col gap-4">
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h3>Gastos por categoria</h3>
+                </div>
+                {reportsOn && (
+                  <Link className="card-link" href="/reports">
+                    Relatório
+                    <Icon name="arrow-right" size={14} />
+                  </Link>
+                )}
+              </div>
+              <div className="card-pad">
+                {chartTotalExpense > 0 ? (
+                  <DonutChart slices={chartCategories} totalCents={chartTotalExpense} />
+                ) : (
+                  <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
+                    Sem gastos neste mês.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {data.cards.length > 0 && (
               <div className="card">
                 <div className="card-head">
                   <div>
-                    <h3>Atividade recente</h3>
+                    <h3>Próximos vencimentos</h3>
                   </div>
-                  <Link className="card-link" href="/transactions">
-                    Ver tudo
+                </div>
+                <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                  {data.cards.map((c) => {
+                    const soon = daysUntilDue(c.dueDay, data.today) <= 7;
+                    return (
+                      <div className="lrow" key={c.id}>
+                        <span className="l-ic" style={{ background: "var(--surface-3)" }}>
+                          <Icon name="credit-card" size={18} />
+                        </span>
+                        <div className="l-main">
+                          <div className="l-title">
+                            {c.bank} · {c.product}
+                          </div>
+                          <div className="l-sub">Vence dia {c.dueDay}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div className="l-amt">
+                            <Money cents={c.billCents} withSign={false} />
+                          </div>
+                          <span className={`pill ${soon ? "amber" : "neutral"}`} style={{ marginTop: 4 }}>
+                            {soon ? "Em breve" : "Em dia"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {peopleOn && (
+              <div className="card">
+                <div className="card-head">
+                  <div>
+                    <h3>Pessoas com pendências</h3>
+                  </div>
+                  <Link className="card-link" href="/people">
+                    Ver todas
                     <Icon name="arrow-right" size={14} />
                   </Link>
                 </div>
-                <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-                  {data.recent.length === 0 ? (
+                <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                  {data.debtors.length === 0 ? (
                     <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
-                      Nenhum lançamento ainda.
+                      Ninguém te deve no momento.
                     </div>
                   ) : (
-                    data.recent.map((t) => <TxRow key={t.id} item={t} today={data.today} />)
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="col gap-4">
-              <div className="card">
-                <div className="card-head">
-                  <div>
-                    <h3>Gastos por categoria</h3>
-                  </div>
-                  {reportsOn && (
-                    <Link className="card-link" href="/reports">
-                      Relatório
-                      <Icon name="arrow-right" size={14} />
-                    </Link>
-                  )}
-                </div>
-                <div className="card-pad">
-                  {chartTotalExpense > 0 ? (
-                    <DonutChart slices={chartCategories} totalCents={chartTotalExpense} />
-                  ) : (
-                    <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
-                      Sem gastos neste mês.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {data.cards.length > 0 && (
-                <div className="card">
-                  <div className="card-head">
-                    <div>
-                      <h3>Próximos vencimentos</h3>
-                    </div>
-                  </div>
-                  <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-                    {data.cards.map((c) => {
-                      const soon = daysUntilDue(c.dueDay, data.today) <= 7;
-                      return (
-                        <div className="lrow" key={c.id}>
-                          <span className="l-ic" style={{ background: "var(--surface-3)" }}>
-                            <Icon name="credit-card" size={18} />
-                          </span>
-                          <div className="l-main">
-                            <div className="l-title">
-                              {c.bank} · {c.product}
-                            </div>
-                            <div className="l-sub">Vence dia {c.dueDay}</div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div className="l-amt">
-                              <Money cents={c.billCents} withSign={false} />
-                            </div>
-                            <span className={`pill ${soon ? "amber" : "neutral"}`} style={{ marginTop: 4 }}>
-                              {soon ? "Em breve" : "Em dia"}
-                            </span>
-                          </div>
+                    data.debtors.map((p) => (
+                      <Link className="lrow" href="/people" key={p.id}>
+                        <Avatar name={p.name} color={p.color} size={40} radius={12} />
+                        <div className="l-main">
+                          <div className="l-title">{p.name}</div>
+                          <div className="l-sub">{p.relationship || "te deve"}</div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="l-amt pos">
+                          <Money cents={p.balanceCents} withSign={false} />
+                        </div>
+                      </Link>
+                    ))
+                  )}
                 </div>
-              )}
-
-              {peopleOn && (
-                <div className="card">
-                  <div className="card-head">
-                    <div>
-                      <h3>Pessoas com pendências</h3>
-                    </div>
-                    <Link className="card-link" href="/people">
-                      Ver todas
-                      <Icon name="arrow-right" size={14} />
-                    </Link>
-                  </div>
-                  <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-                    {data.debtors.length === 0 ? (
-                      <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
-                        Ninguém te deve no momento.
-                      </div>
-                    ) : (
-                      data.debtors.map((p) => (
-                        <Link className="lrow" href="/people" key={p.id}>
-                          <Avatar name={p.name} color={p.color} size={40} radius={12} />
-                          <div className="l-main">
-                            <div className="l-title">{p.name}</div>
-                            <div className="l-sub">{p.relationship || "te deve"}</div>
-                          </div>
-                          <div className="l-amt pos">
-                            <Money cents={p.balanceCents} withSign={false} />
-                          </div>
-                        </Link>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        </MonthFade>
+        </div>
       </div>
     </MonthTransition>
   );

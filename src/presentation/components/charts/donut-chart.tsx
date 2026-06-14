@@ -1,4 +1,4 @@
-import { formatBRL } from "@/shared/formatting/currency";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 
 interface DonutSlice {
   readonly id: string;
@@ -30,6 +30,7 @@ export function DonutChart({ slices, totalCents }: { slices: DonutSlice[]; total
             const node = (
               <circle
                 key={slice.id}
+                className="donut-slice"
                 cx="84"
                 cy="84"
                 r={R}
@@ -46,7 +47,7 @@ export function DonutChart({ slices, totalCents }: { slices: DonutSlice[]; total
         </svg>
         <div className="center">
           <div>
-            <div className="big tnum">{formatBRL(totalCents, { withSign: false })}</div>
+            <AnimatedMoney cents={totalCents} withSign={false} className="big" />
             <div className="lbl">gasto no mês</div>
           </div>
         </div>
