@@ -9,7 +9,13 @@ import type {
   TransferTransaction,
 } from "../entities/transaction";
 import { Money } from "../money/money";
-import { cardBillMonth, cardUtilization, computeCardBill, computeCardBills } from "./card-bill.calculator";
+import {
+  billingCompetence,
+  cardBillMonth,
+  cardUtilization,
+  computeCardBill,
+  computeCardBills,
+} from "./card-bill.calculator";
 
 // ---------------------------------------------------------------------------
 // Test factories — keep each fixture minimal but type-complete under strict mode.
@@ -423,5 +429,30 @@ describe("cardBillMonth", () => {
   it("crosses the year boundary", () => {
     // Closes 24, due 2. Buy 30/12 → closes 24/01 → due 02/02.
     expect(cardBillMonth("2026-12-30", 24, 2)).toBe("2027-02");
+  });
+});
+
+describe("billingCompetence", () => {
+  // Caixa-style card: closes 24, due 2.
+  const caixa: CreditCard = { ...card("card-1", 100000), closingDay: 24, dueDay: 2 };
+  const resolve = billingCompetence([caixa]);
+
+  it("buckets a card charge by its bill's due month", () => {
+    const charge: ExpenseTransaction = { ...cardExpense(-60762, "card-1"), date: "2026-05-26" };
+    expect(resolve(charge)).toBe("2026-07");
+  });
+
+  it("keeps a non-card expense on the calendar month of its date", () => {
+    const pix: ExpenseTransaction = { ...accountExpense(-5000, "acc-1"), date: "2026-05-26" };
+    expect(resolve(pix)).toBe("2026-05");
+  });
+
+  it("keeps income on the calendar month of its date", () => {
+    expect(resolve({ ...income(300000, "acc-1"), date: "2026-05-26" })).toBe("2026-05");
+  });
+
+  it("falls back to the date month for a charge on an unknown card", () => {
+    const charge: ExpenseTransaction = { ...cardExpense(-1000, "ghost"), date: "2026-05-26" };
+    expect(resolve(charge)).toBe("2026-05");
   });
 });

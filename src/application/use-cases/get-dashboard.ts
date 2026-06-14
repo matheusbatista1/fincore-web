@@ -1,6 +1,6 @@
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
-import { cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
+import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { addMonths, type CompetenceMonth, dateInMonth } from "@/domain/value-objects/competence-month";
@@ -73,8 +73,10 @@ export async function getDashboard(
   const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
-  const general = computeViewTotals(ws.transactions, "general", month);
-  const personal = computeViewTotals(ws.transactions, "personal", month);
+  // Card charges count in their bill's due month; everything else by its date's month.
+  const competenceOf = billingCompetence(ws.creditCards);
+  const general = computeViewTotals(ws.transactions, "general", month, competenceOf);
+  const personal = computeViewTotals(ws.transactions, "personal", month, competenceOf);
 
   const accounts = ws.accounts.map((account) => ({
     id: account.id,

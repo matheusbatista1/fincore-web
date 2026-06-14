@@ -1,3 +1,4 @@
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
@@ -49,7 +50,9 @@ export async function getMonthly(
 ): Promise<MonthlyData> {
   const ws = await loadWorkspaceCached(repo, userId);
   const map = createTransactionMapper(ws);
-  const { real, projected } = transactionsForMonth(ws.transactions, month);
+  // Card charges count in their bill's due month; everything else by its date's month.
+  const competenceOf = billingCompetence(ws.creditCards);
+  const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
 
   const realItems: MonthlyItem[] = real.map((tx) => ({ ...map(tx), projected: false, anchor: null }));
   const projectedItems: MonthlyItem[] = projected.map((p) => {

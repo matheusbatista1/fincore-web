@@ -44,6 +44,27 @@ export function cardBillMonth(date: IsoDate, closingDay: number, dueDay: number)
   return addMonths(closeMonth, dueDay <= closingDay ? 1 : 0);
 }
 
+/** A transaction's competence month: a card charge by its bill's due month, everything else by date. */
+export type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
+
+/**
+ * Build a competence resolver for a set of cards. Card-source expenses land in
+ * the month their bill is due ({@link cardBillMonth}); every other transaction
+ * (account debit, boleto, loan, financing, overdraft, income, transfer) keeps the
+ * calendar month of its date. Use this wherever a view buckets by month so card
+ * charges follow the billing cycle, not the purchase date's month.
+ */
+export function billingCompetence(cards: readonly CreditCard[]): CompetenceResolver {
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  return (tx) => {
+    if (isExpense(tx) && tx.source === "card" && tx.cardId !== null) {
+      const card = byId.get(tx.cardId);
+      if (card) return cardBillMonth(tx.date, card.closingDay, card.dueDay);
+    }
+    return monthOf(tx.date);
+  };
+}
+
 /**
  * Does this expense count toward the current bill of `cardId`?
  *
