@@ -14,8 +14,8 @@ import { PageTransition } from "@/presentation/components/shell/page-transition"
 import { Sidebar } from "@/presentation/components/shell/sidebar";
 import { TxModalsHost } from "@/presentation/components/transactions/tx-modals-host";
 import { ModulesProvider } from "@/presentation/providers/modules-provider";
-import { LONG_MONTHS, monthLabel } from "@/shared/formatting/dates";
-import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
+import { LONG_MONTHS } from "@/shared/formatting/dates";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { isModuleEnabled } from "@/shared/modules";
 
 /** Derive a display name from the account email when no profile name is set. */
@@ -66,7 +66,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const dayOfMonth = Number(today.split("-")[2] ?? "1");
   const monthIndex = Number(today.split("-")[1] ?? "1") - 1;
   const todayLabel = `${String(dayOfMonth).padStart(2, "0")} de ${(LONG_MONTHS[monthIndex] ?? "").toLowerCase()}`;
-  const monthChip = monthLabel(currentMonthInBrazil(), { long: true });
 
   const notif = {
     cards: workspace.cards.map((c) => ({
@@ -124,7 +123,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             notif={notif}
           />
           <div className="page">
-            <PageHead firstName={firstName} todayLabel={todayLabel} monthChip={monthChip} />
+            <PageHead firstName={firstName} todayLabel={todayLabel} />
             <PullToRefresh>
               <PageTransition>{children}</PageTransition>
             </PullToRefresh>
