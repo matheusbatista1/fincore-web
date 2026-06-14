@@ -1,6 +1,7 @@
 import { isExpense } from "@/domain/entities/transaction";
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { addMonths, type CompetenceMonth, monthOf } from "@/domain/value-objects/competence-month";
+import { addMonths, type CompetenceMonth } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
@@ -42,11 +43,13 @@ export async function getReports(
   anchorMonth: CompetenceMonth,
 ): Promise<ReportsData> {
   const ws = await loadWorkspaceCached(repo, userId);
+  // Card charges count in their bill's due month; everything else by its date's month.
+  const competenceOf = billingCompetence(ws.creditCards);
 
   const months: MonthBar[] = [];
   for (let i = TRAILING_MONTHS - 1; i >= 0; i--) {
     const month = addMonths(anchorMonth, -i);
-    const totals = computeViewTotals(ws.transactions, "general", month);
+    const totals = computeViewTotals(ws.transactions, "general", month, competenceOf);
     months.push({
       month,
       label: monthLabel(month),
@@ -60,7 +63,7 @@ export async function getReports(
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const byCategory = new Map<string, number>();
   for (const tx of ws.transactions) {
-    if (!isExpense(tx) || monthOf(tx.date) !== anchorMonth) continue;
+    if (!isExpense(tx) || competenceOf(tx) !== anchorMonth) continue;
     const key = tx.categoryId ?? "__none__";
     byCategory.set(key, (byCategory.get(key) ?? 0) + Math.abs(tx.amountCents));
   }

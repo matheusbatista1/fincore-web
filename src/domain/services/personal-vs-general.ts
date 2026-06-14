@@ -28,6 +28,10 @@ import { Money } from "../money/money";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { monthOf } from "../value-objects/competence-month";
 
+/** Maps a transaction to its competence month; defaults to the calendar month of its date. */
+type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
+const calendarCompetence: CompetenceResolver = (tx) => monthOf(tx.date);
+
 /** Which lens to compute totals through. */
 export type ViewMode = "general" | "personal";
 
@@ -44,14 +48,18 @@ export interface ViewTotals {
  * @param transactions Source lançamentos (any mix of expense/income/transfer).
  * @param mode         `"general"` (everything) or `"personal"` (only your share).
  * @param month        Optional competence-month filter (`YYYY-MM`); when given,
- *                     only transactions whose date falls in that month are counted.
+ *                     only transactions whose competence falls in that month count.
+ * @param competenceOf Maps each transaction to its competence month (default: the
+ *                     calendar month of its date). Pass a card-aware resolver so
+ *                     card charges count in their bill's due month.
  */
 export function computeViewTotals(
   transactions: readonly Transaction[],
   mode: ViewMode,
   month?: CompetenceMonth,
+  competenceOf: CompetenceResolver = calendarCompetence,
 ): ViewTotals {
-  const inScope = month === undefined ? transactions : transactions.filter((t) => monthOf(t.date) === month);
+  const inScope = month === undefined ? transactions : transactions.filter((t) => competenceOf(t) === month);
 
   const incomeParts: Money[] = [];
   const expenseParts: Money[] = [];
