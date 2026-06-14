@@ -70,9 +70,11 @@ export const createTransactionSchema = z.discriminatedUnion("kind", [
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 
 /**
- * Editing updates a SINGLE row (for installments, only that parcela — the group
- * stays intact) and cannot change the kind, mirroring the prototype's edit mode
- * (no intent tabs, no installment/fixed toggles).
+ * Editing updates a SINGLE row (for an existing installment, only that parcela —
+ * the group stays intact) and cannot change the kind. A row can be turned into
+ * (or out of) a **fixed** recurring entry, and a non-installment expense can be
+ * **converted** into an installment schedule (`installment` set) — which replaces
+ * the row with the generated parcelas.
  */
 const expenseUpdateSchema = z.object({
   kind: z.literal("expense"),
@@ -87,7 +89,10 @@ const expenseUpdateSchema = z.object({
   cardId: idSchema.nullable().default(null),
   accountId: idSchema.nullable().default(null),
   linkedAccountId: idSchema.nullable().default(null),
+  fixed: z.boolean().default(false),
   split: splitParamsSchema.default({ method: "equal", meIn: true, selected: [], custom: {} }),
+  /** Set to convert this non-installment expense into an installment schedule. */
+  installment: installmentParamsSchema.nullable().default(null),
 });
 
 const incomeUpdateSchema = z.object({
@@ -99,6 +104,7 @@ const incomeUpdateSchema = z.object({
   amountCents: centsSchema.positive("Informe um valor maior que zero."),
   accountId: idSchema,
   fromPersonId: idSchema.nullable().default(null),
+  fixed: z.boolean().default(false),
 });
 
 const transferUpdateSchema = z

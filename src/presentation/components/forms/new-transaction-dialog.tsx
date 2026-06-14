@@ -235,7 +235,7 @@ function TransactionForm({
   );
   const [desc, setDesc] = useState(initial?.description ?? "");
   const [ymd, setYmd] = useState(initial?.date ?? todayIso());
-  const [fixed, setFixed] = useState(false);
+  const [fixed, setFixed] = useState(initial?.isFixed ?? false);
 
   // expense — when editing, a null category stays null (no silent assignment on save).
   const [catId, setCatId] = useState<string | null>(
@@ -279,7 +279,11 @@ function TransactionForm({
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const canParcel = tab === "expense" && !editing && !fixed && PARCELABLE.has(srcType);
+  // An existing installment parcela can't change its fixed/installment nature here.
+  const isInstallment = editing && initial?.parcela != null;
+  // Parcelado is offered for new expenses AND for editing a non-installment expense
+  // (which converts it, replacing the row with the generated parcelas).
+  const canParcel = tab === "expense" && !fixed && !isInstallment && PARCELABLE.has(srcType);
   const n = parcelado && canParcel ? Math.max(2, Number.parseInt(parcN, 10) || 2) : 1;
   const cur = Math.min(n, Math.max(1, Number.parseInt(parcCur, 10) || 1));
   const totalMoney = Money.fromCents(cents);
@@ -339,7 +343,7 @@ function TransactionForm({
         amountCents: cents,
         accountId: acctId,
         fromPersonId: fromPerson,
-        ...(editing ? {} : { fixed }),
+        fixed,
       };
     }
     const customCents: Record<string, number> = {};
@@ -359,7 +363,13 @@ function TransactionForm({
         cardId: srcType === "card" ? cardId : null,
         accountId: srcType === "account" ? acctId : null,
         linkedAccountId: LINKABLE.has(srcType) ? linkedAccount : null,
+        fixed,
         split: { method, meIn, selected, custom: customCents },
+        // Setting installment converts this non-installment expense into a schedule.
+        installment:
+          parcelado && canParcel
+            ? { total: n, current: cur, includePrevious: parcPrev, includeNext: parcNext }
+            : null,
       };
     }
     return {
@@ -491,8 +501,8 @@ function TransactionForm({
           />
         </div>
 
-        {/* recorrência (hidden while editing, like the prototype) */}
-        {!editing && (
+        {/* recorrência — disponível ao criar e ao editar (exceto parcelas de um parcelamento) */}
+        {tab !== "transfer" && !isInstallment && (
           <div className="field">
             <SwitchRow
               on={fixed}

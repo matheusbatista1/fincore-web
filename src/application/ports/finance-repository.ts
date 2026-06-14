@@ -80,8 +80,9 @@ export interface CreateTransactionCommand {
 
 /**
  * An in-place update of a single transaction row. The kind is immutable and the
- * installment/recurrence linkage is preserved (editing a parcela touches only
- * that row). Splits are replaced atomically with the provided set.
+ * existing installment linkage is preserved (editing a parcela touches only that
+ * row). `fixed` toggles the row's recurrence on/off. Splits are replaced
+ * atomically with the provided set.
  */
 export interface UpdateTransactionCommand {
   readonly id: string;
@@ -96,6 +97,8 @@ export interface UpdateTransactionCommand {
   readonly accountId?: string | null;
   readonly linkedAccountId?: string | null;
   readonly myShareCents?: number | null;
+  /** When true the row recurs (anchored to its date's day); false clears recurrence. */
+  readonly fixed?: boolean;
   readonly fromPersonId?: string | null;
   readonly isReimbursement?: boolean;
   readonly transferFromAccountId?: string | null;
@@ -164,6 +167,12 @@ export interface FinanceRepository {
   createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;
   /** Update a single transaction row (kind immutable) and replace its splits atomically. */
   updateTransaction(userId: string, command: UpdateTransactionCommand): Promise<void>;
+  /** Soft-delete a single row and persist `command` (an installment group) in its place, atomically. */
+  replaceWithInstallment(
+    userId: string,
+    originalId: string,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
   /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */
