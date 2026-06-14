@@ -9,6 +9,7 @@ import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { type DashboardData, DashboardView } from "@/presentation/components/dashboard/dashboard-view";
 import { Icon } from "@/presentation/components/ui/icon";
+import { collapseRowsByInstallments } from "@/presentation/lib/group-installments";
 
 function currentMonthInBrazil(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
@@ -128,7 +129,7 @@ export default async function DashboardPage({
       dueDay: c.dueDay,
     })),
     debtors,
-    recent: transactions.slice(0, 6),
+    recent: collapseRowsByInstallments(transactions).slice(0, 6),
     accountsCount: workspace.accounts.length,
     today: todayInBrazil(),
     month,

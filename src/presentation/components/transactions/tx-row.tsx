@@ -6,14 +6,29 @@ import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
-import { openTxDetail } from "@/presentation/stores/tx-ui-store";
+import { openInstallmentGroup, openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
-/** Transaction list row — ported 1:1 from the prototype's TxRow (.lrow); click opens the detail. */
-export function TxRow({ item, today }: { item: TransactionListItem; today: string }) {
+/**
+ * Transaction list row (.lrow); click opens the detail. When `parcelaCount` is set
+ * the row represents a collapsed installment group — it shows an "Nx" badge and
+ * opens the installment-group modal instead.
+ */
+export function TxRow({
+  item,
+  today,
+  parcelaCount,
+}: {
+  item: TransactionListItem;
+  today: string;
+  parcelaCount?: number | undefined;
+}) {
   const isTransfer = item.kind === "transfer";
   const cat = item.category;
   const peopleOn = useModuleEnabled("people");
+  const groupId = item.installmentGroupId;
+  const grouped = parcelaCount !== undefined && groupId !== null;
+  const open = () => (grouped && groupId ? openInstallmentGroup(groupId) : openTxDetail(item));
 
   const icStyle: CSSProperties = isTransfer
     ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
@@ -43,11 +58,11 @@ export function TxRow({ item, today }: { item: TransactionListItem; today: strin
       tabIndex={0}
       className="lrow"
       style={{ cursor: "pointer" }}
-      onClick={() => openTxDetail(item)}
+      onClick={open}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          openTxDetail(item);
+          open();
         }
       }}
     >
@@ -55,7 +70,14 @@ export function TxRow({ item, today }: { item: TransactionListItem; today: strin
         <Icon name={iconName} size={18} />
       </span>
       <div className="l-main">
-        <div className="l-title">{item.description || (isTransfer ? "Transferência" : "Lançamento")}</div>
+        <div className="l-title">
+          {item.description || (isTransfer ? "Transferência" : "Lançamento")}
+          {grouped && (
+            <span className="parc-badge" style={{ marginLeft: 8 }}>
+              {parcelaCount}x
+            </span>
+          )}
+        </div>
         <div className="l-sub">
           {relativeDateLabel(item.date, today)}
           {sub ? ` · ${sub}` : ""}

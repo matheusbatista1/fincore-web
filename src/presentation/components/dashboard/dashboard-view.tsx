@@ -531,7 +531,14 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     Nenhum lançamento ainda.
                   </div>
                 ) : (
-                  data.recent.map((t) => <TxRow key={t.id} item={t} today={data.today} />)
+                  data.recent.map((t) => (
+                    <TxRow
+                      key={t.id}
+                      item={t}
+                      today={data.today}
+                      parcelaCount={t.installmentGroupId && t.parcela ? t.parcela.total : undefined}
+                    />
+                  ))
                 )}
               </div>
             </div>

@@ -9,6 +9,7 @@ import {
   type TxFormPerson,
 } from "@/presentation/components/forms/new-transaction-dialog";
 import { DeleteScopeModal } from "@/presentation/components/transactions/delete-scope-modal";
+import { InstallmentGroupModal } from "@/presentation/components/transactions/installment-group-modal";
 import { TxDetailModal } from "@/presentation/components/transactions/tx-detail-modal";
 
 /**
@@ -35,6 +36,7 @@ export function TxModalsHost({
     <>
       <TxDetailModal today={today} />
       <DeleteScopeModal transactions={transactions} />
+      <InstallmentGroupModal transactions={transactions} today={today} />
       <EditTransactionModal accounts={accounts} cards={cards} people={people} categories={categories} />
     </>
   );
