@@ -19,6 +19,8 @@ export interface NotifData {
 }
 
 export interface NotifItem {
+  /** Stable key for read-state tracking (survives re-derivation across renders). */
+  readonly id: string;
   readonly ic: string;
   readonly tone: "amber" | "rose" | "mint";
   readonly title: string;
@@ -50,6 +52,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
     .sort((a, b) => daysUntilDue(a.dueDay, data.today) - daysUntilDue(b.dueDay, data.today));
   for (const c of dueSoon) {
     items.push({
+      id: `due-${c.id}`,
       ic: "calendar-clock",
       tone: "amber",
       title: `Fatura ${c.bank} vence ${nextDueLabel(c.dueDay, data.today)}`,
@@ -60,6 +63,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
 
   for (const c of data.cards.filter((card) => card.utilization > 0.85)) {
     items.push({
+      id: `util-${c.id}`,
       ic: "alert-triangle",
       tone: "rose",
       title: `${c.bank} em ${Math.round(c.utilization * 100)}% do limite`,
@@ -71,6 +75,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
   const debtors = [...data.debtors].sort((a, b) => b.balanceCents - a.balanceCents).slice(0, 3);
   for (const p of debtors) {
     items.push({
+      id: `debtor-${p.id}`,
       ic: "hand-coins",
       tone: "mint",
       title: `${p.name.split(" ")[0]} te deve ${formatBRLAbsolute(p.balanceCents)}`,

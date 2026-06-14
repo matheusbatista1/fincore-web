@@ -19,6 +19,7 @@ import {
   type SearchPerson,
 } from "@/presentation/components/shell/search-palette";
 import { Icon } from "@/presentation/components/ui/icon";
+import { useNotificationsStore } from "@/presentation/stores/notifications-store";
 
 export function AppHeader({
   accounts,
@@ -42,8 +43,15 @@ export function AppHeader({
   const pathname = usePathname();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const readKeys = useNotificationsStore((s) => s.readKeys);
 
   const notifItems = deriveNotifications(notif);
+
+  // Gate the unread count on mount so the server-render (which can't read the
+  // persisted store) matches the first client render and avoids a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const unread = mounted ? notifItems.filter((it) => !readKeys.includes(it.id)).length : notifItems.length;
 
   // ⌘K / Ctrl+K opens the search palette (prototype behavior).
   useEffect(() => {
@@ -96,7 +104,7 @@ export function AppHeader({
           onClick={() => setNotifOpen((o) => !o)}
         >
           <Icon name="bell" size={19} />
-          {notifItems.length > 0 && <span className="dot" />}
+          {unread > 0 && <span className="dot" />}
         </button>
         <NewTransactionDialog
           accounts={accounts}
