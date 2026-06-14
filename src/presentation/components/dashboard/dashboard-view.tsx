@@ -37,8 +37,23 @@ interface DebtorData {
   readonly relationship: string;
   readonly balanceCents: number;
 }
+interface MonthBar {
+  readonly label: string;
+  readonly incomeCents: number;
+  readonly expenseCents: number;
+}
+interface CategorySlice {
+  readonly id: string;
+  readonly name: string;
+  readonly color: string;
+  readonly valueCents: number;
+}
 export interface DashboardData {
   readonly saldoTotalCents: number;
+  /** Projected total balance at the end of the browsed month (discreet hint). */
+  readonly projectedBalanceCents: number;
+  /** Whether the browsed month is already in the past (no projection to show). */
+  readonly isPast: boolean;
   readonly aReceberCents: number;
   readonly investedCents: number;
   readonly general: Totals;
@@ -46,9 +61,12 @@ export interface DashboardData {
   readonly othersCents: number;
   readonly deltaPct: number | null;
   readonly trend: { label: string; valueCents: number }[];
-  readonly months: { label: string; incomeCents: number; expenseCents: number }[];
-  readonly categories: { id: string; name: string; color: string; valueCents: number }[];
+  readonly months: MonthBar[];
+  readonly monthsPersonal: MonthBar[];
+  readonly categories: CategorySlice[];
+  readonly categoriesPersonal: CategorySlice[];
   readonly totalExpenseCents: number;
+  readonly totalExpensePersonalCents: number;
   readonly cards: MiniCardData[];
   readonly debtors: DebtorData[];
   readonly recent: TransactionListItem[];
@@ -103,6 +121,8 @@ function KpiCard({
   tone,
   label,
   valueCents,
+  valueTone = "neutral",
+  signedValue = false,
   delta,
   dir,
   sub,
@@ -111,6 +131,10 @@ function KpiCard({
   tone: string;
   label: string;
   valueCents: number;
+  /** Colors the value itself (green/red); `neutral` keeps the default text color. */
+  valueTone?: "mint" | "rose" | "neutral";
+  /** Show the sign (e.g. a negative "sobra real" renders as "- R$ …"). */
+  signedValue?: boolean;
   delta?: string;
   dir?: "up" | "down";
   sub?: ReactNode;
@@ -129,8 +153,8 @@ function KpiCard({
         )}
       </div>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-val">
-        <Money cents={valueCents} withSign={false} />
+      <div className={valueTone === "neutral" ? "kpi-val" : `kpi-val kpi-val-${valueTone}`}>
+        <Money cents={valueCents} withSign={signedValue} />
       </div>
       {sub && <div className="kpi-foot">{sub}</div>}
     </div>
@@ -154,7 +178,11 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const gastoMes = isPersonal ? personalExp : data.general.expenseCents;
   const economia = receitaMes - gastoMes;
   const savingsPct = Math.round((economia / (receitaMes || 1)) * 100);
-  const topCat = data.categories[0];
+  // Charts follow the active lens: personal sums only the user's own shares.
+  const chartMonths = isPersonal ? data.monthsPersonal : data.months;
+  const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
+  const chartTotalExpense = isPersonal ? data.totalExpensePersonalCents : data.totalExpenseCents;
+  const topCat = chartCategories[0];
 
   return (
     <div className="dash-page">
@@ -258,6 +286,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
               <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                 em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
               </span>
+              {!data.isPast && data.projectedBalanceCents !== data.saldoTotalCents && (
+                <span
+                  className="row gap-1"
+                  style={{ color: "var(--text-lo)", fontSize: 13.5 }}
+                  title="Saldo previsto para o fim do mês"
+                >
+                  · fim do mês ~<Money cents={data.projectedBalanceCents} withSign={false} />
+                </span>
+              )}
             </div>
             <div
               style={{
@@ -355,6 +392,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
         <KpiCard
           icon="arrow-down-left"
           tone="mint"
+          valueTone="mint"
           label={isPersonal ? "Minha renda no mês" : "Receitas do mês"}
           valueCents={receitaMes}
           sub={
@@ -367,6 +405,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
         <KpiCard
           icon="arrow-up-right"
           tone="rose"
+          valueTone="rose"
           label={isPersonal ? "Meu gasto real" : "Gasto do mês"}
           valueCents={gastoMes}
           sub={
@@ -379,6 +418,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
         <KpiCard
           icon="piggy-bank"
           tone="purple"
+          valueTone={economia >= 0 ? "mint" : "rose"}
+          signedValue
           label={isPersonal ? "Sobra real" : "Economia do mês"}
           valueCents={economia}
           sub={
@@ -465,7 +506,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
               </div>
             </div>
             <div className="card-pad">
-              <BarsChart months={data.months} />
+              <BarsChart months={chartMonths} />
             </div>
           </div>
           <div className="card">
@@ -504,8 +545,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
               )}
             </div>
             <div className="card-pad">
-              {data.totalExpenseCents > 0 ? (
-                <DonutChart slices={data.categories} totalCents={data.totalExpenseCents} />
+              {chartTotalExpense > 0 ? (
+                <DonutChart slices={chartCategories} totalCents={chartTotalExpense} />
               ) : (
                 <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "14px 0" }}>
                   Sem gastos neste mês.

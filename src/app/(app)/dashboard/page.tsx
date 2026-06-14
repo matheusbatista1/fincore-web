@@ -88,8 +88,22 @@ export default async function DashboardPage({
   const last = dash.trend.at(-1)?.valueCents ?? 0;
   const deltaPct = prev !== 0 ? ((last - prev) / Math.abs(prev)) * 100 : null;
 
+  const toBar = (m: { label: string; incomeCents: number; expenseCents: number }) => ({
+    label: m.label,
+    incomeCents: m.incomeCents,
+    expenseCents: m.expenseCents,
+  });
+  const toSlice = (c: { id: string; name: string; color: string; valueCents: number }) => ({
+    id: c.id,
+    name: c.name,
+    color: c.color,
+    valueCents: c.valueCents,
+  });
+
   const data: DashboardData = {
     saldoTotalCents: dash.totalBalanceCents,
+    projectedBalanceCents: dash.projectedBalanceCents,
+    isPast: month < current,
     aReceberCents,
     investedCents: 0,
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
@@ -97,18 +111,12 @@ export default async function DashboardPage({
     othersCents,
     deltaPct,
     trend: dash.trend,
-    months: reports.months.map((m) => ({
-      label: m.label,
-      incomeCents: m.incomeCents,
-      expenseCents: m.expenseCents,
-    })),
-    categories: reports.categories.map((c) => ({
-      id: c.id,
-      name: c.name,
-      color: c.color,
-      valueCents: c.valueCents,
-    })),
+    months: reports.months.map(toBar),
+    monthsPersonal: reports.monthsPersonal.map(toBar),
+    categories: reports.categories.map(toSlice),
+    categoriesPersonal: reports.categoriesPersonal.map(toSlice),
     totalExpenseCents: reports.totalExpenseCents,
+    totalExpensePersonalCents: reports.totalExpensePersonalCents,
     cards: workspace.cards.map((c) => ({
       id: c.id,
       bank: c.bank,

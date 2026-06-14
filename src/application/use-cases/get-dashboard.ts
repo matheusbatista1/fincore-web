@@ -1,8 +1,9 @@
 import { Money } from "@/domain/money/money";
-import { computeAccountBalances } from "@/domain/services/balance.calculator";
+import { accountDeltas, computeAccountBalances } from "@/domain/services/balance.calculator";
 import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
+import { transactionsForMonth } from "@/domain/services/recurring.projection";
 import { addMonths, type CompetenceMonth, dateInMonth } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
@@ -51,6 +52,11 @@ export interface TrendPoint {
 export interface DashboardData {
   readonly month: CompetenceMonth;
   readonly totalBalanceCents: number;
+  /**
+   * Projected total balance at the END of the browsed month: real movements up to
+   * month-end plus the recurring occurrences ('previsto') not yet booked.
+   */
+  readonly projectedBalanceCents: number;
   readonly accounts: AccountSummary[];
   readonly cards: CardSummary[];
   readonly people: PersonSummary[];
@@ -110,6 +116,20 @@ export async function getDashboard(
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
 
+  // Projected balance at the end of the browsed month: take the real balance with
+  // the cutoff at month-end (so future-dated entries inside the month count), then
+  // add the net effect of the recurring occurrences that aren't booked as real yet.
+  const endOfMonth = dateInMonth(month, 31);
+  const eomBalances = computeAccountBalances(ws.accounts, ws.transactions, endOfMonth);
+  let projectedBalanceCents = 0;
+  for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
+  const { projected } = transactionsForMonth(ws.transactions, month, competenceOf);
+  for (const occurrence of projected) {
+    for (const delta of accountDeltas(occurrence.source).values()) {
+      projectedBalanceCents += delta.cents;
+    }
+  }
+
   // Trailing 6-month cumulative balance: re-run the balance calculator with the
   // cutoff at each month-end (small in-memory volumes).
   const trend: TrendPoint[] = [];
@@ -124,6 +144,7 @@ export async function getDashboard(
   return {
     month,
     totalBalanceCents,
+    projectedBalanceCents,
     accounts,
     cards,
     people,

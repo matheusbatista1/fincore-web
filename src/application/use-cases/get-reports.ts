@@ -26,11 +26,16 @@ export interface CategorySlice {
 export interface ReportsData {
   readonly month: CompetenceMonth;
   readonly monthLabel: string;
-  /** Trailing 6 months ending at `month`, oldest → newest. */
+  /** Trailing 6 months ending at `month`, oldest → newest (general lens). */
   readonly months: MonthBar[];
-  /** Expense breakdown by category for `month`, largest → smallest. */
+  /** Same trend through the personal lens (only the user's own share). */
+  readonly monthsPersonal: MonthBar[];
+  /** Expense breakdown by category for `month`, largest → smallest (general lens). */
   readonly categories: CategorySlice[];
+  /** Same breakdown through the personal lens (only the user's own share). */
+  readonly categoriesPersonal: CategorySlice[];
   readonly totalExpenseCents: number;
+  readonly totalExpensePersonalCents: number;
 }
 
 const UNCATEGORIZED_COLOR = "#8A93A6";
@@ -47,9 +52,11 @@ export async function getReports(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
 
   const months: MonthBar[] = [];
+  const monthsPersonal: MonthBar[] = [];
   for (let i = TRAILING_MONTHS - 1; i >= 0; i--) {
     const month = addMonths(anchorMonth, -i);
     const totals = computeViewTotals(ws.transactions, "general", month, competenceOf);
+    const totalsPersonal = computeViewTotals(ws.transactions, "personal", month, competenceOf);
     months.push({
       month,
       label: monthLabel(month),
@@ -57,36 +64,56 @@ export async function getReports(
       expenseCents: totals.expense.cents,
       netCents: totals.net.cents,
     });
+    monthsPersonal.push({
+      month,
+      label: monthLabel(month),
+      incomeCents: totalsPersonal.income.cents,
+      expenseCents: totalsPersonal.expense.cents,
+      netCents: totalsPersonal.net.cents,
+    });
   }
 
-  // Category breakdown for the anchor month (full expense amounts, absolute).
+  // Category breakdown for the anchor month. General sums full (absolute) expense
+  // amounts; personal sums only the user's own share (`myShareCents`).
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const byCategory = new Map<string, number>();
+  const byCategoryPersonal = new Map<string, number>();
   for (const tx of ws.transactions) {
     if (!isExpense(tx) || competenceOf(tx) !== anchorMonth) continue;
     const key = tx.categoryId ?? "__none__";
     byCategory.set(key, (byCategory.get(key) ?? 0) + Math.abs(tx.amountCents));
+    // A fully-shared expense (myShareCents === 0) leaves the personal donut.
+    if (tx.myShareCents > 0) {
+      byCategoryPersonal.set(key, (byCategoryPersonal.get(key) ?? 0) + tx.myShareCents);
+    }
   }
 
-  const categories: CategorySlice[] = [...byCategory.entries()]
-    .map(([id, valueCents]) => {
-      const category = id === "__none__" ? null : categoryById.get(id);
-      return {
-        id,
-        name: category?.name ?? "Sem categoria",
-        color: category?.color || UNCATEGORIZED_COLOR,
-        valueCents,
-      };
-    })
-    .sort((a, b) => b.valueCents - a.valueCents);
+  const toSlices = (totals: Map<string, number>): CategorySlice[] =>
+    [...totals.entries()]
+      .map(([id, valueCents]) => {
+        const category = id === "__none__" ? null : categoryById.get(id);
+        return {
+          id,
+          name: category?.name ?? "Sem categoria",
+          color: category?.color || UNCATEGORIZED_COLOR,
+          valueCents,
+        };
+      })
+      .sort((a, b) => b.valueCents - a.valueCents);
 
+  const categories = toSlices(byCategory);
+  const categoriesPersonal = toSlices(byCategoryPersonal);
   const totalExpenseCents = categories.reduce((sum, c) => sum + c.valueCents, 0);
+  const totalExpensePersonalCents = categoriesPersonal.reduce((sum, c) => sum + c.valueCents, 0);
 
   return {
     month: anchorMonth,
     monthLabel: monthLabel(anchorMonth, { long: true }),
     months,
+    monthsPersonal,
     categories,
+    categoriesPersonal,
     totalExpenseCents,
+    totalExpensePersonalCents,
   };
 }
