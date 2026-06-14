@@ -10,8 +10,8 @@ import {
   MonthNavPending,
   MonthTransition,
 } from "@/presentation/components/shell/month-transition";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { Icon } from "@/presentation/components/ui/icon";
-import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
 
@@ -159,7 +159,7 @@ export function MonthlyStatement({
                 Entradas
               </span>
               <span className="mt-val" style={{ color: "var(--mint-500)" }}>
-                <Money cents={totIn} withSign={false} />
+                <AnimatedMoney cents={totIn} withSign={false} />
               </span>
             </div>
             <div className="mt-cell">
@@ -168,7 +168,7 @@ export function MonthlyStatement({
                 Saídas
               </span>
               <span className="mt-val" style={{ color: "var(--rose-500)" }}>
-                <Money cents={totOut} withSign={false} />
+                <AnimatedMoney cents={totOut} withSign={false} />
               </span>
             </div>
             <div className="mt-cell">
@@ -180,7 +180,7 @@ export function MonthlyStatement({
                 className="mt-val"
                 style={{ color: totIn - totOut >= 0 ? "var(--text-hi)" : "var(--rose-500)" }}
               >
-                <Money cents={totIn - totOut} withSign={false} />
+                <AnimatedMoney cents={totIn - totOut} withSign={false} />
               </span>
             </div>
           </div>

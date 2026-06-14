@@ -1,4 +1,4 @@
-import { Money } from "@/presentation/components/ui/money";
+import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 
 export interface BarItem {
   readonly id: string;
@@ -23,7 +23,7 @@ export function BarList({ items }: { items: BarItem[] }) {
               {it.name}
             </span>
             <span className="tnum" style={{ fontWeight: 700, color: "var(--text-hi)" }}>
-              <Money cents={it.valueCents} withSign={false} />
+              <AnimatedMoney cents={it.valueCents} withSign={false} />
             </span>
           </div>
           <div className="meter" style={{ height: 10 }}>

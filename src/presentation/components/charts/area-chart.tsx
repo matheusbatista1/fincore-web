@@ -18,7 +18,7 @@ const P = 8;
  * length changes (a length change would warp the x-axis). The effect keys on a
  * value-signature so it does not restart mid-tween on incidental re-renders.
  */
-function useTweenedSeries(target: number[], animate: boolean, dur = 700): number[] {
+function useTweenedSeries(target: number[], animate: boolean, dur = 1200): number[] {
   const sig = target.join("|");
   const targetRef = useRef(target);
   targetRef.current = target;
@@ -38,7 +38,8 @@ function useTweenedSeries(target: number[], animate: boolean, dur = 700): number
     let raf = 0;
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / dur);
-      const e = 1 - (1 - p) ** 4;
+      // ease-in-out-cubic — distributes the motion so the curve flows rather than snaps.
+      const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
       setVals(
         to.map((v, i) => {
           const f = from[i] ?? v;

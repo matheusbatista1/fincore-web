@@ -14,6 +14,7 @@ import {
 } from "@/presentation/components/shell/month-transition";
 import { TxRow } from "@/presentation/components/transactions/tx-row";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
+import { AnimatedNumber } from "@/presentation/components/ui/animated-number";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -285,8 +286,10 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 {data.deltaPct !== null && (
                   <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
                     <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
-                    {data.deltaPct >= 0 ? "+" : ""}
-                    {data.deltaPct.toFixed(1).replace(".", ",")}%
+                    <AnimatedNumber
+                      value={data.deltaPct}
+                      format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1).replace(".", ",")}%`}
+                    />
                   </span>
                 )}
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
@@ -298,7 +301,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     style={{ color: "var(--text-lo)", fontSize: 13.5 }}
                     title="Saldo previsto para o fim do mês"
                   >
-                    · fim do mês ~<Money cents={data.projectedBalanceCents} withSign={false} />
+                    · fim do mês ~<AnimatedMoney cents={data.projectedBalanceCents} withSign={false} />
                   </span>
                 )}
               </div>
