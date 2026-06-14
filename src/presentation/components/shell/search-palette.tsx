@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -83,7 +84,11 @@ export function SearchPalette({
     onClose();
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  // Portal to <body>: the header has `backdrop-filter`, which would otherwise make it
+  // the containing block for this `position: fixed` overlay and clamp it to the topbar.
+  return createPortal(
     // biome-ignore lint/a11y/noStaticElementInteractions: scrim click-to-close, 1:1 with the prototype (Escape also closes).
     <div
       className="overlay search-overlay"
@@ -201,6 +206,7 @@ export function SearchPalette({
           </span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
