@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { addMonths } from "@/domain/value-objects/competence-month";
 import { AreaChart } from "@/presentation/components/charts/area-chart";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
@@ -13,6 +14,7 @@ import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
+import { monthLabel } from "@/shared/formatting/dates";
 import { resolveThemeKey } from "@/shared/theme/bank-themes";
 
 interface Totals {
@@ -52,6 +54,10 @@ export interface DashboardData {
   readonly recent: TransactionListItem[];
   readonly accountsCount: number;
   readonly today: string;
+  /** The browsed competence month (`YYYY-MM`). */
+  readonly month: string;
+  /** Whether `month` is the real current month. */
+  readonly isCurrent: boolean;
 }
 
 /** Approx. days from `today` (ISO) to the next occurrence of `dueDay` (1–31). */
@@ -152,6 +158,38 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   return (
     <div className="dash-page">
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div className="month-nav">
+          <Link
+            className="icon-btn"
+            href={`/dashboard?m=${addMonths(data.month, -1)}`}
+            title="Mês anterior"
+            aria-label="Mês anterior"
+          >
+            <Icon name="chevron-left" size={19} />
+          </Link>
+          <div className="mn-label">
+            <span className="mn-month">{monthLabel(data.month, { long: true })}</span>
+            {data.isCurrent ? (
+              <span className="pill purple" style={{ height: 22 }}>
+                Mês atual
+              </span>
+            ) : (
+              <Link className="card-link" href="/dashboard">
+                Voltar para hoje
+              </Link>
+            )}
+          </div>
+          <Link
+            className="icon-btn"
+            href={`/dashboard?m=${addMonths(data.month, 1)}`}
+            title="Próximo mês"
+            aria-label="Próximo mês"
+          >
+            <Icon name="chevron-right" size={19} />
+          </Link>
+        </div>
+      </div>
       {peopleOn && (
         <div
           className="row"

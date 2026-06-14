@@ -26,23 +26,19 @@ const GREETS: Record<string, { g: string; s: string }> = {
 
 /**
  * Per-route greeting header — ported 1:1 from the prototype (app.jsx page-head).
- * The dashboard adds the month chip + privacy eye toggle.
+ * The dashboard adds the privacy eye toggle (month navigation lives in the view).
  */
 export function PageHead({
   firstName,
   todayLabel,
-  monthChip,
 }: {
   firstName: string;
   /** e.g. "11 de junho" — computed on the server (São Paulo) to avoid TZ drift. */
   todayLabel: string;
-  /** e.g. "Junho 2026". */
-  monthChip: string;
 }) {
   const pathname = usePathname();
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
-  const toast = useUIStore((s) => s.toast);
 
   const isDashboard = pathname.startsWith("/dashboard");
   const greet = isDashboard
@@ -59,14 +55,7 @@ export function PageHead({
       </div>
       {isDashboard && (
         <div className="row gap-3">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => toast(`Período fixo em ${monthChip} nesta versão`, "info")}
-          >
-            <Icon name="calendar" size={17} />
-            {monthChip}
-          </button>
+          {/* Month navigation lives in the dashboard view itself (the layout can't read ?m=). */}
           <button type="button" className="btn btn-ghost" data-tour="privacy" onClick={togglePrivacy}>
             <Icon name={privacy ? "eye-off" : "eye"} size={17} />
             {privacy ? "Mostrar" : "Ocultar"}

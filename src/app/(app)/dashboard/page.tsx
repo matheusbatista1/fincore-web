@@ -4,6 +4,7 @@ import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getReports } from "@/application/use-cases/get-reports";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
+import { isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { type DashboardData, DashboardView } from "@/presentation/components/dashboard/dashboard-view";
@@ -16,11 +17,19 @@ function todayInBrazil(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ m?: string | string[] }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const month = currentMonthInBrazil();
+  const { m } = await searchParams;
+  const raw = Array.isArray(m) ? m[0] : m;
+  const current = currentMonthInBrazil();
+  const month = raw && isValidCompetenceMonth(raw) ? raw : current;
+  const isCurrent = month === current;
   const [dash, reports, transactions, workspace] = await Promise.all([
     getDashboard(financeRepository, user.id, month),
     getReports(financeRepository, user.id, month),
@@ -113,6 +122,8 @@ export default async function DashboardPage() {
     recent: transactions.slice(0, 6),
     accountsCount: workspace.accounts.length,
     today: todayInBrazil(),
+    month,
+    isCurrent,
   };
 
   return <DashboardView data={data} />;
