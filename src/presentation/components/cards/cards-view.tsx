@@ -99,6 +99,14 @@ export function CardsView({
     }));
   }, [transactions, card]);
 
+  // Portfolio totals across every card (shown as a strip when there's more than one).
+  const totals = useMemo(() => {
+    const limit = cards.reduce((s, c) => s + c.limitCents, 0);
+    const usedAll = cards.reduce((s, c) => s + c.billCents, 0);
+    const pctAll = limit > 0 ? Math.round((usedAll / limit) * 100) : 0;
+    return { limit, used: usedAll, available: limit - usedAll, pct: pctAll };
+  }, [cards]);
+
   if (!card) {
     return (
       <div className="coming">
@@ -133,6 +141,70 @@ export function CardsView({
 
   return (
     <div className="cards-page">
+      {cards.length > 1 && (
+        <div className="card card-pad" style={{ marginBottom: 16 }}>
+          <div
+            className="row"
+            style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}
+          >
+            <h3 style={{ fontSize: 15 }}>Todos os cartões</h3>
+            <span style={{ fontSize: 13, color: "var(--text-lo)" }}>{totals.pct}% do limite total usado</span>
+          </div>
+          <div
+            className={`meter ${totals.pct > 85 ? "danger" : totals.pct > 65 ? "warn" : ""}`}
+            style={{ marginTop: 12 }}
+          >
+            <span style={{ width: `${Math.max(0, Math.min(100, totals.pct))}%` }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 16 }}>
+            <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Limite total</div>
+              <div
+                className="tnum"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 600,
+                  fontSize: 20,
+                  color: "var(--text-hi)",
+                  marginTop: 3,
+                }}
+              >
+                {formatBRLAbsolute(totals.limit)}
+              </div>
+            </div>
+            <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Utilizado</div>
+              <div
+                className="tnum"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 600,
+                  fontSize: 20,
+                  color: "var(--rose-500)",
+                  marginTop: 3,
+                }}
+              >
+                {formatBRLAbsolute(totals.used)}
+              </div>
+            </div>
+            <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Disponível</div>
+              <div
+                className="tnum"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 600,
+                  fontSize: 20,
+                  color: "var(--mint-500)",
+                  marginTop: 3,
+                }}
+              >
+                {formatBRLAbsolute(totals.available)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div
         className="cards-row-scroll"
         style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 28 }}
@@ -188,109 +260,150 @@ export function CardsView({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: 16, alignItems: "start" }}>
-        {/* Limite */}
-        <div className="card card-pad rise">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div className="kicker" style={{ marginBottom: 4 }}>
-                {card.bank} · {card.product}
+        {/* Esquerda: limite do cartão + parcelamentos ativos */}
+        <div className="col gap-4">
+          <div className="card card-pad rise">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div className="kicker" style={{ marginBottom: 4 }}>
+                  {card.bank} · {card.product}
+                </div>
+                <h3 style={{ fontSize: 19, marginBottom: 18 }}>Limite do cartão</h3>
               </div>
-              <h3 style={{ fontSize: 19, marginBottom: 18 }}>Limite do cartão</h3>
+              <CreditCardFormDialog
+                card={card}
+                holder={holderName}
+                trigger={
+                  <button
+                    type="button"
+                    className="icon-btn btn-sm"
+                    style={{ width: 36, height: 36 }}
+                    title="Editar cartão"
+                  >
+                    <Icon name="pencil" size={16} />
+                  </button>
+                }
+              />
             </div>
-            <CreditCardFormDialog
-              card={card}
-              holder={holderName}
-              trigger={
-                <button
-                  type="button"
-                  className="icon-btn btn-sm"
-                  style={{ width: 36, height: 36 }}
-                  title="Editar cartão"
+            <div className="cc-detail-meter">
+              <div className="row" style={{ justifyContent: "space-between", fontSize: 13.5 }}>
+                <span style={{ color: "var(--text-lo)" }}>Utilizado</span>
+                <span className="tnum" style={{ color: "var(--text-hi)", fontWeight: 700 }}>
+                  {formatBRLAbsolute(used)}
+                </span>
+              </div>
+              <div className={`meter ${meterCls}`}>
+                <span style={{ width: `${pct}%` }} />
+              </div>
+              <div
+                className="row"
+                style={{ justifyContent: "space-between", fontSize: 12.5, color: "var(--text-lo)" }}
+              >
+                <span>{pct}% do limite</span>
+                <span>Disponível {formatBRLAbsolute(avail)}</span>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 22 }}>
+              <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
+                <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Limite total</div>
+                <div
+                  className="tnum"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                    fontSize: 20,
+                    color: "var(--text-hi)",
+                    marginTop: 3,
+                  }}
                 >
-                  <Icon name="pencil" size={16} />
-                </button>
-              }
-            />
-          </div>
-          <div className="cc-detail-meter">
-            <div className="row" style={{ justifyContent: "space-between", fontSize: 13.5 }}>
-              <span style={{ color: "var(--text-lo)" }}>Utilizado</span>
-              <span className="tnum" style={{ color: "var(--text-hi)", fontWeight: 700 }}>
-                {formatBRLAbsolute(used)}
+                  {formatBRLAbsolute(card.limitCents)}
+                </div>
+              </div>
+              <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
+                <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Disponível</div>
+                <div
+                  className="tnum"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                    fontSize: 20,
+                    color: "var(--mint-500)",
+                    marginTop: 3,
+                  }}
+                >
+                  {formatBRLAbsolute(avail)}
+                </div>
+              </div>
+            </div>
+            <hr className="divider" style={{ margin: "20px 0" }} />
+            <div className="lrow" style={{ borderBottom: 0, padding: "6px 0" }}>
+              <span className="l-ic" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
+                <Icon name="calendar-clock" size={18} />
               </span>
+              <div className="l-main">
+                <div className="l-title">Fatura atual</div>
+                <div className="l-sub">
+                  Fecha dia {card.closingDay} · vence dia {card.dueDay}
+                </div>
+              </div>
+              <div className="l-amt">
+                <Money cents={used} withSign={false} />
+              </div>
             </div>
-            <div className={`meter ${meterCls}`}>
-              <span style={{ width: `${pct}%` }} />
-            </div>
-            <div
-              className="row"
-              style={{ justifyContent: "space-between", fontSize: 12.5, color: "var(--text-lo)" }}
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: 16 }}
+              onClick={() =>
+                toast(`Pagamento de ${formatBRLAbsolute(used)} agendado para o dia ${card.dueDay}`)
+              }
             >
-              <span>{pct}% do limite</span>
-              <span>Disponível {formatBRLAbsolute(avail)}</span>
-            </div>
+              <Icon name="check-circle" size={17} />
+              Pagar fatura
+            </button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 22 }}>
-            <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
-              <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Limite total</div>
-              <div
-                className="tnum"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 20,
-                  color: "var(--text-hi)",
-                  marginTop: 3,
-                }}
-              >
-                {formatBRLAbsolute(card.limitCents)}
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h3>Parcelamentos ativos</h3>
               </div>
             </div>
-            <div className="summary-box" style={{ margin: 0, padding: "14px 16px" }}>
-              <div style={{ fontSize: 12, color: "var(--text-lo)" }}>Disponível</div>
-              <div
-                className="tnum"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 20,
-                  color: "var(--mint-500)",
-                  marginTop: 3,
-                }}
-              >
-                {formatBRLAbsolute(avail)}
-              </div>
+            <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
+              {parcelas.length === 0 && (
+                <div style={{ color: "var(--text-lo)", padding: "16px 0", fontSize: 14 }}>
+                  Nenhum parcelamento neste cartão.
+                </div>
+              )}
+              {parcelas.map((p) => (
+                <div className="lrow" key={`${p.desc}-${p.of}`}>
+                  <span
+                    className="l-ic"
+                    style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}
+                  >
+                    <Icon name="layers" size={18} />
+                  </span>
+                  <div className="l-main">
+                    <div className="l-title">{p.desc}</div>
+                    <div className="l-sub">
+                      Parcela {p.n} de {p.of} · total {formatBRLAbsolute(p.total)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div className="l-amt">
+                      <Money cents={p.value} withSign={false} />
+                      /mês
+                    </div>
+                    <div className="meter" style={{ width: 90, marginTop: 6 }}>
+                      <span style={{ width: `${(p.n / p.of) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-          <hr className="divider" style={{ margin: "20px 0" }} />
-          <div className="lrow" style={{ borderBottom: 0, padding: "6px 0" }}>
-            <span className="l-ic" style={{ background: "var(--amber-soft)", color: "var(--amber-500)" }}>
-              <Icon name="calendar-clock" size={18} />
-            </span>
-            <div className="l-main">
-              <div className="l-title">Fatura atual</div>
-              <div className="l-sub">
-                Fecha dia {card.closingDay} · vence dia {card.dueDay}
-              </div>
-            </div>
-            <div className="l-amt">
-              <Money cents={used} withSign={false} />
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ width: "100%", marginTop: 16 }}
-            onClick={() =>
-              toast(`Pagamento de ${formatBRLAbsolute(used)} agendado para o dia ${card.dueDay}`)
-            }
-          >
-            <Icon name="check-circle" size={17} />
-            Pagar fatura
-          </button>
         </div>
 
-        {/* Compras + parcelamentos */}
+        {/* Direita: fatura do mês */}
         <div className="col gap-4">
           <div className="card">
             <div className="card-head" style={{ alignItems: "center" }}>
@@ -406,45 +519,6 @@ export function CardsView({
                   </div>
                 );
               })}
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h3>Parcelamentos ativos</h3>
-              </div>
-            </div>
-            <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-              {parcelas.length === 0 && (
-                <div style={{ color: "var(--text-lo)", padding: "16px 0", fontSize: 14 }}>
-                  Nenhum parcelamento neste cartão.
-                </div>
-              )}
-              {parcelas.map((p) => (
-                <div className="lrow" key={`${p.desc}-${p.of}`}>
-                  <span
-                    className="l-ic"
-                    style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}
-                  >
-                    <Icon name="layers" size={18} />
-                  </span>
-                  <div className="l-main">
-                    <div className="l-title">{p.desc}</div>
-                    <div className="l-sub">
-                      Parcela {p.n} de {p.of} · total {formatBRLAbsolute(p.total)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div className="l-amt">
-                      <Money cents={p.value} withSign={false} />
-                      /mês
-                    </div>
-                    <div className="meter" style={{ width: 90, marginTop: 6 }}>
-                      <span style={{ width: `${(p.n / p.of) * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </div>
