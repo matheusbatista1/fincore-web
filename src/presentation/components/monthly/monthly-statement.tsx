@@ -26,6 +26,8 @@ function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
     return {
       ...group,
       items,
+      // People receivables are general-only — drop them from the personal lens.
+      receivables: undefined,
       totalCents: items.reduce((s, i) => s + i.amountCents, 0),
       countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
     };
@@ -38,6 +40,9 @@ function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
   return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
 }
 
+/** Keep a group if it has rows OR (income) people-receivables to show. */
+const keep = (g: StmtGroup): boolean => g.items.length > 0 || (g.receivables?.length ?? 0) > 0;
+
 export interface MonthlyStatementProps {
   month: string;
   label: string;
@@ -49,13 +54,11 @@ export interface MonthlyStatementProps {
   leftGroups: StmtGroup[];
   /** Right column (general lens): accounts + commitments + transfers. */
   rightGroups: StmtGroup[];
-  /** Groups for CSV/PDF export — always the general lens. */
+  /** Groups for CSV/PDF export (general order; the lens is applied client-side). */
   exportGroups: StmtGroup[];
-  /** General-lens header totals (export + the default view). */
+  /** General-lens header totals (the transaction income/expense; receivables added per lens). */
   totInCents: number;
   totOutCents: number;
-  /** Month's "a receber" from people (general lens only) — added to Entradas like the dashboard. */
-  aReceberCents: number;
   itemCount: number;
 }
 
@@ -72,7 +75,6 @@ export function MonthlyStatement({
   exportGroups,
   totInCents,
   totOutCents,
-  aReceberCents,
   itemCount,
 }: MonthlyStatementProps) {
   const view = useUIStore((s) => s.view);
@@ -81,16 +83,25 @@ export function MonthlyStatement({
   const isPersonal = peopleOn && view === "personal";
 
   const left = useMemo(
-    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter((g) => g.items.length > 0),
+    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
     [leftGroups, isPersonal],
   );
   const right = useMemo(
-    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter((g) => g.items.length > 0),
+    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
     [rightGroups, isPersonal],
+  );
+  // Lens-aware, export-ordered groups (carry receivables on the income group under general).
+  const exportLensed = useMemo(
+    () => exportGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    [exportGroups, isPersonal],
   );
 
   // General "Entradas" mirrors the dashboard: own income + what people owe you this
-  // month ("a receber"). Personal counts only the user's own income (no people).
+  // month ("a receber", carried on the income group). Personal counts only the user's own.
+  const receivablesOf = (g: StmtGroup): number => g.receivables?.reduce((a, r) => a + r.amountCents, 0) ?? 0;
+  const aReceberCents = isPersonal
+    ? 0
+    : [...left, ...right].filter((g) => g.lens === "income").reduce((s, g) => s + receivablesOf(g), 0);
   const totIn = isPersonal
     ? [...left, ...right].filter((g) => g.lens === "income").reduce((s, g) => s + g.totalCents, 0)
     : totInCents + aReceberCents;
@@ -192,9 +203,10 @@ export function MonthlyStatement({
           <MonthExportButtons
             monthLabel={label}
             month={month}
-            groups={exportGroups}
-            inCents={totInCents}
-            outCents={totOutCents}
+            groups={exportLensed}
+            inCents={totIn}
+            outCents={totOut}
+            isPersonal={isPersonal}
           />
         </div>
 

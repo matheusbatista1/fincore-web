@@ -47,6 +47,13 @@ export default async function MonthlyPage({
   const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);
   const totOut = expenses.reduce((s, e) => s + Math.abs(e.amountCents), 0);
 
+  // People who owe you this month ("a receber") — shown inside the income group under
+  // the general lens (the same month-scoped, projection-aware value the dashboard uses).
+  const peopleReceivables = dash.people
+    .filter((p) => p.balanceCents > 0)
+    .map((p) => ({ id: p.id, name: p.name.split(" ")[0] ?? p.name, amountCents: p.balanceCents }));
+  const hasIncomeBlock = incomes.length > 0 || peopleReceivables.length > 0;
+
   // Groups by origin (mirrors the prototype's MonthlyScreen). `lens` lets the
   // client recast each group through the personal view.
   const cardGroups: StmtGroup[] = workspace.cards
@@ -108,6 +115,7 @@ export default async function MonthlyPage({
     items: incomes,
     totalCents: totIn,
     lens: "income",
+    receivables: peopleReceivables,
   };
   const transferGroup: StmtGroup = {
     key: "transfer",
@@ -120,7 +128,7 @@ export default async function MonthlyPage({
     lens: "transfer",
   };
 
-  const leftGroups: StmtGroup[] = [...(incomes.length > 0 ? [incomeGroup] : []), ...cardGroups];
+  const leftGroups: StmtGroup[] = [...(hasIncomeBlock ? [incomeGroup] : []), ...cardGroups];
   const rightGroups: StmtGroup[] = [
     ...acctGroups,
     ...compromissos,
@@ -129,7 +137,7 @@ export default async function MonthlyPage({
 
   // Export order mirrors the on-screen layout (left column then right column).
   const exportGroups: StmtGroup[] = [
-    ...(incomes.length > 0 ? [incomeGroup] : []),
+    ...(hasIncomeBlock ? [incomeGroup] : []),
     ...cardGroups,
     ...acctGroups,
     ...compromissos,
@@ -149,7 +157,6 @@ export default async function MonthlyPage({
       exportGroups={exportGroups}
       totInCents={totIn}
       totOutCents={totOut}
-      aReceberCents={dash.aReceberCents}
       itemCount={data.items.length}
     />
   );
