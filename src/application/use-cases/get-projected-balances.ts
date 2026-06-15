@@ -41,6 +41,6 @@ export async function getProjectedBalances(
   }
   // The headline total nets the month's card bills; per-account figures do not
   // (we can't attribute which account pays a bill), so their sum differs by the bills.
-  const bills = cardBillsDueThrough(ws.transactions, current, month, competenceOf, "personal");
+  const bills = cardBillsDueThrough(ws.transactions, current, month, competenceOf, "personal", current);
   return { totalCents: accountsTotal - bills.cents, byAccountCents };
 }

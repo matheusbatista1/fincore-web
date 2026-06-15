@@ -171,4 +171,34 @@ describe("cardBillsDueThrough", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")];
     expect(cardBillsDueThrough(txs, "2026-08", "2026-07", competenceOf).cents).toBe(0);
   });
+
+  it("projects recurring card charges into future bills when currentMonth is given", () => {
+    // Recurring card charge day 10, anchored June (real → due July); projects July → due Aug.
+    const rec: ExpenseTransaction = { ...cardExpense(-10000, "2026-06-10"), recurrence: { dayOfMonth: 10 } };
+    // Real only: only the June charge's bill (due July) falls in [June, Aug] = 10000.
+    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf).cents).toBe(10000);
+    // With projection: + the July charge (due Aug) = 20000.
+    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
+      20000,
+    );
+  });
+
+  it("projects only the user's share of a shared recurring card charge", () => {
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-10000, "2026-06-10"),
+      myShareCents: 4000,
+      recurrence: { dayOfMonth: 10 },
+    };
+    // Personal, projected: real (4000, due July) + projected (4000, due Aug) = 8000.
+    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf, "personal", "2026-06").cents).toBe(
+      8000,
+    );
+  });
+
+  it("does not project a non-recurring card charge", () => {
+    const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July, not recurring
+    expect(cardBillsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
+      30000,
+    );
+  });
 });
