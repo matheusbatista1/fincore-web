@@ -97,7 +97,11 @@ export function ImportWizard({
     const format: StatementFormat = detectFormat(file.name, content);
     const parsed = parseStatement(content, format);
     if (parsed.length === 0) {
-      setError("Não foi possível ler lançamentos deste arquivo. Verifique o formato (CSV ou OFX).");
+      setError(
+        format === "ofx"
+          ? "Não encontramos lançamentos neste arquivo OFX."
+          : "Não encontramos lançamentos neste CSV. Confira se há colunas de data e valor (ex.: Data e Valor).",
+      );
       return;
     }
     setFileName(file.name);
@@ -236,7 +240,7 @@ export function ImportWizard({
         </span>
         <input
           type="file"
-          accept=".csv,.ofx,.txt,text/csv"
+          accept=".csv,.ofx,.txt,text/csv,application/csv,application/vnd.ms-excel,text/plain"
           style={{ display: "none" }}
           onChange={(e) => {
             const file = e.target.files?.[0];
