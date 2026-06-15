@@ -3,7 +3,14 @@
 import type { MonthlyItem } from "@/application/use-cases/get-monthly";
 import type { StmtGroup } from "@/presentation/components/monthly/stmt-card";
 import { Icon } from "@/presentation/components/ui/icon";
-import { csvMoney, exportCSV, exportPDF, pdfMoney } from "@/presentation/lib/export";
+import {
+  csvMoney,
+  exportCSV,
+  exportPDF,
+  type PdfAlign,
+  pdfMoney,
+  pdfMoneySigned,
+} from "@/presentation/lib/export";
 import { useUIStore } from "@/presentation/stores/ui-store";
 
 const KIND_LABEL: Record<MonthlyItem["kind"], string> = {
@@ -59,23 +66,34 @@ export function MonthExportButtons({
   }
 
   async function onPdf() {
-    await exportPDF({
-      filename: `extrato-${month}.pdf`,
-      title: `Extrato de ${monthLabel}`,
-      subtitle: `Entradas ${pdfMoney(inCents)} · Saídas ${pdfMoney(outCents)} · Resultado ${pdfMoney(inCents - outCents)}`,
-      sections: groups.map((g) => ({
-        heading: `${g.name} — ${pdfMoney(g.totalCents)}`,
-        head: ["Data", "Descrição", "Categoria", "Situação", "Valor"],
-        body: g.items.map((i) => [
-          brDate(i.date),
-          i.description || KIND_LABEL[i.kind],
-          i.category?.name ?? "",
-          i.projected ? "previsto" : "realizado",
-          pdfMoney(itemValueCents(i)),
-        ]),
-      })),
-    });
-    toast(`Extrato de ${monthLabel} exportado em PDF`);
+    const net = inCents - outCents;
+    try {
+      await exportPDF({
+        filename: `extrato-${month}.pdf`,
+        title: `Extrato de ${monthLabel}`,
+        subtitle: "Lançamentos agrupados por origem",
+        kpis: [
+          { label: "Entradas", value: pdfMoney(inCents), tone: "pos" },
+          { label: "Saídas", value: pdfMoney(outCents), tone: "neg" },
+          { label: "Resultado", value: pdfMoneySigned(net), tone: net < 0 ? "neg" : "pos" },
+        ],
+        sections: groups.map((g) => ({
+          heading: `${g.name} — ${pdfMoney(g.totalCents)}`,
+          head: ["Data", "Descrição", "Categoria", "Situação", "Valor"],
+          align: ["left", "left", "left", "left", "right"] as PdfAlign[],
+          body: g.items.map((i) => [
+            brDate(i.date),
+            i.description || KIND_LABEL[i.kind],
+            i.category?.name ?? "",
+            i.projected ? "previsto" : "realizado",
+            pdfMoney(itemValueCents(i)),
+          ]),
+        })),
+      });
+      toast(`Extrato de ${monthLabel} exportado em PDF`);
+    } catch {
+      toast("Não foi possível gerar o PDF", "error");
+    }
   }
 
   return (
