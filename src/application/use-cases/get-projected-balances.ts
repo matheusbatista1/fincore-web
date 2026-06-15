@@ -1,5 +1,5 @@
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
-import { cardBillsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
+import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
 import { currentMonthInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
@@ -39,8 +39,9 @@ export async function getProjectedBalances(
     byAccountCents[id] = value.cents;
     accountsTotal += value.cents;
   }
-  // The headline total nets the month's card bills; per-account figures do not
-  // (we can't attribute which account pays a bill), so their sum differs by the bills.
-  const bills = cardBillsDueThrough(ws.transactions, current, month, competenceOf, "personal", current);
+  // The headline total nets the month's obligations (card bills, boletos, loan/financing
+  // parcelas); per-account figures do not (we can't attribute which account pays them),
+  // so their sum differs from the total by those obligations.
+  const bills = obligationsDueThrough(ws.transactions, current, month, competenceOf, "personal", current);
   return { totalCents: accountsTotal - bills.cents, byAccountCents };
 }

@@ -3,7 +3,7 @@ import type { Account } from "../entities/account";
 import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, IncomeTransaction, Transaction } from "../entities/transaction";
 import { billingCompetence } from "./card-bill.calculator";
-import { cardBillsDueThrough, projectedMonthEndBalances } from "./projected-balance";
+import { obligationsDueThrough, projectedMonthEndBalances } from "./projected-balance";
 
 const account: Account = {
   id: "acc-1",
@@ -146,39 +146,39 @@ describe("projectedMonthEndBalances — personal lens", () => {
   });
 });
 
-describe("cardBillsDueThrough", () => {
+describe("obligationsDueThrough", () => {
   const competenceOf = billingCompetence([card]);
 
   it("personal lens counts only the user's share of a shared card charge", () => {
     // Shared card charge −300 (my share 100), due July.
     const shared: ExpenseTransaction = { ...cardExpense(-30000, "2026-06-10"), myShareCents: 10000 };
-    expect(cardBillsDueThrough([shared], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
-    expect(cardBillsDueThrough([shared], "2026-07", "2026-07", competenceOf, "personal").cents).toBe(10000);
+    expect(obligationsDueThrough([shared], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
+    expect(obligationsDueThrough([shared], "2026-07", "2026-07", competenceOf, "personal").cents).toBe(10000);
   });
 
   it("nets charges minus credits whose bill is due in the range", () => {
     // Charge 2026-06-10 and credit 2026-06-12 both fall due in JULY (closes 24, due 2).
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10"), cardCredit(600, "2026-06-12")];
-    expect(cardBillsDueThrough(txs, "2026-07", "2026-07", competenceOf).cents).toBe(29400);
+    expect(obligationsDueThrough(txs, "2026-07", "2026-07", competenceOf).cents).toBe(29400);
   });
 
   it("is zero when no bill is due in the range", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July
-    expect(cardBillsDueThrough(txs, "2026-06", "2026-06", competenceOf).cents).toBe(0);
+    expect(obligationsDueThrough(txs, "2026-06", "2026-06", competenceOf).cents).toBe(0);
   });
 
   it("is zero for an inverted range", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")];
-    expect(cardBillsDueThrough(txs, "2026-08", "2026-07", competenceOf).cents).toBe(0);
+    expect(obligationsDueThrough(txs, "2026-08", "2026-07", competenceOf).cents).toBe(0);
   });
 
   it("projects recurring card charges into future bills when currentMonth is given", () => {
     // Recurring card charge day 10, anchored June (real → due July); projects July → due Aug.
     const rec: ExpenseTransaction = { ...cardExpense(-10000, "2026-06-10"), recurrence: { dayOfMonth: 10 } };
     // Real only: only the June charge's bill (due July) falls in [June, Aug] = 10000.
-    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf).cents).toBe(10000);
+    expect(obligationsDueThrough([rec], "2026-06", "2026-08", competenceOf).cents).toBe(10000);
     // With projection: + the July charge (due Aug) = 20000.
-    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
+    expect(obligationsDueThrough([rec], "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
       20000,
     );
   });
@@ -190,15 +190,34 @@ describe("cardBillsDueThrough", () => {
       recurrence: { dayOfMonth: 10 },
     };
     // Personal, projected: real (4000, due July) + projected (4000, due Aug) = 8000.
-    expect(cardBillsDueThrough([rec], "2026-06", "2026-08", competenceOf, "personal", "2026-06").cents).toBe(
-      8000,
-    );
+    expect(
+      obligationsDueThrough([rec], "2026-06", "2026-08", competenceOf, "personal", "2026-06").cents,
+    ).toBe(8000);
   });
 
   it("does not project a non-recurring card charge", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July, not recurring
-    expect(cardBillsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
+    expect(obligationsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
       30000,
+    );
+  });
+
+  it("counts non-card obligations (boleto, financing) due in the range, ignoring account-source", () => {
+    const boleto: ExpenseTransaction = {
+      ...cardExpense(-50000, "2026-07-03"),
+      source: "boleto",
+      cardId: null,
+    };
+    const financing: ExpenseTransaction = {
+      ...cardExpense(-164187, "2026-07-05"),
+      source: "financing",
+      cardId: null,
+    };
+    // Account-source expenses already hit the balance, so they must NOT be counted here.
+    const acct: ExpenseTransaction = { ...cardExpense(-9999, "2026-07-06"), source: "account", cardId: null };
+    // boleto + financing due July (calendar competence); the account expense is excluded.
+    expect(obligationsDueThrough([boleto, financing, acct], "2026-07", "2026-07", competenceOf).cents).toBe(
+      214187,
     );
   });
 });

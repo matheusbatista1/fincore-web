@@ -88,7 +88,10 @@ export default async function DashboardPage({
 
   const prev = dash.trend.at(-2)?.valueCents ?? 0;
   const last = dash.trend.at(-1)?.valueCents ?? 0;
-  const deltaPct = prev !== 0 ? ((last - prev) / Math.abs(prev)) * 100 : null;
+  // Guard against a near-zero base (e.g., empty accounts before a salary lands) and
+  // against absurd magnitudes — either way the month-over-month % is meaningless.
+  const rawDelta = Math.abs(prev) >= 100 ? ((last - prev) / Math.abs(prev)) * 100 : null;
+  const deltaPct = rawDelta !== null && Math.abs(rawDelta) <= 999 ? rawDelta : null;
 
   const toBar = (m: { label: string; incomeCents: number; expenseCents: number; projected: boolean }) => ({
     label: m.label,
