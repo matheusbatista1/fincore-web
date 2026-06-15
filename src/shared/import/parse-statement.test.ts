@@ -92,6 +92,18 @@ describe("parseStatement CSV", () => {
       { date: "2026-06-12", description: "Salário", amountCents: 300000 },
     ]);
   });
+
+  it("picks the BRL column over US$ on a C6 invoice (dot decimals, quoted desc)", () => {
+    const csv = [
+      "Data de Compra;Nome no Cartão;Final do Cartão;Categoria;Descrição;Parcela;Valor (em US$);Cotação (em R$);Valor (em R$)",
+      "17/04/2026;MATHEUS S BATISTA;0469;Especialidade varejo;COBASI;2/2;0;0;83.40",
+      '11/05/2026;MATHEUS S BATISTA;3641;-;"Inclusao de Pagamento    ";Única;0;0;-3387.39',
+    ].join("\n");
+    expect(parseStatement(csv, "csv")).toEqual([
+      { date: "2026-04-17", description: "COBASI", amountCents: 8340 },
+      { date: "2026-05-11", description: "Inclusao de Pagamento", amountCents: -338739 },
+    ]);
+  });
 });
 
 describe("parseStatement OFX", () => {

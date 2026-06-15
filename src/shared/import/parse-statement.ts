@@ -152,6 +152,24 @@ function indexOfKey(header: string[], keys: string[]): number {
   });
 }
 
+/**
+ * The amount column, preferring the BRL one. Some statements export more than one
+ * "valor" column — notably C6's international invoice has both "Valor (em US$)"
+ * (zero for domestic buys) and "Valor (em R$)" (the actual charge). Picking the
+ * first match grabs the US$ column and every row parses as 0, so prefer a column
+ * whose header looks like Reais and skip foreign-currency ones.
+ */
+function indexOfAmountColumn(header: string[]): number {
+  const matches = header.flatMap((cell, i) => (indexOfKey([cell], AMOUNT_KEYS) === 0 ? [i] : []));
+  if (matches.length <= 1) return matches[0] ?? -1;
+  const foreign = /us\$|usd|dolar|dollar|eur|gbp|€|£/;
+  const reais = /r\$|reais|brl|real/;
+  const brl = matches.find((i) => reais.test(normalizeKey(header[i] ?? "")));
+  if (brl !== undefined) return brl;
+  const domestic = matches.find((i) => !foreign.test(normalizeKey(header[i] ?? "")));
+  return domestic ?? matches[matches.length - 1] ?? -1;
+}
+
 /** Guess the delimiter from the header line: prefer `;`/TAB (BR exports use comma decimals). */
 function detectDelimiter(headerLine: string): string {
   const semi = (headerLine.match(/;/g) ?? []).length;
@@ -199,7 +217,7 @@ function parseCsv(content: string): ParsedEntry[] {
   if (looksLikeHeader) {
     dateIdx = indexOfKey(firstCells, DATE_KEYS);
     descIdx = indexOfKey(firstCells, DESC_KEYS);
-    amountIdx = indexOfKey(firstCells, AMOUNT_KEYS);
+    amountIdx = indexOfAmountColumn(firstCells);
     debitIdx = indexOfKey(firstCells, DEBIT_KEYS);
     creditIdx = indexOfKey(firstCells, CREDIT_KEYS);
     startRow = 1;
