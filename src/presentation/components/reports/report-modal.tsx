@@ -243,151 +243,160 @@ export function ReportModal({
 
   async function onPdf() {
     const title = TITLES[mode];
-    if (mode === "month") {
-      const catTotal = data.categories.reduce((s, c) => s + c.totalCents, 0);
-      const pct = (v: number): string => (catTotal > 0 ? `${Math.round((v / catTotal) * 100)}%` : "0%");
-      const peopleNet = summary.aReceberCents - summary.aPagarCents;
-      await exportPDF({
-        filename: `${fileSlug}.pdf`,
-        title,
-        subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
-        generatedOn: data.today,
-        kpis: [
-          { label: "Receitas", value: pdfMoney(pt.incomeCents), tone: "pos" },
-          { label: "Despesas", value: pdfMoney(pt.expenseCents), tone: "neg" },
-          { label: "Resultado", value: pdfMoneySigned(pt.netCents), tone: pt.netCents < 0 ? "neg" : "pos" },
-          { label: "Taxa de poupança", value: savingsRateLabel },
-        ],
-        sections: [
-          {
-            heading: "Resumo do período",
-            head: ["Item", "Valor"],
-            align: ["left", "right"],
-            body: [
-              ["Receitas", pdfMoney(pt.incomeCents)],
-              ["Despesas", pdfMoney(pt.expenseCents)],
-            ],
-            foot: ["Resultado", pdfMoneySigned(pt.netCents)],
-          },
-          {
-            heading: "Resumo por mês",
-            head: ["Mês", "Receitas", "Despesas", "Resultado"],
-            align: ["left", "right", "right", "right"],
-            body: pdfMonthRows(data.months),
-            foot: ["Total", pdfMoney(pt.incomeCents), pdfMoney(pt.expenseCents), pdfMoneySigned(pt.netCents)],
-          },
-          ...(data.categories.length > 0
-            ? [
-                {
-                  heading: "Despesas por categoria",
-                  head: ["Categoria", "Valor", "% do total"],
-                  align: ["left", "right", "right"] as PdfAlign[],
-                  body: data.categories.map((c) => [c.name, pdfMoney(c.totalCents), pct(c.totalCents)]),
-                  foot: ["Total", pdfMoney(catTotal), "100%"],
-                },
-              ]
-            : []),
-          ...(data.byCard.length > 0
-            ? [
-                {
-                  heading: "Gasto por cartão (fatura aberta atual)",
-                  head: ["Cartão", "Valor"],
-                  align: ["left", "right"] as PdfAlign[],
-                  body: data.byCard.map((c) => [c.name, pdfMoney(c.valueCents)]),
-                },
-              ]
-            : []),
-          {
-            heading: "Pessoas (saldos atuais)",
-            head: ["Item", "Valor"],
-            align: ["left", "right"],
-            body: [
-              ["A receber de pessoas", pdfMoney(summary.aReceberCents)],
-              ["Você deve", pdfMoney(summary.aPagarCents)],
-            ],
-            foot: ["Saldo líquido", pdfMoneySigned(peopleNet)],
-          },
-        ],
-      });
-    } else if (mode === "mine") {
-      const catTotalP = data.categoriesPersonal.reduce((s, c) => s + c.totalCents, 0);
-      const pctP = (v: number): string => (catTotalP > 0 ? `${Math.round((v / catTotalP) * 100)}%` : "0%");
-      await exportPDF({
-        filename: `${fileSlug}.pdf`,
-        title,
-        subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
-        generatedOn: data.today,
-        kpis: [
-          { label: "Minha renda", value: pdfMoney(ptp.incomeCents), tone: "pos" },
-          { label: "Meu gasto", value: pdfMoney(ptp.expenseCents), tone: "neg" },
-          {
-            label: "Minha sobra",
-            value: pdfMoneySigned(ptp.netCents),
-            tone: ptp.netCents < 0 ? "neg" : "pos",
-          },
-          { label: "Taxa de poupança", value: savingsRateLabel },
-        ],
-        sections: [
-          {
-            heading: "Resumo pessoal do período",
-            head: ["Item", "Valor"],
-            align: ["left", "right"],
-            body: [
-              ["Minha renda (sem reembolsos)", pdfMoney(ptp.incomeCents)],
-              ["Meu gasto real (só minha parte)", pdfMoney(ptp.expenseCents)],
-              ["Taxa de poupança", savingsRateLabel],
-            ],
-            foot: ["Minha sobra real", pdfMoneySigned(ptp.netCents)],
-          },
-          ...(data.categoriesPersonal.length > 0
-            ? [
-                {
-                  heading: "Despesas por categoria (pessoal)",
-                  head: ["Categoria", "Valor", "% do total"],
-                  align: ["left", "right", "right"] as PdfAlign[],
-                  body: data.categoriesPersonal.map((c) => [
-                    c.name,
-                    pdfMoney(c.totalCents),
-                    pctP(c.totalCents),
-                  ]),
-                  foot: ["Total", pdfMoney(catTotalP), "100%"],
-                },
-              ]
-            : []),
-          {
-            heading: "Resumo por mês (pessoal)",
-            head: ["Mês", "Minha renda", "Meu gasto", "Minha sobra"],
-            align: ["left", "right", "right", "right"],
-            body: pdfMonthRows(data.monthsPersonal),
-            foot: [
-              "Total",
-              pdfMoney(ptp.incomeCents),
-              pdfMoney(ptp.expenseCents),
-              pdfMoneySigned(ptp.netCents),
-            ],
-          },
-        ],
-      });
-    } else {
-      await exportPDF({
-        filename: `${fileSlug}.pdf`,
-        title: `${title}${person ? ` — ${person.name}` : ""}`,
-        sections: [
-          ...grpList.map((g) => ({
-            heading: `${g.label} — ${pdfMoney(g.totalCents)}`,
-            head: ["Data", "Descrição", "Tipo", "Valor"],
-            body: g.items.map((it) => [
-              it.date,
-              it.desc,
-              it.income ? "pagamento" : "parte",
-              pdfMoney(it.shareCents),
-            ]),
-          })),
-          { heading: "", head: ["", ""], body: [["Saldo", pdfMoney(grandTotal)]] },
-        ],
-      });
+    try {
+      if (mode === "month") {
+        const catTotal = data.categories.reduce((s, c) => s + c.totalCents, 0);
+        const pct = (v: number): string => (catTotal > 0 ? `${Math.round((v / catTotal) * 100)}%` : "0%");
+        const peopleNet = summary.aReceberCents - summary.aPagarCents;
+        await exportPDF({
+          filename: `${fileSlug}.pdf`,
+          title,
+          subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
+          generatedOn: data.today,
+          kpis: [
+            { label: "Receitas", value: pdfMoney(pt.incomeCents), tone: "pos" },
+            { label: "Despesas", value: pdfMoney(pt.expenseCents), tone: "neg" },
+            { label: "Resultado", value: pdfMoneySigned(pt.netCents), tone: pt.netCents < 0 ? "neg" : "pos" },
+            { label: "Taxa de poupança", value: savingsRateLabel },
+          ],
+          sections: [
+            {
+              heading: "Resumo do período",
+              head: ["Item", "Valor"],
+              align: ["left", "right"],
+              body: [
+                ["Receitas", pdfMoney(pt.incomeCents)],
+                ["Despesas", pdfMoney(pt.expenseCents)],
+              ],
+              foot: ["Resultado", pdfMoneySigned(pt.netCents)],
+            },
+            {
+              heading: "Resumo por mês",
+              head: ["Mês", "Receitas", "Despesas", "Resultado"],
+              align: ["left", "right", "right", "right"],
+              body: pdfMonthRows(data.months),
+              foot: [
+                "Total",
+                pdfMoney(pt.incomeCents),
+                pdfMoney(pt.expenseCents),
+                pdfMoneySigned(pt.netCents),
+              ],
+            },
+            ...(data.categories.length > 0
+              ? [
+                  {
+                    heading: "Despesas por categoria",
+                    head: ["Categoria", "Valor", "% do total"],
+                    align: ["left", "right", "right"] as PdfAlign[],
+                    body: data.categories.map((c) => [c.name, pdfMoney(c.totalCents), pct(c.totalCents)]),
+                    foot: ["Total", pdfMoney(catTotal), "100%"],
+                  },
+                ]
+              : []),
+            ...(data.byCard.length > 0
+              ? [
+                  {
+                    heading: "Gasto por cartão (fatura aberta atual)",
+                    head: ["Cartão", "Valor"],
+                    align: ["left", "right"] as PdfAlign[],
+                    body: data.byCard.map((c) => [c.name, pdfMoney(c.valueCents)]),
+                  },
+                ]
+              : []),
+            {
+              heading: "Pessoas (saldos atuais)",
+              head: ["Item", "Valor"],
+              align: ["left", "right"],
+              body: [
+                ["A receber de pessoas", pdfMoney(summary.aReceberCents)],
+                ["Você deve", pdfMoney(summary.aPagarCents)],
+              ],
+              foot: ["Saldo líquido", pdfMoneySigned(peopleNet)],
+            },
+          ],
+        });
+      } else if (mode === "mine") {
+        const catTotalP = data.categoriesPersonal.reduce((s, c) => s + c.totalCents, 0);
+        const pctP = (v: number): string => (catTotalP > 0 ? `${Math.round((v / catTotalP) * 100)}%` : "0%");
+        await exportPDF({
+          filename: `${fileSlug}.pdf`,
+          title,
+          subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
+          generatedOn: data.today,
+          kpis: [
+            { label: "Minha renda", value: pdfMoney(ptp.incomeCents), tone: "pos" },
+            { label: "Meu gasto", value: pdfMoney(ptp.expenseCents), tone: "neg" },
+            {
+              label: "Minha sobra",
+              value: pdfMoneySigned(ptp.netCents),
+              tone: ptp.netCents < 0 ? "neg" : "pos",
+            },
+            { label: "Taxa de poupança", value: savingsRateLabel },
+          ],
+          sections: [
+            {
+              heading: "Resumo pessoal do período",
+              head: ["Item", "Valor"],
+              align: ["left", "right"],
+              body: [
+                ["Minha renda (sem reembolsos)", pdfMoney(ptp.incomeCents)],
+                ["Meu gasto real (só minha parte)", pdfMoney(ptp.expenseCents)],
+                ["Taxa de poupança", savingsRateLabel],
+              ],
+              foot: ["Minha sobra real", pdfMoneySigned(ptp.netCents)],
+            },
+            ...(data.categoriesPersonal.length > 0
+              ? [
+                  {
+                    heading: "Despesas por categoria (pessoal)",
+                    head: ["Categoria", "Valor", "% do total"],
+                    align: ["left", "right", "right"] as PdfAlign[],
+                    body: data.categoriesPersonal.map((c) => [
+                      c.name,
+                      pdfMoney(c.totalCents),
+                      pctP(c.totalCents),
+                    ]),
+                    foot: ["Total", pdfMoney(catTotalP), "100%"],
+                  },
+                ]
+              : []),
+            {
+              heading: "Resumo por mês (pessoal)",
+              head: ["Mês", "Minha renda", "Meu gasto", "Minha sobra"],
+              align: ["left", "right", "right", "right"],
+              body: pdfMonthRows(data.monthsPersonal),
+              foot: [
+                "Total",
+                pdfMoney(ptp.incomeCents),
+                pdfMoney(ptp.expenseCents),
+                pdfMoneySigned(ptp.netCents),
+              ],
+            },
+          ],
+        });
+      } else {
+        await exportPDF({
+          filename: `${fileSlug}.pdf`,
+          title: `${title}${person ? ` — ${person.name}` : ""}`,
+          sections: [
+            ...grpList.map((g) => ({
+              heading: `${g.label} — ${pdfMoney(g.totalCents)}`,
+              head: ["Data", "Descrição", "Tipo", "Valor"],
+              body: g.items.map((it) => [
+                it.date,
+                it.desc,
+                it.income ? "pagamento" : "parte",
+                pdfMoney(it.shareCents),
+              ]),
+            })),
+            { heading: "", head: ["", ""], body: [["Saldo", pdfMoney(grandTotal)]] },
+          ],
+        });
+      }
+      toast(`Relatório (${exportName}) exportado em PDF`);
+    } catch {
+      toast("Não foi possível gerar o PDF", "error");
     }
-    toast(`Relatório (${exportName}) exportado em PDF`);
   }
 
   return (

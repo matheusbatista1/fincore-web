@@ -4,6 +4,7 @@
  * in the route bundles. All money is formatted via the shared formatter so
  * exports always show real values (privacy mode is for the screen, not the file).
  */
+import type { CellHookData } from "jspdf-autotable";
 import { formatBRL } from "@/shared/formatting/currency";
 
 export type CsvCell = string | number;
@@ -99,11 +100,13 @@ export async function exportPDF(options: {
   readonly kpis?: readonly PdfKpi[];
   /** ISO date stamped in the per-page footer; defaults to today. */
   readonly generatedOn?: string;
+  /** Page orientation — use "landscape" for wide, many-column statements. */
+  readonly orientation?: "portrait" | "landscape";
 }): Promise<void> {
   const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const autoTable = autoTableMod.default;
 
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: options.orientation ?? "portrait" });
   const margin = 40;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -153,16 +156,23 @@ export async function exportPDF(options: {
       doc.text(section.heading, margin, y + 8);
       y += 16;
     }
-    const columnStyles = section.align
-      ? Object.fromEntries(section.align.map((halign, i) => [i, { halign }]))
-      : undefined;
+    const align = section.align;
     autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin, bottom: 48 },
       head: [section.head as string[]],
       body: section.body.map((r) => [...r]),
       ...(section.foot ? { foot: [section.foot as string[]] } : {}),
-      ...(columnStyles ? { columnStyles } : {}),
+      // autoTable's `columnStyles` only aligns BODY cells; a didParseCell hook aligns
+      // head and foot too, so column headers and total rows line up with the figures.
+      ...(align
+        ? {
+            didParseCell: (d: CellHookData) => {
+              const a = align[d.column.index];
+              if (a) d.cell.styles.halign = a;
+            },
+          }
+        : {}),
       headStyles: { fillColor: [124, 92, 255], textColor: 255, fontStyle: "bold" },
       footStyles: { fillColor: [37, 31, 51], textColor: 255, fontStyle: "bold" },
       styles: { fontSize: 9, cellPadding: 5 },
