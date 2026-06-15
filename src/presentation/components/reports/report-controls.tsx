@@ -78,11 +78,10 @@ export function ReportControls({
             </button>
           </div>
 
-          <div className="row gap-2" style={{ alignItems: "center" }}>
+          <div className="row gap-2 report-range" style={{ alignItems: "center" }}>
             <span style={{ fontSize: 13, color: "var(--text-lo)" }}>De</span>
             <select
-              className="input"
-              style={{ width: "auto" }}
+              className="input report-month-select"
               value={from}
               onChange={(e) => goRange(e.target.value, to)}
               aria-label="Mês inicial"
@@ -95,8 +94,7 @@ export function ReportControls({
             </select>
             <span style={{ fontSize: 13, color: "var(--text-lo)" }}>até</span>
             <select
-              className="input"
-              style={{ width: "auto" }}
+              className="input report-month-select"
               value={to}
               onChange={(e) => goRange(from, e.target.value)}
               aria-label="Mês final"

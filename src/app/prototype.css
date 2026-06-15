@@ -1009,10 +1009,16 @@
 .bars {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  /* Columns fill the width when few; once many months are shown they hold a min
+     width and the chart scrolls horizontally instead of squishing unreadably. */
+  grid-auto-columns: minmax(40px, 1fr);
   gap: 10px;
   height: 200px;
   align-items: end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 .bars .bargrp {
   display: flex;
@@ -1257,6 +1263,11 @@
 }
 .input::placeholder {
   color: var(--text-lo);
+}
+/* Reports period selects: content-width on desktop (mobile rule lets them flex). */
+.report-month-select {
+  width: auto;
+  max-width: 240px;
 }
 .amount-input {
   height: 64px;
@@ -3108,6 +3119,26 @@ html {
   .cards-row-scroll > * {
     scroll-snap-align: start;
     flex: 0 0 76%;
+  }
+
+  /* card headers (e.g. the Fatura nav + total) wrap instead of overflowing */
+  .card-head {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  /* relatórios: preset chips and the De/até month pickers wrap and shrink to fit */
+  .seg {
+    flex-wrap: wrap;
+  }
+  .report-range {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .report-month-select {
+    flex: 1 1 46%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   /* carteiras */
