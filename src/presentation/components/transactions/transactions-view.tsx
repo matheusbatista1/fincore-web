@@ -10,12 +10,20 @@ import { SwipeRow } from "@/presentation/components/gestures/swipe-row";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
-import { csvMoney, exportCSV } from "@/presentation/lib/export";
+import {
+  csvMoney,
+  exportCSV,
+  exportPDF,
+  type PdfAlign,
+  type PdfKpi,
+  pdfMoney,
+  pdfMoneySigned,
+} from "@/presentation/lib/export";
 import { collapseRowsByInstallments } from "@/presentation/lib/group-installments";
 import { useIsMobile } from "@/presentation/lib/use-is-mobile";
 import { openInstallmentGroup, openTxDetail, useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast as fireToast, useUIStore } from "@/presentation/stores/ui-store";
-import { relativeDateLabel } from "@/shared/formatting/dates";
+import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 
 type Filter = "all" | "out" | "in" | "xfer";
 
@@ -136,6 +144,88 @@ export function TransactionsView({
     toast(`${rows.length} ${rows.length === 1 ? "transação exportada" : "transações exportadas"} em CSV`);
   }
 
+  /** Bank-statement-style PDF (landscape): KPI band + itemized table grouped by month (newest first). */
+  async function onExportPdf() {
+    const inSum = rows.filter((t) => t.kind === "income").reduce((s, t) => s + t.amountCents, 0);
+    const outSum = rows.filter((t) => t.kind === "expense").reduce((s, t) => s + Math.abs(t.amountCents), 0);
+    const xferSum = rows
+      .filter((t) => t.kind === "transfer")
+      .reduce((s, t) => s + (t.transferValueCents ?? 0), 0);
+    const net = inSum - outSum;
+    // A transfers-only view (e.g. the "xfer" filter) has no income/expense, so show the
+    // transferred total instead of an all-zero Entradas/Saídas/Resultado band.
+    const onlyTransfers = rows.length > 0 && rows.every((t) => t.kind === "transfer");
+    const filterLabel = FILTERS.find(([k]) => k === filter)?.[1] ?? "Todas";
+
+    // Group by calendar month of the transaction date; `rows` is already sorted newest-first.
+    const byMonth = new Map<string, TransactionListItem[]>();
+    for (const t of rows) {
+      const key = t.date.slice(0, 7);
+      const list = byMonth.get(key);
+      if (list) list.push(t);
+      else byMonth.set(key, [t]);
+    }
+
+    const itemValue = (t: TransactionListItem): string =>
+      t.kind === "transfer" ? pdfMoney(t.transferValueCents ?? 0) : pdfMoneySigned(t.amountCents);
+
+    const sections = [...byMonth.entries()].map(([month, items]) => {
+      const mIn = items.filter((t) => t.kind === "income").reduce((s, t) => s + t.amountCents, 0);
+      const mOut = items.filter((t) => t.kind === "expense").reduce((s, t) => s + Math.abs(t.amountCents), 0);
+      const mXfer = items
+        .filter((t) => t.kind === "transfer")
+        .reduce((s, t) => s + (t.transferValueCents ?? 0), 0);
+      const monthHasFlow = items.some((t) => t.kind !== "transfer");
+      const suffix = monthHasFlow
+        ? `Resultado ${pdfMoneySigned(mIn - mOut)}`
+        : `Transferido ${pdfMoney(mXfer)}`;
+      return {
+        heading: `${monthLabel(month, { long: true })} — ${suffix}`,
+        head: ["Data", "Descrição", "Categoria", "Origem", "Pessoas", "Parcela", "Tipo", "Valor"],
+        align: ["left", "left", "left", "left", "left", "left", "left", "right"] as PdfAlign[],
+        body: items.map((t) => [
+          brDate(t.date),
+          t.description || KIND_LABEL[t.kind],
+          t.category?.name ?? "",
+          t.kind === "transfer"
+            ? `${t.transferFromName ?? ""} -> ${t.transferToName ?? ""}`
+            : (t.sourceLabel ?? ""),
+          t.shares.map((s) => s.name).join(", "),
+          t.parcela ? `${t.parcela.number}/${t.parcela.total}` : "",
+          KIND_LABEL[t.kind],
+          itemValue(t),
+        ]),
+      };
+    });
+
+    const kpis: PdfKpi[] = onlyTransfers
+      ? [
+          { label: "Total transferido", value: pdfMoney(xferSum), tone: "neutral" },
+          { label: "Lançamentos", value: String(rows.length) },
+        ]
+      : [
+          { label: "Entradas", value: pdfMoney(inSum), tone: "pos" },
+          { label: "Saídas", value: pdfMoney(outSum), tone: "neg" },
+          { label: "Resultado", value: pdfMoneySigned(net), tone: net < 0 ? "neg" : "pos" },
+          { label: "Lançamentos", value: String(rows.length) },
+        ];
+
+    try {
+      await exportPDF({
+        filename: `transacoes-${filter}-${today}.pdf`,
+        title: "Extrato de lançamentos",
+        subtitle: `${filterLabel} · ${rows.length} ${rows.length === 1 ? "lançamento" : "lançamentos"}`,
+        generatedOn: today,
+        orientation: "landscape",
+        kpis,
+        sections,
+      });
+      toast(`${rows.length} ${rows.length === 1 ? "transação exportada" : "transações exportadas"} em PDF`);
+    } catch {
+      toast("Não foi possível gerar o PDF", "error");
+    }
+  }
+
   const filtersHead = (
     <div className="card-head">
       <div className="row gap-2" style={{ flexWrap: "wrap" }}>
@@ -156,8 +246,18 @@ export function TransactionsView({
           Importar
         </Link>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onExport}>
-          <Icon name="download" size={16} />
-          Exportar
+          <Icon name="file-spreadsheet" size={16} />
+          CSV
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            void onExportPdf();
+          }}
+        >
+          <Icon name="file-down" size={16} />
+          PDF
         </button>
       </div>
     </div>

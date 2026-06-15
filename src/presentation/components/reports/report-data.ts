@@ -19,6 +19,13 @@ export function buildReportData({
   today: string;
 }): ReportData {
   const iconById = new Map(workspace.categories.map((c) => [c.id, c.icon]));
+  const sumMonths = (
+    rows: ReadonlyArray<{ incomeCents: number; expenseCents: number; netCents: number }>,
+  ) => ({
+    incomeCents: rows.reduce((s, m) => s + m.incomeCents, 0),
+    expenseCents: rows.reduce((s, m) => s + m.expenseCents, 0),
+    netCents: rows.reduce((s, m) => s + m.netCents, 0),
+  });
   return {
     summary: {
       generalIncomeCents: dash.general.incomeCents,
@@ -55,6 +62,10 @@ export function buildReportData({
     includesProjected: reports.includesProjected,
     projectedLabel: reports.projectedLabel,
     rangeLabel: reports.rangeLabel,
+    from: reports.from,
+    to: reports.to,
+    periodTotals: sumMonths(reports.months),
+    periodTotalsPersonal: sumMonths(reports.monthsPersonal),
     months: reports.months.map((m) => ({
       label: m.label,
       incomeCents: m.incomeCents,
