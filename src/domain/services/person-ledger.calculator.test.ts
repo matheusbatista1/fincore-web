@@ -15,6 +15,7 @@ import {
   applySettlement,
   computePersonBalances,
   computePersonBalancesForMonth,
+  computePersonBalancesThrough,
 } from "./person-ledger.calculator";
 
 /** Calendar competence (month of the transaction's date) for the month-scoped tests. */
@@ -326,8 +327,12 @@ describe("computePersonBalancesForMonth", () => {
       expense({ id: "jun", date: "2026-06-10", splits: [{ personId: "p-mar", shareCents: 7_400 }] }),
       expense({ id: "jul", date: "2026-07-10", splits: [{ personId: "p-mar", shareCents: 5_000 }] }),
     ];
-    expect(computePersonBalancesForMonth(people, txs, [], "2026-06", calOf).get("p-mar")?.cents).toBe(7_400);
-    expect(computePersonBalancesForMonth(people, txs, [], "2026-07", calOf).get("p-mar")?.cents).toBe(5_000);
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-06", calOf, "2026-06").get("p-mar")?.cents,
+    ).toBe(7_400);
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-07", calOf, "2026-07").get("p-mar")?.cents,
+    ).toBe(5_000);
   });
 
   it("abates with a payment dated in the same month and clamps settlements", () => {
@@ -343,6 +348,7 @@ describe("computePersonBalancesForMonth", () => {
       [settlement("p-joao", 3_000)],
       "2026-06",
       calOf,
+      "2026-06",
     );
     expect(balances.get("p-joao")?.cents).toBe(4_000);
   });
@@ -352,7 +358,9 @@ describe("computePersonBalancesForMonth", () => {
     const txs: Transaction[] = [
       expense({ id: "jun", date: "2026-06-10", splits: [{ personId: "p-mar", shareCents: 7_400 }] }),
     ];
-    expect(computePersonBalancesForMonth(people, txs, [], "2026-05", calOf).get("p-mar")?.cents).toBe(0);
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-05", calOf, "2026-05").get("p-mar")?.cents,
+    ).toBe(0);
   });
 
   it("ignores transfers, paid/future installments, non-person income and other-month settlements", () => {
@@ -373,13 +381,93 @@ describe("computePersonBalancesForMonth", () => {
     ];
     // Settlement is dated June, so it is ignored when scoping to July (and July has no tx).
     expect(
-      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-07", calOf).get("p-x")
-        ?.cents,
+      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-07", calOf, "2026-07").get(
+        "p-x",
+      )?.cents,
     ).toBe(0);
     // June: only the "atual" installment (5_000) counts, less the June settlement (1_000).
     expect(
-      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-06", calOf).get("p-x")
-        ?.cents,
+      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-06", calOf, "2026-06").get(
+        "p-x",
+      )?.cents,
     ).toBe(4_000);
+  });
+
+  it("projects a recurring shared expense's share into a future month", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({
+        id: "internet",
+        date: "2026-06-15",
+        recurrence: { dayOfMonth: 15 },
+        splits: [{ personId: "p-ana", shareCents: 10_000 }],
+      }),
+    ];
+    // Current month (anchor) uses the real split; the future month projects the recurring share.
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-06", calOf, "2026-06").get("p-ana")?.cents,
+    ).toBe(10_000);
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-07", calOf, "2026-06").get("p-ana")?.cents,
+    ).toBe(10_000);
+  });
+});
+
+// =============================================================================
+// computePersonBalancesThrough — accumulated incl. projected recurring.
+// =============================================================================
+
+describe("computePersonBalancesThrough", () => {
+  const recurringShare = (): ExpenseTransaction =>
+    expense({
+      id: "internet",
+      date: "2026-01-15",
+      recurrence: { dayOfMonth: 15 },
+      splits: [{ personId: "p-ana", shareCents: 10_000 }],
+    });
+
+  it("accrues a recurring shared expense month by month up to the horizon", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [recurringShare()];
+    // Through March: Jan (real anchor) + Feb + Mar (projected) = 3 × 10_000.
+    expect(computePersonBalancesThrough(people, txs, [], "2026-03", calOf).get("p-ana")?.cents).toBe(30_000);
+    // Through January: just the anchor.
+    expect(computePersonBalancesThrough(people, txs, [], "2026-01", calOf).get("p-ana")?.cents).toBe(10_000);
+  });
+
+  it("applies settlements dated at or before the horizon", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [recurringShare()];
+    const feb = { id: "s1", personId: "p-ana", amountCents: 5_000, date: "2026-02-10", accountId: null };
+    // 30_000 accrued through March − 5_000 settled in Feb = 25_000.
+    expect(computePersonBalancesThrough(people, txs, [feb], "2026-03", calOf).get("p-ana")?.cents).toBe(
+      25_000,
+    );
+  });
+
+  it("returns zero for a person with no transactions", () => {
+    expect(computePersonBalancesThrough([person("p-x")], [], [], "2026-03", calOf).get("p-x")?.cents).toBe(0);
+  });
+
+  it("finds the earliest month regardless of input order", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({
+        id: "mar",
+        description: "Mar rule",
+        date: "2026-03-15",
+        recurrence: { dayOfMonth: 15 },
+        splits: [{ personId: "p-ana", shareCents: 1_000 }],
+      }),
+      expense({
+        id: "jan",
+        description: "Jan rule",
+        date: "2026-01-15",
+        recurrence: { dayOfMonth: 15 },
+        splits: [{ personId: "p-ana", shareCents: 1_000 }],
+      }),
+    ];
+    // Through March: jan rule → jan+feb+mar (3_000); mar rule → mar only (1_000) = 4_000.
+    expect(computePersonBalancesThrough(people, txs, [], "2026-03", calOf).get("p-ana")?.cents).toBe(4_000);
   });
 });

@@ -189,4 +189,27 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     // Personal debits only my share (10000) → 90000.
     expect(data.projectedBalancePersonalCents).toBe(90000);
   });
+
+  it("future month: a recurring shared expense projects the person's a-receber", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    // Recurring shared expense anchored June (R$300, my share 100, Ana owes 200) → projects into July.
+    const shared = expense({
+      id: "internet",
+      source: "account",
+      accountId: "acc-1",
+      cardId: null,
+      date: "2026-06-10",
+      amountCents: -30000,
+      myShareCents: 10000,
+      splits: [{ personId: "p1", shareCents: 20000 }],
+      recurrence: { dayOfMonth: 10 },
+    });
+    const data = await getDashboard(stubRepo([shared], [], [ana]), "u", "2026-07");
+    // July's a-receber now includes Ana's projected share (was 0 before the fix).
+    expect(data.aReceberCents).toBe(20000);
+    // General: account 100000 − 30000 (June real) − 30000 (July projected) + 20000 (July a-receber).
+    expect(data.projectedBalanceCents).toBe(60000);
+    // Personal counts only my share: 100000 − 10000 − 10000.
+    expect(data.projectedBalancePersonalCents).toBe(80000);
+  });
 });
