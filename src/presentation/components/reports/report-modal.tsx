@@ -5,7 +5,14 @@ import type { TransactionListItem } from "@/application/use-cases/get-transactio
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
-import { csvMoney, exportCSV, exportPDF, pdfMoney } from "@/presentation/lib/export";
+import {
+  csvMoney,
+  exportCSV,
+  exportPDF,
+  type PdfAlign,
+  pdfMoney,
+  pdfMoneySigned,
+} from "@/presentation/lib/export";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { relativeDateLabel } from "@/shared/formatting/dates";
@@ -51,6 +58,19 @@ export interface ReportData {
   readonly categoriesPersonal: ReadonlyArray<{ readonly name: string; readonly totalCents: number }>;
   /** Human label of the covered window ("Junho de 2026" or "jan – jun 2026"). */
   readonly rangeLabel: string;
+  /** First/last competence month of the window (YYYY-MM) — `from === to` means a single month. */
+  readonly from: string;
+  readonly to: string;
+  /** Income/expense/net summed over the whole window (general lens) — the period truth. */
+  readonly periodTotals: PeriodTotals;
+  /** Same period totals through the personal lens. */
+  readonly periodTotalsPersonal: PeriodTotals;
+}
+
+interface PeriodTotals {
+  readonly incomeCents: number;
+  readonly expenseCents: number;
+  readonly netCents: number;
 }
 
 interface MonthRow {
@@ -92,8 +112,13 @@ export function ReportModal({
   );
 
   const { summary } = data;
-  const othersAll = Math.max(0, summary.generalExpenseCents - summary.personalExpenseCents);
-  const reimbAll = Math.max(0, summary.generalIncomeCents - summary.personalIncomeCents);
+  // Period totals (summed over the whole window) — the source of truth for multi-month ranges.
+  const pt = data.periodTotals;
+  const ptp = data.periodTotalsPersonal;
+  const isRange = data.from !== data.to;
+  const resultLabel = isRange ? "Resultado do período" : "Resultado do mês";
+  const othersAll = Math.max(0, pt.expenseCents - ptp.expenseCents);
+  const reimbAll = Math.max(0, pt.incomeCents - ptp.incomeCents);
 
   // --- por pessoa ---
   const person = data.people.find((p) => p.id === pid);
@@ -141,11 +166,7 @@ export function ReportModal({
 
   // Null when there's no personal income to measure against (avoids a bogus huge %).
   const savingsRate: number | null =
-    summary.personalIncomeCents > 0
-      ? Math.round(
-          ((summary.personalIncomeCents - summary.personalExpenseCents) / summary.personalIncomeCents) * 100,
-        )
-      : null;
+    ptp.incomeCents > 0 ? Math.round((ptp.netCents / ptp.incomeCents) * 100) : null;
   const savingsRateLabel = savingsRate === null ? "—" : `${savingsRate}%`;
   const fileSlug =
     mode === "person" && person
@@ -161,15 +182,20 @@ export function ReportModal({
   const monthLbl = (m: MonthRow): string => (m.projected ? `${m.label} (previsto)` : m.label);
   /** Full per-month table for the PDF (Mês · Receitas · Despesas · Resultado). */
   const pdfMonthRows = (rows: ReadonlyArray<MonthRow>): string[][] =>
-    rows.map((m) => [monthLbl(m), pdfMoney(m.incomeCents), pdfMoney(m.expenseCents), pdfMoney(m.netCents)]);
+    rows.map((m) => [
+      monthLbl(m),
+      pdfMoney(m.incomeCents),
+      pdfMoney(m.expenseCents),
+      pdfMoneySigned(m.netCents),
+    ]);
 
   function onCsv() {
     if (mode === "month") {
       const rows: string[][] = [
         ...(data.includesProjected ? [["Observação", projectedNote, ""]] : []),
-        ["Resumo", "Receitas", csvMoney(summary.generalIncomeCents)],
-        ["Resumo", "Despesas", csvMoney(summary.generalExpenseCents)],
-        ["Resumo", "Resultado", csvMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
+        ["Resumo", "Receitas", csvMoney(pt.incomeCents)],
+        ["Resumo", "Despesas", csvMoney(pt.expenseCents)],
+        ["Resumo", "Resultado", csvMoney(pt.netCents)],
         ...data.months.flatMap((m) => [
           ["Por mês", `${monthLbl(m)} · receitas`, csvMoney(m.incomeCents)],
           ["Por mês", `${monthLbl(m)} · despesas`, csvMoney(m.expenseCents)],
@@ -187,9 +213,9 @@ export function ReportModal({
         ["Item", "Valor"],
         [
           ...(data.includesProjected ? [["Observação", projectedNote]] : []),
-          ["Minha renda (sem reembolsos)", csvMoney(summary.personalIncomeCents)],
-          ["Meu gasto real (só minha parte)", csvMoney(summary.personalExpenseCents)],
-          ["Minha sobra real", csvMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
+          ["Minha renda (sem reembolsos)", csvMoney(ptp.incomeCents)],
+          ["Meu gasto real (só minha parte)", csvMoney(ptp.expenseCents)],
+          ["Minha sobra real", csvMoney(ptp.netCents)],
           ["Taxa de poupança", savingsRateLabel],
           ...data.categoriesPersonal.map((c) => [`Categoria: ${c.name}`, csvMoney(c.totalCents)]),
           ...data.monthsPersonal.flatMap((m) => [
@@ -218,85 +244,128 @@ export function ReportModal({
   async function onPdf() {
     const title = TITLES[mode];
     if (mode === "month") {
-      await exportPDF({
-        filename: `${fileSlug}.pdf`,
-        title,
-        subtitle: `${data.rangeLabel} · Resultado ${pdfMoney(
-          summary.generalIncomeCents - summary.generalExpenseCents,
-        )}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
-        sections: [
-          {
-            heading: "Resumo",
-            head: ["Item", "Valor"],
-            body: [
-              ["Receitas", pdfMoney(summary.generalIncomeCents)],
-              ["Despesas", pdfMoney(summary.generalExpenseCents)],
-            ],
-            foot: ["Resultado", pdfMoney(summary.generalIncomeCents - summary.generalExpenseCents)],
-          },
-          ...(data.months.length > 1
-            ? [
-                {
-                  heading: "Por mês",
-                  head: ["Mês", "Receitas", "Despesas", "Resultado"],
-                  body: pdfMonthRows(data.months),
-                },
-              ]
-            : []),
-          {
-            heading: "Por categoria",
-            head: ["Categoria", "Valor"],
-            body: data.categories.map((c) => [c.name, pdfMoney(c.totalCents)]),
-          },
-          {
-            heading: "Por cartão",
-            head: ["Cartão", "Valor"],
-            body: data.byCard.map((c) => [c.name, pdfMoney(c.valueCents)]),
-          },
-          {
-            heading: "Pessoas",
-            head: ["Item", "Valor"],
-            body: [
-              ["A receber de pessoas", pdfMoney(summary.aReceberCents)],
-              ["Você deve", pdfMoney(summary.aPagarCents)],
-            ],
-          },
-        ],
-      });
-    } else if (mode === "mine") {
+      const catTotal = data.categories.reduce((s, c) => s + c.totalCents, 0);
+      const pct = (v: number): string => (catTotal > 0 ? `${Math.round((v / catTotal) * 100)}%` : "0%");
+      const peopleNet = summary.aReceberCents - summary.aPagarCents;
       await exportPDF({
         filename: `${fileSlug}.pdf`,
         title,
         subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
+        generatedOn: data.today,
+        kpis: [
+          { label: "Receitas", value: pdfMoney(pt.incomeCents), tone: "pos" },
+          { label: "Despesas", value: pdfMoney(pt.expenseCents), tone: "neg" },
+          { label: "Resultado", value: pdfMoneySigned(pt.netCents), tone: pt.netCents < 0 ? "neg" : "pos" },
+          { label: "Taxa de poupança", value: savingsRateLabel },
+        ],
         sections: [
           {
-            heading: "Resumo pessoal",
+            heading: "Resumo do período",
             head: ["Item", "Valor"],
+            align: ["left", "right"],
             body: [
-              ["Minha renda (sem reembolsos)", pdfMoney(summary.personalIncomeCents)],
-              ["Meu gasto real (só minha parte)", pdfMoney(summary.personalExpenseCents)],
+              ["Receitas", pdfMoney(pt.incomeCents)],
+              ["Despesas", pdfMoney(pt.expenseCents)],
+            ],
+            foot: ["Resultado", pdfMoneySigned(pt.netCents)],
+          },
+          {
+            heading: "Resumo por mês",
+            head: ["Mês", "Receitas", "Despesas", "Resultado"],
+            align: ["left", "right", "right", "right"],
+            body: pdfMonthRows(data.months),
+            foot: ["Total", pdfMoney(pt.incomeCents), pdfMoney(pt.expenseCents), pdfMoneySigned(pt.netCents)],
+          },
+          ...(data.categories.length > 0
+            ? [
+                {
+                  heading: "Despesas por categoria",
+                  head: ["Categoria", "Valor", "% do total"],
+                  align: ["left", "right", "right"] as PdfAlign[],
+                  body: data.categories.map((c) => [c.name, pdfMoney(c.totalCents), pct(c.totalCents)]),
+                  foot: ["Total", pdfMoney(catTotal), "100%"],
+                },
+              ]
+            : []),
+          ...(data.byCard.length > 0
+            ? [
+                {
+                  heading: "Gasto por cartão (fatura aberta atual)",
+                  head: ["Cartão", "Valor"],
+                  align: ["left", "right"] as PdfAlign[],
+                  body: data.byCard.map((c) => [c.name, pdfMoney(c.valueCents)]),
+                },
+              ]
+            : []),
+          {
+            heading: "Pessoas (saldos atuais)",
+            head: ["Item", "Valor"],
+            align: ["left", "right"],
+            body: [
+              ["A receber de pessoas", pdfMoney(summary.aReceberCents)],
+              ["Você deve", pdfMoney(summary.aPagarCents)],
+            ],
+            foot: ["Saldo líquido", pdfMoneySigned(peopleNet)],
+          },
+        ],
+      });
+    } else if (mode === "mine") {
+      const catTotalP = data.categoriesPersonal.reduce((s, c) => s + c.totalCents, 0);
+      const pctP = (v: number): string => (catTotalP > 0 ? `${Math.round((v / catTotalP) * 100)}%` : "0%");
+      await exportPDF({
+        filename: `${fileSlug}.pdf`,
+        title,
+        subtitle: `${data.rangeLabel}${data.includesProjected ? ` · ${projectedNote}` : ""}`,
+        generatedOn: data.today,
+        kpis: [
+          { label: "Minha renda", value: pdfMoney(ptp.incomeCents), tone: "pos" },
+          { label: "Meu gasto", value: pdfMoney(ptp.expenseCents), tone: "neg" },
+          {
+            label: "Minha sobra",
+            value: pdfMoneySigned(ptp.netCents),
+            tone: ptp.netCents < 0 ? "neg" : "pos",
+          },
+          { label: "Taxa de poupança", value: savingsRateLabel },
+        ],
+        sections: [
+          {
+            heading: "Resumo pessoal do período",
+            head: ["Item", "Valor"],
+            align: ["left", "right"],
+            body: [
+              ["Minha renda (sem reembolsos)", pdfMoney(ptp.incomeCents)],
+              ["Meu gasto real (só minha parte)", pdfMoney(ptp.expenseCents)],
               ["Taxa de poupança", savingsRateLabel],
             ],
-            foot: ["Minha sobra real", pdfMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
+            foot: ["Minha sobra real", pdfMoneySigned(ptp.netCents)],
           },
           ...(data.categoriesPersonal.length > 0
             ? [
                 {
-                  heading: "Por categoria (pessoal)",
-                  head: ["Categoria", "Valor"],
-                  body: data.categoriesPersonal.map((c) => [c.name, pdfMoney(c.totalCents)]),
+                  heading: "Despesas por categoria (pessoal)",
+                  head: ["Categoria", "Valor", "% do total"],
+                  align: ["left", "right", "right"] as PdfAlign[],
+                  body: data.categoriesPersonal.map((c) => [
+                    c.name,
+                    pdfMoney(c.totalCents),
+                    pctP(c.totalCents),
+                  ]),
+                  foot: ["Total", pdfMoney(catTotalP), "100%"],
                 },
               ]
             : []),
-          ...(data.monthsPersonal.length > 1
-            ? [
-                {
-                  heading: "Por mês (pessoal)",
-                  head: ["Mês", "Minha renda", "Meu gasto", "Minha sobra"],
-                  body: pdfMonthRows(data.monthsPersonal),
-                },
-              ]
-            : []),
+          {
+            heading: "Resumo por mês (pessoal)",
+            head: ["Mês", "Minha renda", "Meu gasto", "Minha sobra"],
+            align: ["left", "right", "right", "right"],
+            body: pdfMonthRows(data.monthsPersonal),
+            foot: [
+              "Total",
+              pdfMoney(ptp.incomeCents),
+              pdfMoney(ptp.expenseCents),
+              pdfMoneySigned(ptp.netCents),
+            ],
+          },
         ],
       });
     } else {
@@ -365,18 +434,18 @@ export function ReportModal({
                 <div className="sb-row">
                   <span className="k">Receitas</span>
                   <span className="v" style={{ color: "var(--mint-500)" }}>
-                    {money(summary.generalIncomeCents)}
+                    {money(pt.incomeCents)}
                   </span>
                 </div>
                 <div className="sb-row">
                   <span className="k">Despesas</span>
                   <span className="v" style={{ color: "var(--rose-500)" }}>
-                    {money(summary.generalExpenseCents)}
+                    {money(pt.expenseCents)}
                   </span>
                 </div>
                 <div className="sb-row total">
-                  <span className="k">Resultado do mês</span>
-                  <span className="v">{money(summary.generalIncomeCents - summary.generalExpenseCents)}</span>
+                  <span className="k">{resultLabel}</span>
+                  <span className="v">{money(pt.netCents)}</span>
                 </div>
               </div>
               <div className="rp-group">
@@ -467,20 +536,18 @@ export function ReportModal({
                 <div className="sb-row">
                   <span className="k">Minha renda (sem reembolsos)</span>
                   <span className="v" style={{ color: "var(--mint-500)" }}>
-                    {money(summary.personalIncomeCents)}
+                    {money(ptp.incomeCents)}
                   </span>
                 </div>
                 <div className="sb-row">
                   <span className="k">Meu gasto real (só minha parte)</span>
                   <span className="v" style={{ color: "var(--rose-500)" }}>
-                    {money(summary.personalExpenseCents)}
+                    {money(ptp.expenseCents)}
                   </span>
                 </div>
                 <div className="sb-row total">
                   <span className="k">Minha sobra real</span>
-                  <span className="v">
-                    {money(summary.personalIncomeCents - summary.personalExpenseCents)}
-                  </span>
+                  <span className="v">{money(ptp.netCents)}</span>
                 </div>
               </div>
               <div className="summary-box" style={{ marginTop: 14 }}>
