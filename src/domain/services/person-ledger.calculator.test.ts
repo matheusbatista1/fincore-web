@@ -16,6 +16,8 @@ import {
   computePersonBalances,
   computePersonBalancesForMonth,
   computePersonBalancesThrough,
+  computePersonLedger,
+  type LedgerMovement,
 } from "./person-ledger.calculator";
 
 /** Calendar competence (month of the transaction's date) for the month-scoped tests. */
@@ -501,5 +503,202 @@ describe("computePersonBalancesThrough", () => {
     ];
     // Through March: jan rule → jan+feb+mar (3_000); mar rule → mar only (1_000) = 4_000.
     expect(computePersonBalancesThrough(people, txs, [], "2026-03", calOf).get("p-ana")?.cents).toBe(4_000);
+  });
+});
+
+// =============================================================================
+// computePersonLedger — emitted movements that reconcile with the balance.
+// =============================================================================
+
+describe("computePersonLedger", () => {
+  /** Window the emitted movements into a [from, to] statement (mirrors get-person-statements). */
+  function windowFor(
+    personId: string,
+    movements: readonly LedgerMovement[],
+    from: string,
+    to: string,
+  ): { openingCents: number; debitCents: number; creditCents: number; finalRunningCents: number } {
+    let openingCents = 0;
+    let debitCents = 0;
+    let creditCents = 0;
+    const period: LedgerMovement[] = [];
+    for (const mv of movements) {
+      if (mv.personId !== personId) continue;
+      if (mv.competence < from) openingCents += mv.signedDeltaCents;
+      else if (mv.competence <= to) {
+        period.push(mv);
+        if (mv.signedDeltaCents > 0) debitCents += mv.signedDeltaCents;
+        else creditCents += -mv.signedDeltaCents;
+      }
+    }
+    // Reconstruct the running balance from the opening, applying each period delta.
+    let running = openingCents;
+    for (const mv of period) running += mv.signedDeltaCents;
+    return { openingCents, debitCents, creditCents, finalRunningCents: running };
+  }
+
+  it("balances equal computePersonBalancesThrough (single source of truth)", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-01-10", splits: [{ personId: "p-ana", shareCents: 7_400 }] }),
+      expense({ id: "e2", date: "2026-02-10", splits: [{ personId: "p-ana", shareCents: 5_000 }] }),
+    ];
+    const setts = [settlement("p-ana", 3_000)];
+    const ledger = computePersonLedger(people, txs, setts, "2026-06", calOf);
+    const direct = computePersonBalancesThrough(people, txs, setts, "2026-06", calOf);
+    expect(ledger.balances.get("p-ana")?.cents).toBe(direct.get("p-ana")?.cents);
+  });
+
+  it("a settlement movement records the APPLIED delta, clamped at zero", () => {
+    const people = [person("p-mar")];
+    const txs: Transaction[] = [
+      expense({ id: "e", date: "2026-06-10", splits: [{ personId: "p-mar", shareCents: 18_000 }] }),
+    ];
+    // Overpay: settle 25_000 against an 18_000 debt → applies only 18_000, lands at 0.
+    const { movements, balances } = computePersonLedger(
+      people,
+      txs,
+      [settlement("p-mar", 25_000)],
+      "2026-06",
+      calOf,
+    );
+    const settMv = movements.find((m) => m.source.type === "settlement");
+    expect(settMv?.signedDeltaCents).toBe(-18_000);
+    expect(settMv?.balanceAfterCents).toBe(0);
+    expect(balances.get("p-mar")?.cents).toBe(0);
+  });
+
+  it("opening (pre-period) + period debits − credits == closing, with a non-empty opening", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({ id: "jan", date: "2026-01-10", splits: [{ personId: "p-ana", shareCents: 10_000 }] }),
+      expense({ id: "mar", date: "2026-03-10", splits: [{ personId: "p-ana", shareCents: 4_000 }] }),
+    ];
+    const { movements, balances } = computePersonLedger(people, txs, [], "2026-04", calOf);
+    const w = windowFor("p-ana", movements, "2026-02", "2026-04");
+    expect(w.openingCents).toBe(10_000); // January is before the window
+    expect(w.debitCents).toBe(4_000); // March charge falls inside it
+    expect(w.creditCents).toBe(0);
+    const closing = balances.get("p-ana")?.cents ?? 0;
+    expect(w.openingCents + w.debitCents - w.creditCents).toBe(closing);
+    expect(w.finalRunningCents).toBe(closing);
+  });
+
+  it("a person with a non-zero opening and no period activity reconciles (opening == closing)", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({ id: "jan", date: "2026-01-10", splits: [{ personId: "p-ana", shareCents: 9_000 }] }),
+    ];
+    const { movements, balances } = computePersonLedger(people, txs, [], "2026-05", calOf);
+    const w = windowFor("p-ana", movements, "2026-03", "2026-05");
+    expect(w.openingCents).toBe(9_000);
+    expect(w.debitCents).toBe(0);
+    expect(w.creditCents).toBe(0);
+    expect(w.finalRunningCents).toBe(balances.get("p-ana")?.cents);
+  });
+
+  it("flags projected recurring occurrences (and not the real anchor)", () => {
+    const people = [person("p-ana")];
+    const txs: Transaction[] = [
+      expense({
+        id: "internet",
+        date: "2026-01-15",
+        recurrence: { dayOfMonth: 15 },
+        splits: [{ personId: "p-ana", shareCents: 10_000 }],
+      }),
+    ];
+    const { movements } = computePersonLedger(people, txs, [], "2026-03", calOf);
+    const jan = movements.find((m) => m.competence === "2026-01");
+    const feb = movements.find((m) => m.competence === "2026-02");
+    const mar = movements.find((m) => m.competence === "2026-03");
+    expect(jan?.projected).toBe(false); // real anchor
+    expect(feb?.projected).toBe(true); // projected occurrence
+    expect(mar?.projected).toBe(true);
+  });
+
+  it("flags a future ('futura') installment parcela as projected", () => {
+    const people = [person("p-x")];
+    const txs: Transaction[] = [
+      expense({
+        id: "p5",
+        date: "2026-07-18",
+        splits: [{ personId: "p-x", shareCents: 34_765 }],
+        installment: { groupId: "g", number: 5, total: 12, status: "futura" },
+      }),
+    ];
+    const { movements } = computePersonLedger(people, txs, [], "2026-07", calOf);
+    const mv = movements.find((m) => m.personId === "p-x");
+    expect(mv?.projected).toBe(true);
+    expect(mv?.signedDeltaCents).toBe(34_765);
+  });
+
+  // Property: for any window, opening + period(debits − credits) == closing, and the
+  // running balance reconstructed from the opening lands exactly on the closing balance.
+  it("reconciles every window: opening + period == closing (property)", () => {
+    const personIdArb = fc.constantFrom("p-a", "p-b", "p-c");
+    const monthArb = fc.constantFrom("2026-01", "2026-02", "2026-03", "2026-04", "2026-05");
+    const dateIn = (m: string) => `${m}-10`;
+    const shareArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      shareCents: fc.integer({ min: 1, max: 100_000 }),
+    });
+    const payArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      amountCents: fc.integer({ min: 1, max: 50_000 }),
+    });
+    const settArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      amountCents: fc.integer({ min: 1, max: 120_000 }),
+    });
+
+    fc.assert(
+      fc.property(
+        fc.array(shareArb, { maxLength: 12 }),
+        fc.array(payArb, { maxLength: 8 }),
+        fc.array(settArb, { maxLength: 6 }),
+        fc.tuple(monthArb, monthArb),
+        (shares, pays, setts, [a, b]) => {
+          const [from, to] = a <= b ? [a, b] : [b, a];
+          const people = [person("p-a"), person("p-b"), person("p-c")];
+          const txs: Transaction[] = [
+            ...shares.map(
+              (s, i): Transaction =>
+                expense({
+                  id: `e${i}`,
+                  date: dateIn(s.month),
+                  splits: [{ personId: s.personId, shareCents: s.shareCents }],
+                }),
+            ),
+            ...pays.map(
+              (p, i): Transaction =>
+                income({
+                  id: `i${i}`,
+                  date: dateIn(p.month),
+                  amountCents: p.amountCents,
+                  fromPersonId: p.personId,
+                }),
+            ),
+          ];
+          const settlements: Settlement[] = setts.map((s, i) => ({
+            id: `s${i}`,
+            personId: s.personId,
+            amountCents: s.amountCents,
+            date: dateIn(s.month),
+            accountId: null,
+          }));
+
+          const { movements, balances } = computePersonLedger(people, txs, settlements, to, calOf);
+          for (const id of ["p-a", "p-b", "p-c"]) {
+            const w = windowFor(id, movements, from, to);
+            const closing = balances.get(id)?.cents ?? 0;
+            expect(w.openingCents + w.debitCents - w.creditCents).toBe(closing);
+            expect(w.finalRunningCents).toBe(closing);
+          }
+        },
+      ),
+    );
   });
 });
