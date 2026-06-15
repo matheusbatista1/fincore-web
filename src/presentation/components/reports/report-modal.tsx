@@ -371,8 +371,8 @@ export function ReportModal({
           generatedOn: data.today,
           kpis: [
             { label: "Saldo anterior", value: pdfMoneySigned(statement.openingCents) },
-            { label: "Compartilhado", value: pdfMoney(statement.debitTotalCents) },
-            { label: "Pago", value: pdfMoney(statement.creditTotalCents), tone: "pos" },
+            { label: "Débitos", value: pdfMoney(statement.debitTotalCents) },
+            { label: "Créditos", value: pdfMoney(statement.creditTotalCents), tone: "pos" },
             { label: "Saldo final", value: pdfMoneySigned(closing), tone: closing < 0 ? "neg" : "pos" },
           ],
           sections: [
@@ -629,13 +629,13 @@ export function ReportModal({
                   <span className="v">{moneySigned(statement.openingCents)}</span>
                 </div>
                 <div className="sb-row">
-                  <span className="k">Compartilhado no período</span>
+                  <span className="k">Débitos no período</span>
                   <span className="v" style={{ color: "var(--text-hi)" }}>
                     {money(statement.debitTotalCents)}
                   </span>
                 </div>
                 <div className="sb-row">
-                  <span className="k">Pago no período</span>
+                  <span className="k">Créditos no período</span>
                   <span className="v" style={{ color: "var(--mint-500)" }}>
                     {money(statement.creditTotalCents)}
                   </span>
@@ -695,6 +695,12 @@ export function ReportModal({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {mode === "person" && !statement && (
+            <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "24px 0", textAlign: "center" }}>
+              Nenhuma pessoa cadastrada.
             </div>
           )}
         </div>

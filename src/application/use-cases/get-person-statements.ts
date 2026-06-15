@@ -99,20 +99,29 @@ export async function getPersonStatements(
       if (compareMonths(mv.competence, from) < 0) openingCents += mv.signedDeltaCents;
       else if (compareMonths(mv.competence, to) <= 0) period.push(mv);
     }
-    // Chronological display order — the applied deltas are fixed, so the running balance
-    // reconstructed from the opening still lands exactly on the closing balance.
+    // Chronological display order. The applied deltas are fixed (accumulation order:
+    // all charges, then settlements with the zero-clamp), so summing them from the opening
+    // always lands exactly on the closing balance — the closing/totals always reconcile.
+    // (Caveat: an overpaying settlement dated before the charge it offsets can show a
+    // slightly off INTERMEDIATE running balance; the closing is still exact. We keep the
+    // accumulation-order deltas because a chronological re-clamp could diverge from the
+    // authoritative computePersonBalancesThrough figure shown elsewhere.)
     period.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     let running = openingCents;
     let debitTotalCents = 0;
     let creditTotalCents = 0;
-    const entries: PersonLedgerEntry[] = period.map((mv) => {
+    const entries: PersonLedgerEntry[] = [];
+    for (const mv of period) {
       running += mv.signedDeltaCents;
+      // A zero-delta movement (e.g. a settlement against an already-zero balance) has no
+      // ledger effect — advance the running balance but skip the phantom "R$ 0,00" row.
+      if (mv.signedDeltaCents === 0) continue;
       const isDebit = mv.signedDeltaCents > 0;
       const amountCents = Math.abs(mv.signedDeltaCents);
       if (isDebit) debitTotalCents += amountCents;
       else creditTotalCents += amountCents;
-      return {
+      entries.push({
         date: mv.date,
         description: descriptionOf(mv),
         origin: originOf(mv),
@@ -120,8 +129,8 @@ export async function getPersonStatements(
         amountCents,
         balanceCents: running,
         projected: mv.projected,
-      };
-    });
+      });
+    }
 
     return {
       id: p.id,
