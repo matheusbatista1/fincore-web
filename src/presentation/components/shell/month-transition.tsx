@@ -37,10 +37,14 @@ export function MonthTransition({
   prevHref,
   nextHref,
   children,
+  disableSwipe = false,
 }: {
   prevHref: string;
   nextHref: string;
   children: ReactNode;
+  /** Disable the left/right month swipe (e.g. on the dashboard, where it conflicts
+   * with the horizontal cards carousel). Month nav stays available via the chevrons. */
+  disableSwipe?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -58,7 +62,7 @@ export function MonthTransition({
 
   return (
     <MonthNavContext.Provider value={{ go, isPending, dir: dirRef.current }}>
-      <div {...swipe}>{children}</div>
+      <div {...(disableSwipe ? {} : swipe)}>{children}</div>
     </MonthNavContext.Provider>
   );
 }

@@ -207,6 +207,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
     <MonthTransition
       prevHref={`/dashboard?m=${addMonths(data.month, -1)}`}
       nextHref={`/dashboard?m=${addMonths(data.month, 1)}`}
+      // The horizontal cards carousel conflicts with the month swipe on mobile —
+      // keep month nav on the dashboard to the header chevrons only.
+      disableSwipe
     >
       <div className="dash-page">
         <div className="card card-pad" style={{ marginBottom: 16 }}>
