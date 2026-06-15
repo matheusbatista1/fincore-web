@@ -139,10 +139,14 @@ export function ReportModal({
         ? "pessoal"
         : "geral do mês";
 
-  const savingsRate = Math.round(
-    ((summary.personalIncomeCents - summary.personalExpenseCents) / (summary.personalIncomeCents || 100)) *
-      100,
-  );
+  // Null when there's no personal income to measure against (avoids a bogus huge %).
+  const savingsRate: number | null =
+    summary.personalIncomeCents > 0
+      ? Math.round(
+          ((summary.personalIncomeCents - summary.personalExpenseCents) / summary.personalIncomeCents) * 100,
+        )
+      : null;
+  const savingsRateLabel = savingsRate === null ? "—" : `${savingsRate}%`;
   const fileSlug =
     mode === "person" && person
       ? `relatorio-${(person.name.split(" ")[0] ?? "pessoa").toLowerCase()}-${data.today}`
@@ -186,7 +190,7 @@ export function ReportModal({
           ["Minha renda (sem reembolsos)", csvMoney(summary.personalIncomeCents)],
           ["Meu gasto real (só minha parte)", csvMoney(summary.personalExpenseCents)],
           ["Minha sobra real", csvMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
-          ["Taxa de poupança", `${savingsRate}%`],
+          ["Taxa de poupança", savingsRateLabel],
           ...data.categoriesPersonal.map((c) => [`Categoria: ${c.name}`, csvMoney(c.totalCents)]),
           ...data.monthsPersonal.flatMap((m) => [
             [`${monthLbl(m)} · minha renda`, csvMoney(m.incomeCents)],
@@ -271,7 +275,7 @@ export function ReportModal({
             body: [
               ["Minha renda (sem reembolsos)", pdfMoney(summary.personalIncomeCents)],
               ["Meu gasto real (só minha parte)", pdfMoney(summary.personalExpenseCents)],
-              ["Taxa de poupança", `${savingsRate}%`],
+              ["Taxa de poupança", savingsRateLabel],
             ],
             foot: ["Minha sobra real", pdfMoney(summary.personalIncomeCents - summary.personalExpenseCents)],
           },
@@ -483,7 +487,7 @@ export function ReportModal({
                 <div className="sb-row">
                   <span className="k">Taxa de poupança</span>
                   <span className="v" style={{ color: "var(--purple-300)" }}>
-                    {savingsRate}%
+                    {savingsRateLabel}
                   </span>
                 </div>
               </div>
