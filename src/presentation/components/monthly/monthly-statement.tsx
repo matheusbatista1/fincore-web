@@ -54,6 +54,8 @@ export interface MonthlyStatementProps {
   /** General-lens header totals (export + the default view). */
   totInCents: number;
   totOutCents: number;
+  /** Month's "a receber" from people (general lens only) — added to Entradas like the dashboard. */
+  aReceberCents: number;
   itemCount: number;
 }
 
@@ -70,6 +72,7 @@ export function MonthlyStatement({
   exportGroups,
   totInCents,
   totOutCents,
+  aReceberCents,
   itemCount,
 }: MonthlyStatementProps) {
   const view = useUIStore((s) => s.view);
@@ -86,9 +89,11 @@ export function MonthlyStatement({
     [rightGroups, isPersonal],
   );
 
+  // General "Entradas" mirrors the dashboard: own income + what people owe you this
+  // month ("a receber"). Personal counts only the user's own income (no people).
   const totIn = isPersonal
     ? [...left, ...right].filter((g) => g.lens === "income").reduce((s, g) => s + g.totalCents, 0)
-    : totInCents;
+    : totInCents + aReceberCents;
   const totOut = isPersonal
     ? [...left, ...right].filter((g) => g.lens === "expense").reduce((s, g) => s + g.totalCents, 0)
     : totOutCents;

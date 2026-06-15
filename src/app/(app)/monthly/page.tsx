@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getMonthly, type MonthlyItem } from "@/application/use-cases/get-monthly";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
@@ -32,9 +33,11 @@ export default async function MonthlyPage({
   const today = todayInBrazil();
   const label = monthLabel(month, { long: true });
 
-  const [data, workspace] = await Promise.all([
+  const [data, workspace, dash] = await Promise.all([
     getMonthly(financeRepository, user.id, month),
     getWorkspaceView(financeRepository, user.id),
+    // For the general "Entradas" total: reuse the exact same month "a receber" the dashboard shows.
+    getDashboard(financeRepository, user.id, month),
   ]);
 
   // Card credits (estornos) live on the Cards screen, not in the monthly cash flow.
@@ -146,6 +149,7 @@ export default async function MonthlyPage({
       exportGroups={exportGroups}
       totInCents={totIn}
       totOutCents={totOut}
+      aReceberCents={dash.aReceberCents}
       itemCount={data.items.length}
     />
   );
