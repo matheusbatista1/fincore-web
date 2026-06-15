@@ -205,11 +205,12 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
       recurrence: { dayOfMonth: 10 },
     });
     const data = await getDashboard(stubRepo([shared], [], [ana]), "u", "2026-07");
-    // July's a-receber now includes Ana's projected share (was 0 before the fix).
+    // The "A receber" stat is the browsed month only → Ana's July share.
     expect(data.aReceberCents).toBe(20000);
-    // General: account 100000 − 30000 (June real) − 30000 (July projected) + 20000 (July a-receber).
-    expect(data.projectedBalanceCents).toBe(60000);
-    // Personal counts only my share: 100000 − 10000 − 10000.
+    // General fim do mês is consistent with personal: account 100000 − 30000 (June) − 30000
+    // (July) = 40000, plus the CUMULATIVE people net Jun+Jul (20000 + 20000) = 80000.
+    expect(data.projectedBalanceCents).toBe(80000);
+    // Personal counts only my share each month: 100000 − 10000 − 10000 = 80000.
     expect(data.projectedBalancePersonalCents).toBe(80000);
   });
 });

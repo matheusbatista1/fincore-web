@@ -363,34 +363,48 @@ describe("computePersonBalancesForMonth", () => {
     ).toBe(0);
   });
 
-  it("ignores transfers, paid/future installments, non-person income and other-month settlements", () => {
+  it("ignores transfers, non-person income and other-month settlements; counts the month's parcela", () => {
     const people = [person("p-x")];
-    const mk = (id: string, status: ParcelaStatus): ExpenseTransaction =>
-      expense({
-        id,
-        date: "2026-06-02",
-        splits: [{ personId: "p-x", shareCents: id === "atual" ? 5_000 : 9_000 }],
-        installment: { groupId: "g", number: 1, total: 2, status },
-      });
     const txs: Transaction[] = [
-      mk("atual", "atual"),
-      mk("paga", "paga"),
-      mk("futura", "futura"),
+      expense({
+        id: "jun",
+        date: "2026-06-02",
+        splits: [{ personId: "p-x", shareCents: 5_000 }],
+        installment: { groupId: "g", number: 4, total: 12, status: "atual" },
+      }),
       transfer({ id: "tr", date: "2026-06-05", valueCents: 50_000 }),
       income({ id: "noperson", date: "2026-06-06", amountCents: 3_000, fromPersonId: null }),
     ];
-    // Settlement is dated June, so it is ignored when scoping to July (and July has no tx).
-    expect(
-      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-07", calOf, "2026-07").get(
-        "p-x",
-      )?.cents,
-    ).toBe(0);
-    // June: only the "atual" installment (5_000) counts, less the June settlement (1_000).
+    // June: the parcela (5_000) less the June settlement (1_000) = 4_000.
     expect(
       computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-06", calOf, "2026-06").get(
         "p-x",
       )?.cents,
     ).toBe(4_000);
+    // July: the June parcela isn't July's and the June settlement is out of scope → 0.
+    expect(
+      computePersonBalancesForMonth(people, txs, [settlement("p-x", 1_000)], "2026-07", calOf, "2026-07").get(
+        "p-x",
+      )?.cents,
+    ).toBe(0);
+  });
+
+  it("counts a FUTURE installment parcela for its own month (but not in the all-time outstanding)", () => {
+    const people = [person("p-x")];
+    const txs: Transaction[] = [
+      expense({
+        id: "jul",
+        date: "2026-07-18",
+        splits: [{ personId: "p-x", shareCents: 5_000 }],
+        installment: { groupId: "g", number: 5, total: 12, status: "futura" },
+      }),
+    ];
+    // Even though it's "futura" relative to today, July's parcela counts for July.
+    expect(
+      computePersonBalancesForMonth(people, txs, [], "2026-07", calOf, "2026-06").get("p-x")?.cents,
+    ).toBe(5_000);
+    // The all-time "current outstanding" excludes future parcelas.
+    expect(computePersonBalances(people, txs, []).get("p-x")?.cents).toBe(0);
   });
 
   it("projects a recurring shared expense's share into a future month", () => {
@@ -447,6 +461,24 @@ describe("computePersonBalancesThrough", () => {
 
   it("returns zero for a person with no transactions", () => {
     expect(computePersonBalancesThrough([person("p-x")], [], [], "2026-03", calOf).get("p-x")?.cents).toBe(0);
+  });
+
+  it("accrues future installment parcelas up to the horizon", () => {
+    const people = [person("p-x")];
+    const mk = (id: string, date: string, status: ParcelaStatus, n: number): ExpenseTransaction =>
+      expense({
+        id,
+        date,
+        splits: [{ personId: "p-x", shareCents: 34_765 }],
+        installment: { groupId: "g", number: n, total: 12, status },
+      });
+    const txs: Transaction[] = [
+      mk("p4", "2026-06-18", "atual", 4),
+      mk("p5", "2026-07-18", "futura", 5),
+      mk("p6", "2026-08-18", "futura", 6),
+    ];
+    // Through July: parcelas 4 (Jun) + 5 (Jul); parcela 6 (Aug) is beyond the horizon.
+    expect(computePersonBalancesThrough(people, txs, [], "2026-07", calOf).get("p-x")?.cents).toBe(69_530);
   });
 
   it("finds the earliest month regardless of input order", () => {

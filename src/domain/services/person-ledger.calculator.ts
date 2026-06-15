@@ -42,10 +42,22 @@ type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
  *
  * @returns a Map from personId to their balance as Money (cents).
  */
-export function computePersonBalances(
+/**
+ * Core accumulation: each expense split adds to what the person owes you; an income
+ * `fromPersonId` abates it; then settlements are applied (clamped toward zero).
+ *
+ * `includeNonCurrentInstallments` controls installment handling:
+ *  - `false` → only the current ("atual") parcela counts (paga/futura skipped). This is
+ *    the all-time "current outstanding" total.
+ *  - `true` → every parcela in the set counts. The caller has already scoped the set by
+ *    competence month, so the future parcela that belongs to the browsed month is included
+ *    (it is "futura" only relative to today, not relative to its own month).
+ */
+function accumulate(
   people: readonly Person[],
   transactions: readonly Transaction[],
   settlements: readonly Settlement[],
+  includeNonCurrentInstallments: boolean,
 ): Map<string, Money> {
   // Seed every known person at zero so callers get a complete, stable map.
   const balances = new Map<string, Money>();
@@ -60,38 +72,36 @@ export function computePersonBalances(
     balances.set(personId, current.add(delta));
   };
 
-  // ---- transaction effects (txDeltas, d.people branch) ----
   for (const tx of transactions) {
     if (isExpense(tx)) {
-      // Paid ("paga") and future ("futura") installments do not affect balances;
-      // only the current installment or a plain expense does. (Prototype early
-      // return on parcelaStatus === 'paga' || 'futura'.)
-      const status = tx.installment?.status;
-      if (status === "paga" || status === "futura") continue;
-
-      // Each split adds the person's share to what they owe you.
+      if (!includeNonCurrentInstallments) {
+        const status = tx.installment?.status;
+        if (status === "paga" || status === "futura") continue;
+      }
       for (const split of tx.splits) {
         adjust(split.personId, Money.fromCents(split.shareCents));
       }
-    } else if (isIncome(tx)) {
+    } else if (isIncome(tx) && tx.fromPersonId !== null) {
       // A payment from a person abates their debt: balance -= amount.
-      // (Income amountCents is positive; subtract it.)
-      if (tx.fromPersonId !== null) {
-        adjust(tx.fromPersonId, Money.fromCents(tx.amountCents).negate());
-      }
+      adjust(tx.fromPersonId, Money.fromCents(tx.amountCents).negate());
     }
     // Transfers never touch person balances.
   }
 
-  // ---- settlements ----
-  // Each settlement reduces the outstanding balance toward zero, clamped so it
-  // never crosses zero — exactly the `applySettle` operation.
   for (const settlement of settlements) {
     const current = balances.get(settlement.personId) ?? Money.zero();
     balances.set(settlement.personId, applySettlement(current, settlement.amountCents));
   }
 
   return balances;
+}
+
+export function computePersonBalances(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+): Map<string, Money> {
+  return accumulate(people, transactions, settlements, false);
 }
 
 /**
@@ -115,42 +125,16 @@ export function computePersonBalancesForMonth(
   competenceOf: CompetenceResolver,
   currentMonth: CompetenceMonth,
 ): Map<string, Money> {
-  const balances = new Map<string, Money>();
-  for (const person of people) balances.set(person.id, Money.zero());
-
-  const adjust = (personId: string, delta: Money): void => {
-    const current = balances.get(personId) ?? Money.zero();
-    balances.set(personId, current.add(delta));
-  };
-
-  // Real movements of the month, plus the projected recurring for future months
-  // (their `.source` carries the splits / fromPersonId). The set is already scoped to
-  // the month, so no per-tx competence filter below.
+  // Real movements of the month (including an installment parcela whose competence is
+  // this month, even if its status is "futura"), plus the projected recurring for future
+  // months (their `.source` carries the splits / fromPersonId).
   const real = transactions.filter((t) => competenceOf(t) === month);
   const projected =
     compareMonths(month, currentMonth) > 0
       ? projectRecurring(transactions, month, competenceOf).map((p) => p.source)
       : [];
-
-  for (const tx of [...real, ...projected]) {
-    if (isExpense(tx)) {
-      const status = tx.installment?.status;
-      if (status === "paga" || status === "futura") continue;
-      for (const split of tx.splits) {
-        adjust(split.personId, Money.fromCents(split.shareCents));
-      }
-    } else if (isIncome(tx) && tx.fromPersonId !== null) {
-      adjust(tx.fromPersonId, Money.fromCents(tx.amountCents).negate());
-    }
-  }
-
-  for (const settlement of settlements) {
-    if (monthOf(settlement.date) !== month) continue;
-    const current = balances.get(settlement.personId) ?? Money.zero();
-    balances.set(settlement.personId, applySettlement(current, settlement.amountCents));
-  }
-
-  return balances;
+  const monthSettlements = settlements.filter((s) => monthOf(s.date) === month);
+  return accumulate(people, [...real, ...projected], monthSettlements, true);
 }
 
 /**
@@ -184,7 +168,9 @@ export function computePersonBalancesThrough(
   }
 
   const settsThrough = settlements.filter((s) => compareMonths(monthOf(s.date), throughMonth) <= 0);
-  return computePersonBalances(people, [...real, ...projected], settsThrough);
+  // `true`: count every parcela whose competence is within the horizon (the set is
+  // already competence-filtered), so future parcelas accrue month after month.
+  return accumulate(people, [...real, ...projected], settsThrough, true);
 }
 
 /**

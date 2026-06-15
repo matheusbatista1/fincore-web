@@ -3,7 +3,7 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
 import { computePersonBalancesForMonth } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { cardBillsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
+import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
@@ -167,7 +167,7 @@ export async function getDashboard(
   );
   let projectedBalanceCents = 0;
   for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
-  projectedBalanceCents -= cardBillsDueThrough(
+  projectedBalanceCents -= obligationsDueThrough(
     ws.transactions,
     currentMonth,
     month,
@@ -175,8 +175,21 @@ export async function getDashboard(
     "general",
     currentMonth,
   ).cents;
-  // General "fim do mês" also reflects this month's receivables/payables with people.
-  projectedBalanceCents += aReceberCents - aPagarCents;
+  // General "fim do mês" also reflects the receivables/payables with people. Obligations
+  // above are summed cumulatively (currentMonth → browsed month), so the people net must
+  // be cumulative over the same window too — otherwise a past month's obligation gets
+  // subtracted without crediting that month's receivable.
+  for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
+    const ledgerM = computePersonBalancesForMonth(
+      ws.people,
+      ws.transactions,
+      ws.settlements,
+      m,
+      competenceOf,
+      currentMonth,
+    );
+    for (const value of ledgerM.values()) projectedBalanceCents += value.cents;
+  }
 
   // Personal projection: accounts count only the user's share + drop reimbursements;
   // people are NOT added (the personal lens already internalises shared splits).
@@ -190,7 +203,7 @@ export async function getDashboard(
   );
   let projectedBalancePersonalCents = 0;
   for (const value of eomPersonal.values()) projectedBalancePersonalCents += value.cents;
-  projectedBalancePersonalCents -= cardBillsDueThrough(
+  projectedBalancePersonalCents -= obligationsDueThrough(
     ws.transactions,
     currentMonth,
     month,
