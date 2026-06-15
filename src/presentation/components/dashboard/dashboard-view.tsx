@@ -185,10 +185,14 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   const personalInc = Math.max(0, data.personal.incomeCents);
   const personalExp = Math.max(0, data.personal.expenseCents);
-  const receitaMes = isPersonal ? personalInc : data.general.incomeCents;
+  // General income also counts what people owe you this month ("a receber"); personal
+  // counts only your own (no people). Expense is the full amount in both lenses.
+  const receitaMes = isPersonal ? personalInc : data.general.incomeCents + data.aReceberCents;
   const gastoMes = isPersonal ? personalExp : data.general.expenseCents;
   const economia = receitaMes - gastoMes;
-  const savingsPct = Math.round((economia / (receitaMes || 1)) * 100);
+  // Savings rate against the real income — null when there's no income to measure against
+  // (avoids the bogus huge % from dividing by ~zero).
+  const savingsPct = receitaMes > 0 ? Math.round((economia / receitaMes) * 100) : null;
   // Browsing a future month: the month KPIs fold in projected ("previsto") recurring.
   const isFuture = !data.isPast && !data.isCurrent;
   // The "fim do mês" follows the active lens (general adds people; personal is only mine).
@@ -451,7 +455,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="target" size={14} />
-                <span>{savingsPct}% da renda</span>
+                <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
               </span>
             }
           />
@@ -472,7 +476,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
               <Icon name="piggy-bank" size={17} />
             </span>
             <p>
-              Sua taxa de poupança é <b>{savingsPct}%</b> da renda do mês.
+              {savingsPct === null ? (
+                "Sem renda registrada neste mês para calcular a poupança."
+              ) : (
+                <>
+                  Sua taxa de poupança é <b>{savingsPct}%</b> da renda do mês.
+                </>
+              )}
             </p>
           </div>
           {peopleOn && (
