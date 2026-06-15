@@ -531,7 +531,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
         {/* MAIN GRID */}
         <div
           className="dash-grid"
-          style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 16, alignItems: "start" }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.55fr) minmax(0, 1fr)",
+            gap: 16,
+            alignItems: "start",
+          }}
         >
           <div className="col gap-4">
             <div className="card">

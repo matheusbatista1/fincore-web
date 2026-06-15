@@ -51,7 +51,14 @@ export function ReportCharts({
 
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)",
+          gap: 16,
+          marginBottom: 16,
+        }}
+      >
         <div className="card">
           <div className="card-head">
             <div>
@@ -100,7 +107,7 @@ export function ReportCharts({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16 }}>
         <div className="card card-pad">
           <h3 style={{ fontSize: 16, marginBottom: 18 }}>Gasto por cartão</h3>
           <BarList items={byCard} />
