@@ -35,18 +35,23 @@ export function MonthExportButtons({
   groups,
   inCents,
   outCents,
+  isPersonal,
 }: {
   monthLabel: string;
   month: string;
   groups: StmtGroup[];
   inCents: number;
   outCents: number;
+  /** Whether the active lens is "Apenas meu" — drives the lens label/slug and which totals come in. */
+  isPersonal: boolean;
 }) {
   const toast = useUIStore((s) => s.toast);
+  const lensLabel = isPersonal ? "Apenas meu" : "Geral";
+  const fileSlug = isPersonal ? "-apenas-meu" : "";
 
   function onCsv() {
-    const rows = groups.flatMap((g) =>
-      g.items.map((i) => [
+    const rows = groups.flatMap((g) => [
+      ...g.items.map((i) => [
         brDate(i.date),
         i.description || KIND_LABEL[i.kind],
         g.name,
@@ -56,41 +61,59 @@ export function MonthExportButtons({
         i.parcela ? `${i.parcela.number}/${i.parcela.total}` : "",
         csvMoney(itemValueCents(i)),
       ]),
-    );
+      // People who owe you this month (income group, general lens only).
+      ...(g.receivables ?? []).map((r) => [
+        "",
+        r.name,
+        "A receber de pessoas",
+        "",
+        "Receita",
+        "previsto",
+        "",
+        csvMoney(r.amountCents),
+      ]),
+    ]);
     exportCSV(
-      `extrato-${month}.csv`,
+      `extrato-${month}${fileSlug}.csv`,
       ["Data", "Descrição", "Origem", "Categoria", "Tipo", "Situação", "Parcela", "Valor (R$)"],
       rows,
     );
-    toast(`Extrato de ${monthLabel} exportado em CSV`);
+    toast(`Extrato de ${monthLabel} (${lensLabel.toLowerCase()}) exportado em CSV`);
   }
 
   async function onPdf() {
     const net = inCents - outCents;
     try {
       await exportPDF({
-        filename: `extrato-${month}.pdf`,
+        filename: `extrato-${month}${fileSlug}.pdf`,
         title: `Extrato de ${monthLabel}`,
-        subtitle: "Lançamentos agrupados por origem",
+        subtitle: `${lensLabel} · agrupado por origem`,
         kpis: [
           { label: "Entradas", value: pdfMoney(inCents), tone: "pos" },
           { label: "Saídas", value: pdfMoney(outCents), tone: "neg" },
           { label: "Resultado", value: pdfMoneySigned(net), tone: net < 0 ? "neg" : "pos" },
         ],
-        sections: groups.map((g) => ({
-          heading: `${g.name} — ${pdfMoney(g.totalCents)}`,
-          head: ["Data", "Descrição", "Categoria", "Situação", "Valor"],
-          align: ["left", "left", "left", "left", "right"] as PdfAlign[],
-          body: g.items.map((i) => [
-            brDate(i.date),
-            i.description || KIND_LABEL[i.kind],
-            i.category?.name ?? "",
-            i.projected ? "previsto" : "realizado",
-            pdfMoney(itemValueCents(i)),
-          ]),
-        })),
+        sections: groups.map((g) => {
+          const recv = g.receivables ?? [];
+          const recvTotal = recv.reduce((s, r) => s + r.amountCents, 0);
+          return {
+            heading: `${g.name} — ${pdfMoney(g.totalCents + recvTotal)}`,
+            head: ["Data", "Descrição", "Categoria", "Situação", "Valor"],
+            align: ["left", "left", "left", "left", "right"] as PdfAlign[],
+            body: [
+              ...g.items.map((i) => [
+                brDate(i.date),
+                i.description || KIND_LABEL[i.kind],
+                i.category?.name ?? "",
+                i.projected ? "previsto" : "realizado",
+                pdfMoney(itemValueCents(i)),
+              ]),
+              ...recv.map((r) => ["", r.name, "A receber", "previsto", pdfMoney(r.amountCents)]),
+            ],
+          };
+        }),
       });
-      toast(`Extrato de ${monthLabel} exportado em PDF`);
+      toast(`Extrato de ${monthLabel} (${lensLabel.toLowerCase()}) exportado em PDF`);
     } catch {
       toast("Não foi possível gerar o PDF", "error");
     }
