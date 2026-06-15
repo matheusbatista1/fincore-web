@@ -19,7 +19,8 @@ import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome } from "../entities/transaction";
 import { Money } from "../money/money";
-import { type CompetenceMonth, monthOf } from "../value-objects/competence-month";
+import { addMonths, type CompetenceMonth, compareMonths, monthOf } from "../value-objects/competence-month";
+import { projectRecurring } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
 type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
@@ -97,10 +98,12 @@ export function computePersonBalances(
  * Per-person NET for a single month — the change a person's balance saw in `month`.
  *
  * Unlike {@link computePersonBalances} (all-time), this is the month's flow: the sum of
- * their expense shares whose competence is `month`, minus payments received from them in
+ * their expense shares with competence `month`, minus payments received from them in
  * `month`, then settlements dated in `month` applied toward zero (same clamp as the
- * all-time ledger, but against the month's own net). Convention is unchanged: `> 0` they
- * owe you for the month, `< 0` you owe them. Use the all-time balance for the true total.
+ * all-time ledger, but against the month's own net). For FUTURE months (`month >
+ * currentMonth`) it also folds in the projected ("previsto") recurring occurrences, so a
+ * recurring shared expense still counts what the person will owe that month. Convention
+ * unchanged: `> 0` they owe you, `< 0` you owe them.
  *
  * @returns a Map from personId to their month net as Money; every `people` id is present.
  */
@@ -110,6 +113,7 @@ export function computePersonBalancesForMonth(
   settlements: readonly Settlement[],
   month: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  currentMonth: CompetenceMonth,
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
   for (const person of people) balances.set(person.id, Money.zero());
@@ -119,8 +123,16 @@ export function computePersonBalancesForMonth(
     balances.set(personId, current.add(delta));
   };
 
-  for (const tx of transactions) {
-    if (competenceOf(tx) !== month) continue;
+  // Real movements of the month, plus the projected recurring for future months
+  // (their `.source` carries the splits / fromPersonId). The set is already scoped to
+  // the month, so no per-tx competence filter below.
+  const real = transactions.filter((t) => competenceOf(t) === month);
+  const projected =
+    compareMonths(month, currentMonth) > 0
+      ? projectRecurring(transactions, month, competenceOf).map((p) => p.source)
+      : [];
+
+  for (const tx of [...real, ...projected]) {
     if (isExpense(tx)) {
       const status = tx.installment?.status;
       if (status === "paga" || status === "futura") continue;
@@ -139,6 +151,40 @@ export function computePersonBalancesForMonth(
   }
 
   return balances;
+}
+
+/**
+ * Accumulated per-person balance INCLUDING projected ("previsto") recurring occurrences,
+ * up to and including `throughMonth`. Real movements whose competence is ≤ the horizon,
+ * plus a projected occurrence for every month up to the horizon (so a recurring shared
+ * expense accrues what the person owes month after month — not just its anchor). Then
+ * settlements dated ≤ the horizon are applied with the usual clamp. This is the "no total,
+ * te deve…" figure; it grows as you browse further ahead.
+ */
+export function computePersonBalancesThrough(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  const real = transactions.filter((t) => compareMonths(competenceOf(t), throughMonth) <= 0);
+
+  let earliest: CompetenceMonth | null = null;
+  for (const t of transactions) {
+    const m = monthOf(t.date);
+    if (earliest === null || compareMonths(m, earliest) < 0) earliest = m;
+  }
+
+  const projected: Transaction[] = [];
+  if (earliest !== null) {
+    for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
+      for (const occ of projectRecurring(transactions, m, competenceOf)) projected.push(occ.source);
+    }
+  }
+
+  const settsThrough = settlements.filter((s) => compareMonths(monthOf(s.date), throughMonth) <= 0);
+  return computePersonBalances(people, [...real, ...projected], settsThrough);
 }
 
 /**

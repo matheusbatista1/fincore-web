@@ -1,4 +1,5 @@
 import { getDashboard } from "@/application/use-cases/get-dashboard";
+import { getPeople } from "@/application/use-cases/get-people";
 import { getReports } from "@/application/use-cases/get-reports";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
@@ -21,7 +22,8 @@ export default async function PeoplePage({
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const today = todayInBrazil();
-  const [workspace, transactions, dash, reports] = await Promise.all([
+  const [people, workspace, transactions, dash, reports] = await Promise.all([
+    getPeople(financeRepository, user.id, month),
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
     getDashboard(financeRepository, user.id, month),
@@ -29,15 +31,10 @@ export default async function PeoplePage({
   ]);
 
   const reportData = buildReportData({ dash, reports, workspace, transactions, today });
-  // Per-person NET for the browsed month (missing people default to 0 = "em dia").
-  const monthBalances: Record<string, number> = Object.fromEntries(
-    dash.people.map((p) => [p.id, p.balanceCents]),
-  );
 
   return (
     <PeopleView
-      people={workspace.people}
-      monthBalances={monthBalances}
+      people={people}
       transactions={transactions}
       today={today}
       month={month}

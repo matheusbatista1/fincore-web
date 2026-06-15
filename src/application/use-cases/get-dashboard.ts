@@ -108,6 +108,7 @@ export async function getDashboard(
     ws.settlements,
     month,
     competenceOf,
+    currentMonth,
   );
   // The month's set: real movements always, plus the projected ("previsto") recurring
   // occurrences for FUTURE months — so browsing months ahead shows expected income and

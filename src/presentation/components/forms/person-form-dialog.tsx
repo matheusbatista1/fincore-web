@@ -2,14 +2,14 @@
 
 import { type ReactNode, useId, useState } from "react";
 import { createPersonAction, deletePersonAction, updatePersonAction } from "@/app/_actions/finance";
-import type { PersonView } from "@/application/use-cases/get-workspace-view";
+import type { Person } from "@/domain/entities/person";
 import { Dialog, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { FormModal } from "@/presentation/components/ui/form-modal";
 import { toast } from "@/presentation/stores/ui-store";
 import { DEFAULT_PERSON_COLOR, PERSON_COLORS } from "@/shared/theme/person-colors";
 
 /** Adicionar/editar pessoa — ported 1:1 from the prototype (forms.jsx PersonForm). */
-export function PersonFormDialog({ person, trigger }: { person?: PersonView; trigger: ReactNode }) {
+export function PersonFormDialog({ person, trigger }: { person?: Person; trigger: ReactNode }) {
   const [open, setOpen] = useState(false);
   const formId = useId();
 
@@ -21,7 +21,7 @@ export function PersonFormDialog({ person, trigger }: { person?: PersonView; tri
   );
 }
 
-function PersonForm({ person, onDone }: { person?: PersonView | undefined; onDone: () => void }) {
+function PersonForm({ person, onDone }: { person?: Person | undefined; onDone: () => void }) {
   const editing = person !== undefined;
   const [name, setName] = useState(person?.name ?? "");
   const [rel, setRel] = useState(person?.relationship ?? "");

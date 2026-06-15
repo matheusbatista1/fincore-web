@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { settlePersonAction } from "@/app/_actions/finance";
+import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
-import type { PersonView } from "@/application/use-cases/get-workspace-view";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import {
@@ -32,7 +32,6 @@ function todayIso(): string {
 /** Pessoas — ported 1:1 from the prototype (people.jsx). */
 export function PeopleView({
   people,
-  monthBalances,
   transactions,
   today,
   month,
@@ -41,9 +40,7 @@ export function PeopleView({
   nextHref,
   reportData,
 }: {
-  people: PersonView[];
-  /** Per-person NET for the browsed month (id → cents; missing = 0). */
-  monthBalances: Record<string, number>;
+  people: PersonMonthView[];
   transactions: TransactionListItem[];
   today: string;
   month: string;
@@ -57,11 +54,10 @@ export function PeopleView({
   const [settleId, setSettleId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
-  // All people figures on this screen are scoped to the browsed month.
-  const monthBal = (id: string): number => monthBalances[id] ?? 0;
-  const totalReceber = people.reduce((s, p) => (monthBal(p.id) > 0 ? s + monthBal(p.id) : s), 0);
-  const totalPagar = people.reduce((s, p) => (monthBal(p.id) < 0 ? s - monthBal(p.id) : s), 0);
-  const withPending = people.filter((p) => monthBal(p.id) !== 0).length;
+  // List + totals are the browsed month's nets (projection-aware for future months).
+  const totalReceber = people.reduce((s, p) => (p.monthBalanceCents > 0 ? s + p.monthBalanceCents : s), 0);
+  const totalPagar = people.reduce((s, p) => (p.monthBalanceCents < 0 ? s - p.monthBalanceCents : s), 0);
+  const withPending = people.filter((p) => p.monthBalanceCents !== 0).length;
 
   const open = people.find((p) => p.id === openId) ?? null;
   const settle = people.find((p) => p.id === settleId) ?? null;
@@ -161,7 +157,7 @@ export function PeopleView({
               </div>
             )}
             {people.map((p) => {
-              const bal = monthBal(p.id);
+              const bal = p.monthBalanceCents;
               const owes = bal > 0;
               const owed = bal < 0;
               const settled = bal === 0;
@@ -240,7 +236,6 @@ export function PeopleView({
             >
               <ProfileBody
                 person={open}
-                monthBalanceCents={monthBal(open.id)}
                 month={month}
                 transactions={transactions}
                 today={today}
@@ -279,7 +274,6 @@ export function PeopleView({
 
 function ProfileBody({
   person,
-  monthBalanceCents,
   month,
   transactions,
   today,
@@ -287,9 +281,7 @@ function ProfileBody({
   onRemind,
   onReport,
 }: {
-  person: PersonView;
-  /** The person's NET for the browsed month (the headline figure). */
-  monthBalanceCents: number;
+  person: PersonMonthView;
   month: string;
   transactions: TransactionListItem[];
   today: string;
@@ -297,10 +289,15 @@ function ProfileBody({
   onRemind: () => void;
   onReport: () => void;
 }) {
+  const monthBalanceCents = person.monthBalanceCents;
   const monthOwes = monthBalanceCents > 0;
   const monthOwed = monthBalanceCents < 0;
-  // Settling acts on the all-time outstanding total, not the month net.
-  const totalOwes = person.balanceCents > 0;
+  // Accumulated total (incl. projected) is the displayed "no total"; settling acts on the
+  // REAL booked debt only.
+  const totalCents = person.totalBalanceCents;
+  const totalOwes = totalCents > 0;
+  const canSettle = person.realBalanceCents !== 0;
+  const realOwes = person.realBalanceCents > 0;
   const involved = transactions.filter(
     (t) => t.shares.some((s) => s.personId === person.id) && t.date.slice(0, 7) === month,
   );
@@ -338,20 +335,20 @@ function ProfileBody({
           )}
         </div>
         <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 8 }}>
-          {person.balanceCents === 0 ? (
+          {totalCents === 0 ? (
             "Saldo total quitado"
           ) : (
             <>
               {totalOwes ? `No total, ${first} te deve ` : "No total, você deve "}
               <b style={{ color: totalOwes ? "var(--mint-500)" : "var(--rose-500)" }}>
-                <Money cents={Math.abs(person.balanceCents)} withSign={false} />
+                <Money cents={Math.abs(totalCents)} withSign={false} />
               </b>
             </>
           )}
         </div>
-        {person.balanceCents !== 0 && (
+        {canSettle && (
           <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16 }}>
-            {totalOwes && (
+            {realOwes && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRemind}>
                 <Icon name="bell" size={16} />
                 Cobrar
@@ -359,7 +356,7 @@ function ProfileBody({
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={onSettle}>
               <Icon name="check-circle" size={16} />
-              {totalOwes ? "Registrar pagamento" : "Marcar como pago"}
+              {realOwes ? "Registrar pagamento" : "Marcar como pago"}
             </button>
           </div>
         )}
@@ -404,10 +401,11 @@ function ProfileBody({
   );
 }
 
-function SettleBody({ person, onDone }: { person: PersonView; onDone: () => void }) {
+function SettleBody({ person, onDone }: { person: PersonMonthView; onDone: () => void }) {
   const toast = useUIStore((s) => s.toast);
-  const owes = person.balanceCents > 0;
-  const max = Math.abs(person.balanceCents);
+  // Settle against the REAL booked balance (projected occurrences aren't settleable yet).
+  const owes = person.realBalanceCents > 0;
+  const max = Math.abs(person.realBalanceCents);
   const first = firstName(person.name);
   const [cents, setCents] = useState(max);
   const [error, setError] = useState<string | null>(null);
