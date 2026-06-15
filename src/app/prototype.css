@@ -1006,19 +1006,26 @@
 }
 
 /* ---------- Charts ---------- */
-.bars {
-  display: grid;
-  grid-auto-flow: column;
-  /* Columns fill the width when few; once many months are shown they hold a min
-     width and the chart scrolls horizontally instead of squishing unreadably. */
-  grid-auto-columns: minmax(40px, 1fr);
-  gap: 10px;
-  height: 200px;
-  align-items: end;
+/* The scroll wrapper holds a fixed-size box (min-width:0 lets it shrink inside its grid
+   cell); the bars grid overflows it horizontally and scrolls — the card never grows. */
+.bars-scroll {
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+}
+.bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(44px, 1fr);
+  gap: 10px;
+  height: 200px;
+  align-items: end;
+  /* Fill the wrapper when there are few months; grow to content (and let the wrapper
+     scroll) once the months no longer fit at their minimum width. */
+  min-width: 100%;
+  width: max-content;
 }
 .bars .bargrp {
   display: flex;
@@ -3080,13 +3087,15 @@ html {
   }
 
   /* ---- colapsar grids inline e por classe em 1 coluna ---- */
+  /* minmax(0,1fr) (not 1fr) so a wide child — e.g. the scrollable cash-flow chart —
+     scrolls inside the column instead of stretching it past the viewport. */
   .page [style*="grid-template-columns"] {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
   .kpi-grid,
   .month-cols,
   .form-grid-2 {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
   .month-totals {
     grid-template-columns: repeat(3, 1fr) !important;
