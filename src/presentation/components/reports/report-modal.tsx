@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { PersonStatement } from "@/application/use-cases/get-person-statements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { CategoryIcon } from "@/presentation/components/ui/category-icon";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
@@ -14,8 +15,14 @@ import {
   pdfMoneySigned,
 } from "@/presentation/lib/export";
 import { useUIStore } from "@/presentation/stores/ui-store";
-import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { relativeDateLabel } from "@/shared/formatting/dates";
+import { formatBRL, formatBRLAbsolute } from "@/shared/formatting/currency";
+import { shortDate } from "@/shared/formatting/dates";
+
+/** ISO "YYYY-MM-DD" -> "DD/MM/YYYY" for statement exports. */
+function brDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
 
 export type ReportMode = "month" | "mine" | "person";
 
@@ -65,6 +72,8 @@ export interface ReportData {
   readonly periodTotals: PeriodTotals;
   /** Same period totals through the personal lens. */
   readonly periodTotalsPersonal: PeriodTotals;
+  /** Per-person account-receivable statements over the window (drives the "por pessoa" mode). */
+  readonly personStatements: ReadonlyArray<PersonStatement>;
 }
 
 interface PeriodTotals {
@@ -106,6 +115,9 @@ export function ReportModal({
 }) {
   const toast = useUIStore((s) => s.toast);
   const money = useMoney();
+  const privacy = useUIStore((s) => s.privacy);
+  /** Signed money for balances (> 0 they owe you, < 0 you owe them); masked in privacy mode. */
+  const moneySigned = (cents: number): string => (privacy ? "R$ ••••" : formatBRL(cents, { withSign: true }));
   const [mode, setMode] = useState<ReportMode>(initialMode);
   const [pid, setPid] = useState(
     initialPersonId ?? (data.people.find((p) => p.balanceCents !== 0) ?? data.people[0])?.id ?? "",
@@ -120,42 +132,9 @@ export function ReportModal({
   const othersAll = Math.max(0, pt.expenseCents - ptp.expenseCents);
   const reimbAll = Math.max(0, pt.incomeCents - ptp.incomeCents);
 
-  // --- por pessoa ---
+  // --- por pessoa: a reconciled account-receivable statement for the window ---
   const person = data.people.find((p) => p.id === pid);
-  const groups = new Map<
-    string,
-    {
-      label: string;
-      icon: string;
-      items: { desc: string; date: string; shareCents: number; income: boolean }[];
-      totalCents: number;
-    }
-  >();
-  if (person) {
-    for (const t of data.transactions) {
-      const share = t.shares.find((s) => s.personId === person.id);
-      const isPayment = t.kind === "income" && t.fromPersonId === person.id;
-      if (!share && !isPayment) continue;
-      const key = t.cardId ?? t.accountId ?? t.sourceLabel ?? "outros";
-      const label = t.sourceLabel ?? "Outros";
-      const icon = t.cardId ? "credit-card" : t.accountId ? "wallet" : "file-text";
-      let group = groups.get(key);
-      if (!group) {
-        group = { label, icon, items: [], totalCents: 0 };
-        groups.set(key, group);
-      }
-      const shareCents = isPayment ? -t.amountCents : (share?.shareCents ?? 0);
-      group.items.push({
-        desc: t.description,
-        date: relativeDateLabel(t.date, data.today),
-        shareCents,
-        income: isPayment,
-      });
-      group.totalCents += shareCents;
-    }
-  }
-  const grpList = [...groups.values()];
-  const grandTotal = grpList.reduce((s, g) => s + g.totalCents, 0);
+  const statement = data.personStatements.find((s) => s.id === pid);
 
   const exportName =
     mode === "person" && person
@@ -225,18 +204,27 @@ export function ReportModal({
           ]),
         ],
       );
-    } else {
-      const rows = grpList.flatMap((g) =>
-        g.items.map((it) => [
-          g.label,
-          it.date,
-          it.desc,
-          it.income ? "pagamento" : "parte",
-          csvMoney(it.shareCents),
+    } else if (statement) {
+      const rows: string[][] = [
+        ["", "Saldo anterior", "", "", "", csvMoney(statement.openingCents)],
+        ...statement.entries.map((e) => [
+          brDate(e.date),
+          e.projected ? `${e.description} (previsto)` : e.description,
+          e.origin,
+          e.kind === "debit" ? csvMoney(e.amountCents) : "",
+          e.kind === "credit" ? csvMoney(e.amountCents) : "",
+          csvMoney(e.balanceCents),
         ]),
-      );
-      rows.push(["", "", "Saldo", "", csvMoney(grandTotal)]);
-      exportCSV(`${fileSlug}.csv`, ["Origem", "Data", "Descrição", "Tipo", "Valor (R$)"], rows);
+        [
+          "",
+          "Saldo final",
+          "",
+          csvMoney(statement.debitTotalCents),
+          csvMoney(statement.creditTotalCents),
+          csvMoney(statement.closingCents),
+        ],
+      ];
+      exportCSV(`${fileSlug}.csv`, ["Data", "Descrição", "Origem", "Débito", "Crédito", "Saldo"], rows);
     }
     toast(`Relatório (${exportName}) exportado em CSV`);
   }
@@ -374,22 +362,44 @@ export function ReportModal({
             },
           ],
         });
-      } else {
+      } else if (statement) {
+        const closing = statement.closingCents;
         await exportPDF({
           filename: `${fileSlug}.pdf`,
-          title: `${title}${person ? ` — ${person.name}` : ""}`,
+          title: `Extrato de conta corrente${person ? ` — ${person.name}` : ""}`,
+          subtitle: `${person ? `${person.relationship} · ` : ""}${data.rangeLabel}`,
+          generatedOn: data.today,
+          kpis: [
+            { label: "Saldo anterior", value: pdfMoneySigned(statement.openingCents) },
+            { label: "Compartilhado", value: pdfMoney(statement.debitTotalCents) },
+            { label: "Pago", value: pdfMoney(statement.creditTotalCents), tone: "pos" },
+            { label: "Saldo final", value: pdfMoneySigned(closing), tone: closing < 0 ? "neg" : "pos" },
+          ],
           sections: [
-            ...grpList.map((g) => ({
-              heading: `${g.label} — ${pdfMoney(g.totalCents)}`,
-              head: ["Data", "Descrição", "Tipo", "Valor"],
-              body: g.items.map((it) => [
-                it.date,
-                it.desc,
-                it.income ? "pagamento" : "parte",
-                pdfMoney(it.shareCents),
-              ]),
-            })),
-            { heading: "", head: ["", ""], body: [["Saldo", pdfMoney(grandTotal)]] },
+            {
+              heading: "Lançamentos",
+              head: ["Data", "Descrição", "Origem", "Débito", "Crédito", "Saldo"],
+              align: ["left", "left", "left", "right", "right", "right"],
+              body: [
+                ["", "Saldo anterior", "", "", "", pdfMoneySigned(statement.openingCents)],
+                ...statement.entries.map((e) => [
+                  brDate(e.date),
+                  e.projected ? `${e.description} (previsto)` : e.description,
+                  e.origin,
+                  e.kind === "debit" ? pdfMoney(e.amountCents) : "",
+                  e.kind === "credit" ? pdfMoney(e.amountCents) : "",
+                  pdfMoneySigned(e.balanceCents),
+                ]),
+              ],
+              foot: [
+                "",
+                "Saldo final",
+                "",
+                pdfMoney(statement.debitTotalCents),
+                pdfMoney(statement.creditTotalCents),
+                pdfMoneySigned(closing),
+              ],
+            },
           ],
         });
       }
@@ -570,7 +580,7 @@ export function ReportModal({
             </div>
           )}
 
-          {mode === "person" && person && (
+          {mode === "person" && statement && (
             <div className="rep-person">
               <div className="report-person-pick">
                 {data.people.map((p) => (
@@ -590,9 +600,9 @@ export function ReportModal({
               <div className="profile-head" style={{ marginBottom: 18 }}>
                 <span
                   className="pava"
-                  style={{ width: 56, height: 56, fontSize: 22, background: person.color }}
+                  style={{ width: 56, height: 56, fontSize: 22, background: statement.color }}
                 >
-                  {person.name
+                  {statement.name
                     .split(" ")
                     .slice(0, 2)
                     .map((w) => w[0])
@@ -600,62 +610,89 @@ export function ReportModal({
                 </span>
                 <div>
                   <h3 style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600 }}>
-                    {person.name}
+                    {statement.name}
                   </h3>
                   <div style={{ color: "var(--text-lo)", marginTop: 2, fontSize: 13 }}>
-                    {person.relationship} · saldo atual {money(Math.abs(person.balanceCents))}
+                    {statement.relationship} ·{" "}
+                    {statement.closingCents > 0
+                      ? `te deve ${money(statement.closingCents)}`
+                      : statement.closingCents < 0
+                        ? `você deve ${money(Math.abs(statement.closingCents))}`
+                        : "quitado"}
                   </div>
                 </div>
               </div>
-              {grpList.length === 0 && (
+
+              <div className="summary-box" style={{ marginBottom: 16 }}>
+                <div className="sb-row">
+                  <span className="k">Saldo anterior</span>
+                  <span className="v">{moneySigned(statement.openingCents)}</span>
+                </div>
+                <div className="sb-row">
+                  <span className="k">Compartilhado no período</span>
+                  <span className="v" style={{ color: "var(--text-hi)" }}>
+                    {money(statement.debitTotalCents)}
+                  </span>
+                </div>
+                <div className="sb-row">
+                  <span className="k">Pago no período</span>
+                  <span className="v" style={{ color: "var(--mint-500)" }}>
+                    {money(statement.creditTotalCents)}
+                  </span>
+                </div>
+                <div className="sb-row total">
+                  <span className="k">Saldo final</span>
+                  <span className="v">{moneySigned(statement.closingCents)}</span>
+                </div>
+              </div>
+
+              {statement.entries.length === 0 ? (
                 <div
                   style={{ color: "var(--text-lo)", fontSize: 14, padding: "20px 0", textAlign: "center" }}
                 >
-                  Sem movimentações compartilhadas com {person.name.split(" ")[0]}.
+                  Sem movimentações no período.
                 </div>
-              )}
-              {grpList.map((g) => (
-                <div className="rp-group" key={g.label}>
+              ) : (
+                <div className="rp-group">
                   <div className="rp-group-head">
-                    <span className="row gap-2">
-                      <Icon name={g.icon} size={14} />
-                      {g.label}
-                    </span>
-                    <span className="tnum">{money(g.totalCents)}</span>
+                    <span>Lançamentos</span>
+                    <span />
                   </div>
-                  {g.items.map((it, j) => (
+                  {statement.entries.map((e, j) => (
                     <div
                       className="split-row"
-                      key={`${it.desc}-${it.date}-${it.shareCents}`}
-                      style={{ borderBottom: j === g.items.length - 1 ? 0 : "1px solid var(--line)" }}
+                      key={`${e.date}-${e.kind}-${e.amountCents}-${e.balanceCents}`}
+                      style={{
+                        borderBottom: j === statement.entries.length - 1 ? 0 : "1px solid var(--line)",
+                      }}
                     >
                       <div className="sr-name" style={{ fontWeight: 500, color: "var(--text-mid)" }}>
-                        {it.income ? "↩ " : ""}
-                        {it.desc}
+                        {e.description}
+                        {e.projected && (
+                          <span className="pill purple" style={{ marginLeft: 8 }}>
+                            previsto
+                          </span>
+                        )}
                         <span style={{ fontSize: 12, color: "var(--text-faint)", marginLeft: 8 }}>
-                          {it.date}
+                          {shortDate(e.date)} · {e.origin}
                         </span>
                       </div>
-                      <div
-                        className="sr-share"
-                        style={{
-                          width: "auto",
-                          color: it.shareCents < 0 ? "var(--mint-500)" : "var(--text-hi)",
-                          fontWeight: 700,
-                        }}
-                      >
-                        {money(Math.abs(it.shareCents))}
+                      <div className="sr-share" style={{ width: "auto", textAlign: "right" }}>
+                        <div
+                          style={{
+                            color: e.kind === "credit" ? "var(--mint-500)" : "var(--text-hi)",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {e.kind === "credit" ? "− " : ""}
+                          {money(e.amountCents)}
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                          {moneySigned(e.balanceCents)}
+                        </div>
                       </div>
                     </div>
                   ))}
-                </div>
-              ))}
-              {grpList.length > 0 && (
-                <div className="summary-box" style={{ marginTop: 18 }}>
-                  <div className="sb-row total">
-                    <span className="k">Saldo com {person.name.split(" ")[0]}</span>
-                    <span className="v">{money(grandTotal)}</span>
-                  </div>
                 </div>
               )}
             </div>

@@ -19,11 +19,48 @@ import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome } from "../entities/transaction";
 import { Money } from "../money/money";
-import { addMonths, type CompetenceMonth, compareMonths, monthOf } from "../value-objects/competence-month";
+import {
+  addMonths,
+  type CompetenceMonth,
+  compareMonths,
+  type IsoDate,
+  monthOf,
+} from "../value-objects/competence-month";
 import { projectRecurring } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
 type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
+
+/** What a ledger movement originates from — a shared expense, a payment, or a settlement. */
+export type LedgerSource =
+  | { readonly type: "share"; readonly tx: Transaction }
+  | { readonly type: "payment"; readonly tx: Transaction }
+  | { readonly type: "settlement"; readonly settlement: Settlement };
+
+/**
+ * One step of the person ledger: a single change to a person's balance, with the
+ * running balance after it. Emitted in accumulation order (transactions first, then
+ * settlements). `signedDeltaCents` is the actual applied change (positive = they owe
+ * you more = a debit; negative = a credit/payment), so summing the deltas reproduces
+ * the balance exactly — including the zero-clamp on settlements.
+ */
+export interface LedgerMovement {
+  readonly personId: string;
+  readonly date: IsoDate;
+  readonly competence: CompetenceMonth;
+  readonly source: LedgerSource;
+  readonly projected: boolean;
+  readonly signedDeltaCents: number;
+  readonly balanceAfterCents: number;
+}
+
+/** A transaction stamped with the date/competence/projected flag to emit on its movements. */
+interface StampedTransaction {
+  readonly tx: Transaction;
+  readonly date: IsoDate;
+  readonly competence: CompetenceMonth;
+  readonly projected: boolean;
+}
 
 /**
  * Compute each person's derived ledger balance from transactions and settlements.
@@ -53,47 +90,108 @@ type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
  *    competence month, so the future parcela that belongs to the browsed month is included
  *    (it is "futura" only relative to today, not relative to its own month).
  */
-function accumulate(
+function accumulateWithMovements(
   people: readonly Person[],
-  transactions: readonly Transaction[],
+  transactions: readonly StampedTransaction[],
   settlements: readonly Settlement[],
   includeNonCurrentInstallments: boolean,
-): Map<string, Money> {
+): { balances: Map<string, Money>; movements: LedgerMovement[] } {
   // Seed every known person at zero so callers get a complete, stable map.
   const balances = new Map<string, Money>();
   for (const person of people) {
     balances.set(person.id, Money.zero());
   }
+  const movements: LedgerMovement[] = [];
 
   // A person referenced only by a transaction/settlement (not in `people`) still
   // gets tracked, mirroring the prototype's `(d.people[pid] || 0)` accumulation.
-  const adjust = (personId: string, delta: Money): void => {
+  // Returns the actual applied delta so the caller can record the running balance.
+  const adjust = (
+    personId: string,
+    delta: Money,
+  ): { signedDeltaCents: number; balanceAfterCents: number } => {
     const current = balances.get(personId) ?? Money.zero();
-    balances.set(personId, current.add(delta));
+    const next = current.add(delta);
+    balances.set(personId, next);
+    return { signedDeltaCents: next.cents - current.cents, balanceAfterCents: next.cents };
   };
 
-  for (const tx of transactions) {
+  for (const { tx, date, competence, projected } of transactions) {
     if (isExpense(tx)) {
       if (!includeNonCurrentInstallments) {
         const status = tx.installment?.status;
         if (status === "paga" || status === "futura") continue;
       }
       for (const split of tx.splits) {
-        adjust(split.personId, Money.fromCents(split.shareCents));
+        const { signedDeltaCents, balanceAfterCents } = adjust(
+          split.personId,
+          Money.fromCents(split.shareCents),
+        );
+        movements.push({
+          personId: split.personId,
+          date,
+          competence,
+          source: { type: "share", tx },
+          projected,
+          signedDeltaCents,
+          balanceAfterCents,
+        });
       }
     } else if (isIncome(tx) && tx.fromPersonId !== null) {
       // A payment from a person abates their debt: balance -= amount.
-      adjust(tx.fromPersonId, Money.fromCents(tx.amountCents).negate());
+      const { signedDeltaCents, balanceAfterCents } = adjust(
+        tx.fromPersonId,
+        Money.fromCents(tx.amountCents).negate(),
+      );
+      movements.push({
+        personId: tx.fromPersonId,
+        date,
+        competence,
+        source: { type: "payment", tx },
+        projected,
+        signedDeltaCents,
+        balanceAfterCents,
+      });
     }
     // Transfers never touch person balances.
   }
 
   for (const settlement of settlements) {
     const current = balances.get(settlement.personId) ?? Money.zero();
-    balances.set(settlement.personId, applySettlement(current, settlement.amountCents));
+    const next = applySettlement(current, settlement.amountCents);
+    balances.set(settlement.personId, next);
+    movements.push({
+      personId: settlement.personId,
+      date: settlement.date,
+      competence: monthOf(settlement.date),
+      source: { type: "settlement", settlement },
+      projected: false,
+      signedDeltaCents: next.cents - current.cents,
+      balanceAfterCents: next.cents,
+    });
   }
 
-  return balances;
+  return { balances, movements };
+}
+
+/**
+ * Sum-only view of {@link accumulateWithMovements} — the balance map, discarding
+ * movements. Callers that only need totals stamp each transaction with its calendar
+ * month (the metadata is irrelevant when movements are thrown away).
+ */
+function accumulate(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  includeNonCurrentInstallments: boolean,
+): Map<string, Money> {
+  const stamped = transactions.map((tx) => ({
+    tx,
+    date: tx.date,
+    competence: monthOf(tx.date),
+    projected: false,
+  }));
+  return accumulateWithMovements(people, stamped, settlements, includeNonCurrentInstallments).balances;
 }
 
 export function computePersonBalances(
@@ -145,14 +243,32 @@ export function computePersonBalancesForMonth(
  * settlements dated ≤ the horizon are applied with the usual clamp. This is the "no total,
  * te deve…" figure; it grows as you browse further ahead.
  */
-export function computePersonBalancesThrough(
+/**
+ * The full per-person ledger up to and including `throughMonth`: the running balance
+ * AND every movement that produced it (shared expense debits, payments, settlements),
+ * incl. projected ("previsto") recurring occurrences for each month up to the horizon.
+ * This is the single source of truth — {@link computePersonBalancesThrough} is just its
+ * `balances`, and a statement windows `movements` by competence. Because every movement
+ * carries its actual applied `signedDeltaCents`, summing the deltas reproduces the
+ * balance exactly (including the settlement zero-clamp), so any window reconciles.
+ */
+export function computePersonLedger(
   people: readonly Person[],
   transactions: readonly Transaction[],
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
-): Map<string, Money> {
-  const real = transactions.filter((t) => compareMonths(competenceOf(t), throughMonth) <= 0);
+): { balances: Map<string, Money>; movements: LedgerMovement[] } {
+  const real: StampedTransaction[] = transactions
+    .filter((t) => compareMonths(competenceOf(t), throughMonth) <= 0)
+    // A real but not-yet-charged parcela ("futura") is a forecast for the statement,
+    // so flag it projected for the "(previsto)" marker (it does not change the math).
+    .map((t) => ({
+      tx: t,
+      date: t.date,
+      competence: competenceOf(t),
+      projected: isExpense(t) && t.installment?.status === "futura",
+    }));
 
   let earliest: CompetenceMonth | null = null;
   for (const t of transactions) {
@@ -160,17 +276,31 @@ export function computePersonBalancesThrough(
     if (earliest === null || compareMonths(m, earliest) < 0) earliest = m;
   }
 
-  const projected: Transaction[] = [];
+  const projected: StampedTransaction[] = [];
   if (earliest !== null) {
     for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
-      for (const occ of projectRecurring(transactions, m, competenceOf)) projected.push(occ.source);
+      for (const occ of projectRecurring(transactions, m, competenceOf)) {
+        // Stamp the occurrence's own month/date, not the anchor's, so a statement
+        // windows each projected accrual into the month it lands in.
+        projected.push({ tx: occ.source, date: occ.date, competence: m, projected: true });
+      }
     }
   }
 
   const settsThrough = settlements.filter((s) => compareMonths(monthOf(s.date), throughMonth) <= 0);
   // `true`: count every parcela whose competence is within the horizon (the set is
   // already competence-filtered), so future parcelas accrue month after month.
-  return accumulate(people, [...real, ...projected], settsThrough, true);
+  return accumulateWithMovements(people, [...real, ...projected], settsThrough, true);
+}
+
+export function computePersonBalancesThrough(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  return computePersonLedger(people, transactions, settlements, throughMonth, competenceOf).balances;
 }
 
 /**

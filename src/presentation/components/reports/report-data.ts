@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/application/use-cases/get-dashboard";
+import type { PersonStatement } from "@/application/use-cases/get-person-statements";
 import type { ReportsData } from "@/application/use-cases/get-reports";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { WorkspaceView } from "@/application/use-cases/get-workspace-view";
@@ -10,12 +11,14 @@ export function buildReportData({
   reports,
   workspace,
   transactions,
+  personStatements,
   today,
 }: {
   dash: DashboardData;
   reports: ReportsData;
   workspace: WorkspaceView;
   transactions: TransactionListItem[];
+  personStatements: PersonStatement[];
   today: string;
 }): ReportData {
   const iconById = new Map(workspace.categories.map((c) => [c.id, c.icon]));
@@ -84,5 +87,6 @@ export function buildReportData({
       name: c.name,
       totalCents: c.valueCents,
     })),
+    personStatements,
   };
 }

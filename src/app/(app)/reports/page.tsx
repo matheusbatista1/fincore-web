@@ -1,4 +1,5 @@
 import { getDashboard } from "@/application/use-cases/get-dashboard";
+import { getPersonStatements } from "@/application/use-cases/get-person-statements";
 import { getReports } from "@/application/use-cases/get-reports";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
@@ -40,11 +41,12 @@ export default async function ReportsPage({
       : addMonths(to, -5);
   if (monthsBetween(from, to) < 0) [from, to] = [to, from];
 
-  const [data, workspace, dash, transactions] = await Promise.all([
+  const [data, workspace, dash, transactions, personStatements] = await Promise.all([
     getReports(financeRepository, user.id, { from, to, categoryFrom: from, categoryTo: to }),
     getWorkspaceView(financeRepository, user.id),
     getDashboard(financeRepository, user.id, to),
     getTransactions(financeRepository, user.id),
+    getPersonStatements(financeRepository, user.id, { from, to }),
   ]);
   const { cards } = workspace;
 
@@ -62,6 +64,7 @@ export default async function ReportsPage({
     reports: data,
     workspace,
     transactions,
+    personStatements,
     today: todayInBrazil(),
   });
 
