@@ -167,7 +167,14 @@ export async function getDashboard(
   );
   let projectedBalanceCents = 0;
   for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
-  projectedBalanceCents -= cardBillsDueThrough(ws.transactions, currentMonth, month, competenceOf).cents;
+  projectedBalanceCents -= cardBillsDueThrough(
+    ws.transactions,
+    currentMonth,
+    month,
+    competenceOf,
+    "general",
+    currentMonth,
+  ).cents;
   // General "fim do mês" also reflects this month's receivables/payables with people.
   projectedBalanceCents += aReceberCents - aPagarCents;
 
@@ -189,6 +196,7 @@ export async function getDashboard(
     month,
     competenceOf,
     "personal",
+    currentMonth,
   ).cents;
 
   // Trailing 6-month cumulative balance: re-run the balance calculator with the

@@ -54,8 +54,11 @@ export function projectedMonthEndBalances(
  * Net total of the credit-card bills (faturas) DUE within `[fromMonth, toMonth]`:
  * the sum of card charges minus card credits (estornos) whose bill due month falls
  * in the range. Used to subtract from the projected balance — "what's left after
- * paying the month's bills". Considers real charges (a recurring charge on a card
- * is rare and intentionally not projected here).
+ * paying the month's bills".
+ *
+ * When `currentMonth` is given, recurring card charges are also **projected** into the
+ * future months and re-dated to their occurrence date, so a recurring subscription on
+ * the card shows up in the months-ahead fatura (symmetric with projected income/expense).
  */
 export function cardBillsDueThrough(
   transactions: readonly Transaction[],
@@ -63,10 +66,28 @@ export function cardBillsDueThrough(
   toMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
   lens: ViewMode = "general",
+  currentMonth?: CompetenceMonth,
 ): Money {
   if (compareMonths(fromMonth, toMonth) > 0) return Money.zero();
+
+  // Projected recurring card charges, re-dated to their occurrence date so `competenceOf`
+  // resolves the correct bill (due) month. Only meaningful when projecting ahead.
+  // Project recurring card charges by their CHARGE month (calendar), not the bill due
+  // month — using `competenceOf` here would treat a charge's due month as its anchor and
+  // skip an occurrence. Re-date each occurrence so `competenceOf` resolves its real bill.
+  const projected: Transaction[] = [];
+  if (currentMonth !== undefined) {
+    for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
+      for (const occ of projectRecurring(transactions, m)) {
+        if (isExpense(occ.source) && occ.source.source === "card") {
+          projected.push({ ...occ.source, date: occ.date });
+        }
+      }
+    }
+  }
+
   let net = Money.zero();
-  for (const tx of transactions) {
+  for (const tx of [...transactions, ...projected]) {
     const due = competenceOf(tx);
     if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
     if (isExpense(tx) && tx.source === "card") {
