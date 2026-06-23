@@ -24,6 +24,7 @@ import {
   createTransactionSchema,
   deleteTransactionSchema,
   moveBillSchema,
+  rollDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
   updateTransactionSchema,
@@ -162,6 +163,58 @@ export async function updateSettlementAction(id: string, raw: unknown): Promise<
 /** Revert a person payment (soft-delete the settlement). */
 export async function deleteSettlementAction(id: string): Promise<ActionState> {
   return withUser((userId) => financeRepository.deleteSettlement(userId, id));
+}
+
+/**
+ * "Rolar dívida": you front the person's current debt via an instrument and they owe you the
+ * new amount (principal + juros) on a new date. Creates the new expense (fully theirs) first
+ * — so a validation error never orphans a settlement — then zeroes the old debt (rollover).
+ */
+export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = rollDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const r = parsed.data;
+
+  const newAmount = r.principalCents + r.jurosCents;
+  // Only card and loan can be installmented (cheque especial / own money are paid at once).
+  const canInstallment = r.source === "card" || r.source === "loan";
+  const installments = canInstallment && r.installments > 1 ? r.installments : 1;
+
+  // The new expense is fully owed by the person (you fronted it): equal split, you excluded.
+  const txInput = createTransactionSchema.safeParse({
+    kind: "expense",
+    description: r.description || "Dívida rolada",
+    date: r.date,
+    totalAmountCents: newAmount,
+    categoryId: null,
+    source: r.source,
+    cardId: r.cardId,
+    accountId: r.accountId,
+    linkedAccountId: r.linkedAccountId,
+    fixed: false,
+    split: { method: "equal", meIn: false, selected: [r.personId], custom: {} },
+    installment:
+      installments > 1
+        ? { total: installments, current: 1, includePrevious: false, includeNext: true }
+        : null,
+  });
+  if (!txInput.success) return INVALID;
+
+  const created = await createTransaction(financeRepository, userId, txInput.data);
+  if (!created.ok) return { ok: false, error: created.error.message };
+
+  // Zero the old debt as a rollover — no cash of its own (the cash is the new expense).
+  await financeRepository.createSettlement(userId, {
+    personId: r.personId,
+    amountCents: r.principalCents,
+    date: r.date,
+    accountId: null,
+    note: "Rolagem de dívida",
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 // --- accounts ---

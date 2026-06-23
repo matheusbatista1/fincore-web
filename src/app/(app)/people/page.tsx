@@ -34,6 +34,7 @@ export default async function PeoplePage({
     getSettlements(financeRepository, user.id),
   ]);
   const accounts = workspace.accounts.map((a) => ({ id: a.id, label: `${a.bank} · ${a.name}` }));
+  const cards = workspace.cards.map((c) => ({ id: c.id, label: `${c.bank} · ${c.product}` }));
 
   const reportData = buildReportData({
     dash,
@@ -49,6 +50,7 @@ export default async function PeoplePage({
       people={people}
       transactions={transactions}
       accounts={accounts}
+      cards={cards}
       settlements={settlements}
       today={today}
       month={month}
