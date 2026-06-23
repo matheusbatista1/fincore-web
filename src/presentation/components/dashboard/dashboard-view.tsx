@@ -33,7 +33,10 @@ interface MiniCardData {
   readonly bank: string;
   readonly product: string;
   readonly themeKey: string;
+  /** Bill due in the browsed month. */
   readonly billCents: number;
+  /** Total committed against the limit (open + future bills) — drives "% do limite". */
+  readonly outstandingCents: number;
   readonly limitCents: number;
   readonly dueDay: number;
 }
@@ -96,7 +99,8 @@ function daysUntilDue(dueDay: number, today: string): number {
 }
 
 function MiniCard({ card }: { card: MiniCardData }) {
-  const pct = card.limitCents > 0 ? Math.round((card.billCents / card.limitCents) * 100) : 0;
+  // "% do limite" reflects the total committed (open + future bills), not just this month's bill.
+  const pct = card.limitCents > 0 ? Math.round((card.outstandingCents / card.limitCents) * 100) : 0;
   const theme = resolveThemeKey(card.themeKey, card.bank);
   return (
     <Link href="/cards" className={`cc mini ${theme}`}>
@@ -314,7 +318,11 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   <span
                     className="row gap-1"
                     style={{ color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)", fontSize: 13.5 }}
-                    title="Saldo previsto para o fim do mês"
+                    title={
+                      isPersonal
+                        ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
+                        : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
+                    }
                   >
                     · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
                   </span>

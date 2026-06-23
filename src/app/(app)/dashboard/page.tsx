@@ -124,12 +124,15 @@ export default async function DashboardPage({
     categoriesPersonal: reports.categoriesPersonal.map(toSlice),
     totalExpenseCents: reports.totalExpenseCents,
     totalExpensePersonalCents: reports.totalExpensePersonalCents,
-    cards: workspace.cards.map((c) => ({
+    // From the dashboard use-case (month-aware): billCents follows the browsed month,
+    // outstandingCents is the total committed against the limit.
+    cards: dash.cards.map((c) => ({
       id: c.id,
       bank: c.bank,
       product: c.product,
       themeKey: c.themeKey,
       billCents: c.billCents,
+      outstandingCents: c.outstandingCents,
       limitCents: c.limitCents,
       dueDay: c.dueDay,
     })),
