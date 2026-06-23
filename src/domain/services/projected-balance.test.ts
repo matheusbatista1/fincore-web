@@ -202,6 +202,24 @@ describe("obligationsDueThrough", () => {
     );
   });
 
+  it("does not double-count a recurring card charge whose projection lands on its real bill", () => {
+    // A recurring card charge pinned (billMonthOverride) to July: the real charge AND a
+    // projected occurrence of the same rule both resolve to the July bill. The projection
+    // must be suppressed so the bill is counted ONCE — the calendar-vs-bill-month dedupe
+    // mismatch used to count it twice.
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-6690, "2026-06-10"),
+      recurrence: { dayOfMonth: 10 },
+      billMonthOverride: "2026-07",
+    };
+    // Real charge only (no projection requested) → counted once.
+    expect(obligationsDueThrough([rec], "2026-07", "2026-07", competenceOf).cents).toBe(6690);
+    // With projection enabled, still once (the July projection is already covered by the real).
+    expect(obligationsDueThrough([rec], "2026-06", "2026-07", competenceOf, "general", "2026-06").cents).toBe(
+      6690,
+    );
+  });
+
   it("counts non-card obligations (boleto, financing) due in the range, ignoring account-source", () => {
     const boleto: ExpenseTransaction = {
       ...cardExpense(-50000, "2026-07-03"),
