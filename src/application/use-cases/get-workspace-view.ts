@@ -40,7 +40,7 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
   const ws = await loadWorkspaceCached(repo, userId);
   // Live balances exclude future-dated entries (e.g. a salary booked for next month).
   const today = todayInBrazil();
-  const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
+  const balances = computeAccountBalances(ws.accounts, ws.transactions, today, "general", ws.settlements);
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const outstandings = computeCardOutstandings(

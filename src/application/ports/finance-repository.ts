@@ -203,4 +203,8 @@ export interface FinanceRepository {
   setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
+  /** Edit a settlement (amount, date, account, note) in place. */
+  updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
+  /** Soft-delete a settlement (revert a person payment). */
+  deleteSettlement(userId: string, id: string): Promise<void>;
 }

@@ -347,9 +347,11 @@ export const settlements = pgTable(
     accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    index("idx_settlements_person").on(t.personId),
+    index("idx_settlements_person").on(t.personId).where(sql`deleted_at IS NULL`),
     check("chk_settlement_amount", sql`amount_cents <> 0`),
     ownerPolicy("settlements_owner"),
   ],

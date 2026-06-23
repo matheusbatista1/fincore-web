@@ -12,18 +12,26 @@
  *    non-installment transactions move balances.
  *  - income → credits `accountId` by `amountCents`.
  *  - expense with `source === "account"` → debits `accountId` by `|amountCents|`.
- *  - expense paid by card OR a non-account source (boleto/loan/financing/overdraft,
- *    i.e. linked via `linkedAccountId`) → does NOT change any account balance.
+ *  - expense with `source === "overdraft"` (cheque especial) → debits its
+ *    `linkedAccountId` (the overdraft is drawn from that account; the balance may
+ *    go negative).
+ *  - expense paid by card OR the other linked sources (boleto/loan/financing) →
+ *    does NOT change any account balance.
  *  - transfer → `fromAccountId -= valueCents`, `toAccountId += valueCents`.
+ *  - a settlement with an `accountId` credits/debits that account by its cash
+ *    effect (see {@link computeAccountBalances}); settlements without an account are
+ *    pure ledger entries.
  *
  * All arithmetic goes through {@link Money} (integer cents), never floats.
  */
 
 import type { Account } from "../entities/account";
+import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import { isExpense, isIncome, isTransfer } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { IsoDate } from "../value-objects/competence-month";
+import { computePersonBalances } from "./person-ledger.calculator";
 import type { ViewMode } from "./personal-vs-general";
 
 /**
@@ -83,13 +91,18 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
     return deltas;
   }
 
-  // Expense: only those paid directly from an account move a balance.
-  // Card and linked-account sources (boleto/loan/financing/overdraft) do not.
-  if (isExpense(tx) && tx.source === "account" && tx.accountId !== null) {
-    // General debits the full magnitude; personal debits only the user's own share.
-    const magnitude =
-      lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs();
-    credit(tx.accountId, magnitude.negate());
+  // Expense: account-source debits its account; overdraft (cheque especial) is drawn
+  // from its linked account and debits it too (the balance can go negative). Card and
+  // the other linked sources (boleto/loan/financing) never move a balance.
+  if (isExpense(tx)) {
+    const debitAccountId =
+      tx.source === "account" ? tx.accountId : tx.source === "overdraft" ? tx.linkedAccountId : null;
+    if (debitAccountId !== null) {
+      // General debits the full magnitude; personal debits only the user's own share.
+      const magnitude =
+        lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs();
+      credit(debitAccountId, magnitude.negate());
+    }
   }
 
   return deltas;
@@ -111,6 +124,7 @@ export function computeAccountBalances(
   transactions: readonly Transaction[],
   upToDate?: IsoDate,
   lens: ViewMode = "general",
+  settlements: readonly Settlement[] = [],
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
 
@@ -129,6 +143,24 @@ export function computeAccountBalances(
       if (current !== undefined) {
         balances.set(accountId, current.add(delta));
       }
+    }
+  }
+
+  // A settlement that names an account moves real cash: when the person owed you
+  // (positive ledger balance) it credits the account; when you owed them it debits it.
+  // The direction follows the person's transaction-derived balance sign (settlements
+  // only reduce toward zero, never flip it). Personal lens drops it — the cash is a
+  // reimbursement of others' shares, not "your" money (mirrors reimbursement income).
+  if (lens === "general" && settlements.length > 0) {
+    const personBalances = computePersonBalances([], transactions, []);
+    for (const s of settlements) {
+      if (s.accountId === null) continue;
+      if (upToDate !== undefined && s.date > upToDate) continue;
+      const current = balances.get(s.accountId);
+      if (current === undefined) continue;
+      const owedToYou = !(personBalances.get(s.personId) ?? Money.zero()).isNegative();
+      const cash = owedToYou ? s.amountCents : -s.amountCents;
+      balances.set(s.accountId, current.add(Money.fromCents(cash)));
     }
   }
 

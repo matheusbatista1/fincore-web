@@ -147,6 +147,23 @@ export async function settlePersonAction(raw: unknown): Promise<ActionState> {
   );
 }
 
+export async function updateSettlementAction(id: string, raw: unknown): Promise<ActionState> {
+  return withParsed(settlementInputSchema, raw, (userId, input) =>
+    financeRepository.updateSettlement(userId, id, {
+      personId: input.personId,
+      amountCents: input.amountCents,
+      date: input.date,
+      accountId: input.accountId,
+      ...(input.note !== undefined ? { note: input.note } : {}),
+    }),
+  );
+}
+
+/** Revert a person payment (soft-delete the settlement). */
+export async function deleteSettlementAction(id: string): Promise<ActionState> {
+  return withUser((userId) => financeRepository.deleteSettlement(userId, id));
+}
+
 // --- accounts ---
 export async function createAccountAction(raw: unknown): Promise<ActionState> {
   return withParsed(accountInputSchema, raw, (u, i) => financeRepository.createAccount(u, i));

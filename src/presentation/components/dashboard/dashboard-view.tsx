@@ -62,6 +62,8 @@ interface CategorySlice {
 }
 export interface DashboardData {
   readonly saldoTotalCents: number;
+  /** Live total through the personal lens (only the user's own share of shared debits). */
+  readonly saldoTotalPersonalCents: number;
   /** Projected total balance at the end of the browsed month (general lens, discreet hint). */
   readonly projectedBalanceCents: number;
   /** Same projection through the personal lens (only the user's share). */
@@ -201,6 +203,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const isFuture = !data.isPast && !data.isCurrent;
   // The "fim do mês" follows the active lens (general adds people; personal is only mine).
   const projectedEom = isPersonal ? data.projectedBalancePersonalCents : data.projectedBalanceCents;
+  // The hero balance also follows the lens: "apenas meu" counts only the user's own share
+  // of shared account/overdraft debits.
+  const saldoTotal = isPersonal ? data.saldoTotalPersonalCents : data.saldoTotalCents;
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -299,7 +304,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   lineHeight: 1,
                 }}
               >
-                <CountMoney cents={data.saldoTotalCents} />
+                <CountMoney cents={saldoTotal} />
               </div>
               <div className="row gap-3" style={{ marginTop: 12 }}>
                 {data.deltaPct !== null && (
@@ -314,7 +319,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
                 </span>
-                {!data.isPast && projectedEom !== data.saldoTotalCents && (
+                {!data.isPast && projectedEom !== saldoTotal && (
                   <span
                     className="row gap-1"
                     style={{ color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)", fontSize: 13.5 }}

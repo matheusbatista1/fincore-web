@@ -108,6 +108,7 @@ export default async function DashboardPage({
 
   const data: DashboardData = {
     saldoTotalCents: dash.totalBalanceCents,
+    saldoTotalPersonalCents: dash.totalBalancePersonalCents,
     projectedBalanceCents: dash.projectedBalanceCents,
     projectedBalancePersonalCents: dash.projectedBalancePersonalCents,
     isPast: month < current,

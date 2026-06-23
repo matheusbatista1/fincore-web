@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Account } from "../entities/account";
+import type { Settlement } from "../entities/settlement";
 import type {
   ExpenseSource,
   ExpenseTransaction,
@@ -11,6 +12,24 @@ import type {
 } from "../entities/transaction";
 import { Money } from "../money/money";
 import { accountDeltas, computeAccountBalance, computeAccountBalances } from "./balance.calculator";
+
+function settle(
+  personId: string,
+  amountCents: number,
+  accountId: string | null,
+  date = "2026-06-10",
+): Settlement {
+  return { id: nextId(), personId, amountCents, date, accountId };
+}
+
+/** A card expense fully owed by `personId` (does not touch any account balance itself). */
+function sharedCardExpense(personId: string, cents: number): ExpenseTransaction {
+  return {
+    ...expense(-cents, { source: "card", cardId: "c1" }),
+    splits: [{ personId, shareCents: cents }],
+    myShareCents: 0,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Builders — minimal valid entities for the discriminated unions, so tests stay
@@ -265,6 +284,73 @@ describe("computeAccountBalance — single-account helper", () => {
   });
 });
 
+describe("overdraft (cheque especial) debits its linked account", () => {
+  it("debits the full amount (general) and only the user's share (personal)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const shared: ExpenseTransaction = {
+      ...expense(-30_000, { source: "overdraft", linkedAccountId: "nu" }),
+      myShareCents: 10_000,
+    };
+    expect(computeAccountBalances(accounts, [shared]).get("nu")?.cents).toBe(70_000);
+    expect(computeAccountBalances(accounts, [shared], undefined, "personal").get("nu")?.cents).toBe(90_000);
+  });
+
+  it("can drive the balance negative", () => {
+    const accounts = [makeAccount("nu", 5_000)];
+    const o = expense(-20_000, { source: "overdraft", linkedAccountId: "nu" });
+    expect(computeAccountBalances(accounts, [o]).get("nu")?.cents).toBe(-15_000);
+  });
+
+  it("does nothing when the overdraft has no linked account", () => {
+    const accounts = [makeAccount("nu", 5_000)];
+    const o = expense(-20_000, { source: "overdraft", linkedAccountId: null });
+    expect(computeAccountBalances(accounts, [o]).get("nu")?.cents).toBe(5_000);
+  });
+});
+
+describe("settlements credit/debit the account they name", () => {
+  it("credits the account when the person owed you (general); personal drops it", () => {
+    const accounts = [makeAccount("nu", 0)];
+    const owesYou = sharedCardExpense("p1", 50_000); // p1 owes you 50k; card expense doesn't touch nu
+    const paid = settle("p1", 50_000, "nu");
+    expect(computeAccountBalances(accounts, [owesYou], undefined, "general", [paid]).get("nu")?.cents).toBe(
+      50_000,
+    );
+    // Personal lens: the received cash is a reimbursement of others' share — not "yours".
+    expect(computeAccountBalances(accounts, [owesYou], undefined, "personal", [paid]).get("nu")?.cents).toBe(
+      0,
+    );
+  });
+
+  it("debits the account when you owed them", () => {
+    const accounts = [makeAccount("nu", 100_000), makeAccount("other", 0)];
+    // p1 paid you 50k they didn't owe → your ledger balance to p1 is −50k (you owe them).
+    const youOwe: IncomeTransaction = { ...income("other", 50_000), fromPersonId: "p1" };
+    const youPay = settle("p1", 50_000, "nu");
+    expect(computeAccountBalances(accounts, [youOwe], undefined, "general", [youPay]).get("nu")?.cents).toBe(
+      50_000,
+    );
+  });
+
+  it("a settlement without an account is a pure ledger entry (no balance effect)", () => {
+    const accounts = [makeAccount("nu", 0)];
+    const owesYou = sharedCardExpense("p1", 50_000);
+    const noAccount = settle("p1", 50_000, null);
+    expect(
+      computeAccountBalances(accounts, [owesYou], undefined, "general", [noAccount]).get("nu")?.cents,
+    ).toBe(0);
+  });
+
+  it("respects the date cutoff for settlement cash", () => {
+    const accounts = [makeAccount("nu", 0)];
+    const owesYou = sharedCardExpense("p1", 50_000);
+    const future = settle("p1", 50_000, "nu", "2026-07-05");
+    expect(
+      computeAccountBalances(accounts, [owesYou], "2026-06-30", "general", [future]).get("nu")?.cents,
+    ).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — the business invariants.
 // ---------------------------------------------------------------------------
@@ -328,8 +414,8 @@ describe("balance invariants (property-based)", () => {
   });
 
   it("card and linked-account expenses never move any account balance", () => {
-    const nonAccountSource = () =>
-      fc.constantFrom<ExpenseSource>("card", "boleto", "loan", "financing", "overdraft");
+    // overdraft (cheque especial) is intentionally excluded — it DOES debit its linked account.
+    const nonAccountSource = () => fc.constantFrom<ExpenseSource>("card", "boleto", "loan", "financing");
 
     fc.assert(
       fc.property(
