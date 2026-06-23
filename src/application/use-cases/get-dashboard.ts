@@ -70,6 +70,8 @@ export interface TrendPoint {
 export interface DashboardData {
   readonly month: CompetenceMonth;
   readonly totalBalanceCents: number;
+  /** Live total balance through the personal lens (only the user's own share of shared debits). */
+  readonly totalBalancePersonalCents: number;
   /**
    * Projected total balance at the END of the browsed month (general lens): real
    * movements up to month-end, plus the recurring ('previsto') occurrences, minus
@@ -107,7 +109,16 @@ export async function getDashboard(
   const currentMonth = today.slice(0, 7);
 
   // Headline balances are "live" (as of today), independent of the browsed month.
-  const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
+  // Settlements that name an account move real cash (a person paying you, or you paying
+  // them); overdraft (cheque especial) debits its account — both reflected here.
+  const balances = computeAccountBalances(ws.accounts, ws.transactions, today, "general", ws.settlements);
+  const balancesPersonal = computeAccountBalances(
+    ws.accounts,
+    ws.transactions,
+    today,
+    "personal",
+    ws.settlements,
+  );
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   // "Fatura" follows the view: on the current month show each card's open bill (the next
@@ -175,6 +186,9 @@ export async function getDashboard(
   const aPagarCents = people.reduce((sum, p) => (p.balanceCents < 0 ? sum - p.balanceCents : sum), 0);
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
+  // Personal-lens total: only the user's own share of shared account/overdraft expenses.
+  let totalBalancePersonalCents = 0;
+  for (const value of balancesPersonal.values()) totalBalancePersonalCents += value.cents;
 
   // Projected balance at the end of the browsed month: real movements up to month-end
   // plus the recurring occurrences (accumulated from the current month onward), MINUS
@@ -185,6 +199,8 @@ export async function getDashboard(
     month,
     competenceOf,
     currentMonth,
+    "general",
+    ws.settlements,
   );
   let projectedBalanceCents = 0;
   for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
@@ -221,6 +237,7 @@ export async function getDashboard(
     competenceOf,
     currentMonth,
     "personal",
+    ws.settlements,
   );
   let projectedBalancePersonalCents = 0;
   for (const value of eomPersonal.values()) projectedBalancePersonalCents += value.cents;
@@ -238,7 +255,13 @@ export async function getDashboard(
   const trend: TrendPoint[] = [];
   for (let i = 5; i >= 0; i--) {
     const m = addMonths(month, -i);
-    const monthBalances = computeAccountBalances(ws.accounts, ws.transactions, dateInMonth(m, 31));
+    const monthBalances = computeAccountBalances(
+      ws.accounts,
+      ws.transactions,
+      dateInMonth(m, 31),
+      "general",
+      ws.settlements,
+    );
     let total = 0;
     for (const value of monthBalances.values()) total += value.cents;
     trend.push({ label: monthLabel(m), valueCents: total });
@@ -247,6 +270,7 @@ export async function getDashboard(
   return {
     month,
     totalBalanceCents,
+    totalBalancePersonalCents,
     projectedBalanceCents,
     projectedBalancePersonalCents,
     accounts,

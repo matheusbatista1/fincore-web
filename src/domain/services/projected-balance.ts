@@ -7,6 +7,7 @@
  */
 
 import type { Account } from "../entities/account";
+import type { Settlement } from "../entities/settlement";
 import { isCardCredit, isExpense, type Transaction } from "../entities/transaction";
 import { Money } from "../money/money";
 import {
@@ -37,8 +38,11 @@ export function projectedMonthEndBalances(
   competenceOf: CompetenceResolver,
   fromMonth: CompetenceMonth,
   lens: ViewMode = "general",
+  settlements: readonly Settlement[] = [],
 ): Map<string, Money> {
-  const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31), lens);
+  // Settlements dated through month-end credit/debit their account (cash actually moved),
+  // so a person paying you keeps the projection consistent (receivable −X, account +X).
+  const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31), lens, settlements);
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
       for (const [accountId, delta] of accountDeltas(occurrence.source, lens)) {

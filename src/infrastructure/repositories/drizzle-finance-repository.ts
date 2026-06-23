@@ -187,7 +187,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         tx.select().from(schema.categories).where(isNull(schema.categories.deletedAt)),
         tx.select().from(schema.transactions).where(isNull(schema.transactions.deletedAt)),
         tx.select().from(schema.transactionSplits),
-        tx.select().from(schema.settlements),
+        tx.select().from(schema.settlements).where(isNull(schema.settlements.deletedAt)),
         tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt)),
         tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt)),
         tx.select().from(schema.cardBillDates),
@@ -676,6 +676,32 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         accountId: input.accountId ?? null,
         note: input.note ?? null,
       });
+    });
+  }
+
+  async updateSettlement(userId: string, id: string, input: SettlementData): Promise<void> {
+    // RLS scopes the row to the user; we match by id.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.settlements)
+        .set({
+          personId: input.personId,
+          amountCents: input.amountCents,
+          settledOn: input.date,
+          accountId: input.accountId ?? null,
+          note: input.note ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.settlements.id, id));
+    });
+  }
+
+  async deleteSettlement(userId: string, id: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.settlements)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.settlements.id, id));
     });
   }
 }
