@@ -1,4 +1,4 @@
-import { isExpense, type Transaction } from "@/domain/entities/transaction";
+import { isExpense, isIncome, type Transaction } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -32,6 +32,13 @@ export interface CategorySlice {
   readonly valueCents: number;
 }
 
+/** Total charged to one card over the report window (faturas in the period, minus estornos). */
+export interface CardSpend {
+  readonly id: string;
+  readonly name: string;
+  readonly valueCents: number;
+}
+
 /**
  * The window a report covers. `from → to` drives the monthly trend bars; the
  * category breakdown defaults to the latest month (`to`) but can span its own
@@ -61,6 +68,8 @@ export interface ReportsData {
   readonly categoriesPersonal: CategorySlice[];
   readonly totalExpenseCents: number;
   readonly totalExpensePersonalCents: number;
+  /** Amount charged to each card over the window (largest → smallest), for "Gasto por cartão". */
+  readonly byCard: CardSpend[];
   /** True when the window reaches into the future, so some totals are projected ("previsto"). */
   readonly includesProjected: boolean;
   /** Human label of the future portion ("jul 2026" or "jul – set 2026"); "" when none. */
@@ -99,10 +108,19 @@ export async function getReports(
 
   const months: MonthBar[] = [];
   const monthsPersonal: MonthBar[] = [];
+  // Card spending over the window: each card's faturas due in [from, to] minus estornos.
+  const cardSpend = new Map<string, number>();
   const span = monthsBetween(from, to);
   for (let k = 0; k <= span; k++) {
     const month = addMonths(from, k);
     const set = setForMonth(month);
+    for (const tx of set) {
+      if (isExpense(tx) && tx.source === "card" && tx.cardId !== null) {
+        cardSpend.set(tx.cardId, (cardSpend.get(tx.cardId) ?? 0) + Math.abs(tx.amountCents));
+      } else if (isIncome(tx) && tx.cardId !== null) {
+        cardSpend.set(tx.cardId, (cardSpend.get(tx.cardId) ?? 0) - tx.amountCents);
+      }
+    }
     const projected = compareMonths(month, current) > 0;
     const totals = computeViewTotals(set, "general");
     const totalsPersonal = computeViewTotals(set, "personal");
@@ -161,6 +179,15 @@ export async function getReports(
   const totalExpenseCents = categories.reduce((sum, c) => sum + c.valueCents, 0);
   const totalExpensePersonalCents = categoriesPersonal.reduce((sum, c) => sum + c.valueCents, 0);
 
+  const cardById = new Map(ws.creditCards.map((c) => [c.id, c]));
+  const byCard: CardSpend[] = [...cardSpend.entries()]
+    .map(([id, valueCents]) => {
+      const card = cardById.get(id);
+      return { id, name: card ? `${card.bank} · ${card.product}` : "Cartão", valueCents };
+    })
+    .filter((c) => c.valueCents > 0)
+    .sort((a, b) => b.valueCents - a.valueCents);
+
   const rangeLabel =
     from === to ? monthLabel(from, { long: true }) : `${monthLabel(from)} – ${monthLabel(to)}`;
 
@@ -184,6 +211,7 @@ export async function getReports(
     categoriesPersonal,
     totalExpenseCents,
     totalExpensePersonalCents,
+    byCard,
     includesProjected,
     projectedLabel,
   };

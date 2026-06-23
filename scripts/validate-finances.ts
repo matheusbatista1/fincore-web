@@ -350,6 +350,38 @@ async function main() {
   }
   console.log(`  Total duplicado (excesso) ≈ ${brl(dupTotal)}`);
 
+  // ----------------------------------------------- reports validation
+  const last = addMonths(currentMonth, 5) as CompetenceMonth;
+  hr(`REPORTS — forward window ${currentMonth}..${last} (cash flow + gasto por cartão)`);
+  const setForMonth = (month: CompetenceMonth) => {
+    const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
+    return compareMonths(month, currentMonth) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+  };
+  const cardSpend = new Map<string, number>();
+  console.log("  Fluxo de caixa (geral): mês       receita        despesa      resultado");
+  for (let i = 0; i <= 5; i++) {
+    const month = addMonths(currentMonth, i) as CompetenceMonth;
+    const set = setForMonth(month);
+    const t = computeViewTotals(set, "general");
+    console.log(
+      `    ${month}  +${brl(t.income.cents).padStart(12)}  −${brl(t.expense.cents).padStart(12)}  = ${brl(t.net.cents).padStart(12)}`,
+    );
+    for (const tx of set) {
+      if (isExpense(tx) && tx.source === "card" && tx.cardId !== null) {
+        cardSpend.set(tx.cardId, (cardSpend.get(tx.cardId) ?? 0) + Math.abs(tx.amountCents));
+      } else if (isIncome(tx) && tx.cardId !== null) {
+        cardSpend.set(tx.cardId, (cardSpend.get(tx.cardId) ?? 0) - tx.amountCents);
+      }
+    }
+  }
+  console.log("\n  Gasto por cartão no período (o que a tela de Relatórios deve mostrar):");
+  const cardById2 = new Map(ws.creditCards.map((c) => [c.id, c]));
+  for (const [id, v] of [...cardSpend.entries()].sort((a, b) => b[1] - a[1])) {
+    if (v <= 0) continue;
+    const c = cardById2.get(id);
+    console.log(`    ${c ? `${c.bank} · ${c.product}` : id}: ${brl(v)}`);
+  }
+
   // Itemize obligations + people for the CURRENT month, general lens, to explain the components.
   hr(`Breakdown for month=${currentMonth}`);
   console.log("  Obrigações a vencer (B) — despesas não-conta com competência neste mês:");

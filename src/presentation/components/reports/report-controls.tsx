@@ -7,7 +7,7 @@ import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { monthLabel } from "@/shared/formatting/dates";
 
-const PRESETS = [3, 6, 12] as const;
+const PRESETS = [1, 3, 6, 12] as const;
 /** Month-picker window: up to 12 months ahead (projected) down to 23 months back. */
 const FUTURE_MONTHS = 12;
 const PAST_MONTHS = 23;
@@ -38,7 +38,8 @@ export function ReportControls({
   for (let i = FUTURE_MONTHS; i >= -PAST_MONTHS; i--) options.push(addMonths(current, i));
 
   const span = monthsBetween(from, to) + 1;
-  const isPreset = (n: number): boolean => to === current && from !== to && span === n;
+  // Presets run forward from the current month: current → current + (n − 1).
+  const isPreset = (n: number): boolean => from === current && span === n;
   const usingCustom = !PRESETS.some((n) => isPreset(n));
 
   const goPreset = (n: number) => router.push(`/reports?range=${n}`);
@@ -70,7 +71,7 @@ export function ReportControls({
           <div className="seg" style={{ background: "var(--surface-3)" }}>
             {PRESETS.map((n) => (
               <button key={n} type="button" className={isPreset(n) ? "on" : ""} onClick={() => goPreset(n)}>
-                {n} meses
+                {n === 1 ? "Mês atual" : `${n} meses`}
               </button>
             ))}
             <button type="button" className={usingCustom ? "on" : ""} onClick={() => goRange(from, to)}>

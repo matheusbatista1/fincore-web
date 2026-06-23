@@ -33,31 +33,31 @@ export default async function ReportsPage({
   const rawFrom = pick(sp.from);
   const rawRange = pick(sp.range);
 
-  let to: CompetenceMonth = rawTo && isValidCompetenceMonth(rawTo) ? rawTo : current;
-  let from: CompetenceMonth = /^(3|6|12)$/.test(rawRange ?? "")
-    ? addMonths(to, -(Number(rawRange) - 1))
-    : rawFrom && isValidCompetenceMonth(rawFrom)
-      ? rawFrom
-      : addMonths(to, -5);
+  // Presets are forward-looking: N months starting at the current month
+  // (current → current+N-1), so the cash flow shows what's coming, not the past.
+  const presetN = /^(1|3|6|12)$/.test(rawRange ?? "") ? Number(rawRange) : null;
+  let from: CompetenceMonth;
+  let to: CompetenceMonth;
+  if (presetN !== null) {
+    from = current;
+    to = addMonths(current, presetN - 1);
+  } else {
+    from = rawFrom && isValidCompetenceMonth(rawFrom) ? rawFrom : current;
+    to = rawTo && isValidCompetenceMonth(rawTo) ? rawTo : addMonths(current, 5);
+  }
   if (monthsBetween(from, to) < 0) [from, to] = [to, from];
 
   const [data, workspace, dash, transactions, personStatements] = await Promise.all([
     getReports(financeRepository, user.id, { from, to, categoryFrom: from, categoryTo: to }),
     getWorkspaceView(financeRepository, user.id),
-    getDashboard(financeRepository, user.id, to),
+    // The export "Resumo" is the current-month snapshot, independent of the report window.
+    getDashboard(financeRepository, user.id, current),
     getTransactions(financeRepository, user.id),
     getPersonStatements(financeRepository, user.id, { from, to }),
   ]);
-  const { cards } = workspace;
 
-  const byCard = cards
-    .map((c) => ({
-      id: c.id,
-      name: `${c.bank} · ${c.product}`,
-      color: "#7C5CFF",
-      valueCents: c.billCents,
-    }))
-    .sort((a, b) => b.valueCents - a.valueCents);
+  // "Gasto por cartão" over the selected window (period-aware, follows from/to).
+  const byCard = data.byCard.map((c) => ({ ...c, color: "#7C5CFF" }));
 
   const reportData = buildReportData({
     dash,
