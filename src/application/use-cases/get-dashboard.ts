@@ -1,6 +1,12 @@
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
-import { billingCompetence, cardUtilization, computeCardBills } from "@/domain/services/card-bill.calculator";
+import {
+  billingCompetence,
+  cardUtilization,
+  computeCardBills,
+  computeCardBillsForMonth,
+  computeCardOutstandings,
+} from "@/domain/services/card-bill.calculator";
 import { computePersonBalancesForMonth } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
@@ -30,8 +36,12 @@ export interface CardSummary {
   readonly product: string;
   readonly themeKey: string;
   readonly limitCents: number;
+  /** Fatura shown for the view: the open bill on the current month, else the browsed month's. */
   readonly billCents: number;
-  /** bill / limit in [0, ∞); 0 when the limit is non-positive. */
+  /** Total committed against the limit: open + future bills − estornos ("limite utilizado"). */
+  readonly outstandingCents: number;
+  readonly dueDay: number;
+  /** outstanding / limit in [0, ∞); 0 when the limit is non-positive. */
   readonly utilization: number;
 }
 
@@ -98,9 +108,16 @@ export async function getDashboard(
 
   // Headline balances are "live" (as of today), independent of the browsed month.
   const balances = computeAccountBalances(ws.accounts, ws.transactions, today);
-  const bills = computeCardBills(ws.creditCards, ws.transactions);
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
+  // "Fatura" follows the view: on the current month show each card's open bill (the next
+  // one to pay); when browsing another month show that month's own fatura. The "limite
+  // utilizado" is the all-open total (today onward), independent of the browsed month.
+  const isCurrentView = compareMonths(month, currentMonth) === 0;
+  const bills = isCurrentView
+    ? computeCardBills(ws.creditCards, ws.transactions)
+    : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
+  const outstandings = computeCardOutstandings(ws.creditCards, ws.transactions, currentMonth, competenceOf);
   // Person nets scoped to the browsed month (drives "A receber" + "Pessoas com pendências").
   const ledgerMonth = computePersonBalancesForMonth(
     ws.people,
@@ -129,6 +146,7 @@ export async function getDashboard(
 
   const cards = ws.creditCards.map((card) => {
     const bill = bills.get(card.id) ?? Money.zero();
+    const outstanding = outstandings.get(card.id) ?? Money.zero();
     return {
       id: card.id,
       bank: card.bank,
@@ -136,7 +154,10 @@ export async function getDashboard(
       themeKey: card.themeKey,
       limitCents: card.limitCents,
       billCents: bill.cents,
-      utilization: cardUtilization(bill, card),
+      outstandingCents: outstanding.cents,
+      dueDay: card.dueDay,
+      // Utilization is the committed total (open + future), not just this month's bill.
+      utilization: cardUtilization(outstanding, card),
     };
   });
 

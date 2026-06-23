@@ -26,6 +26,7 @@ import { Money } from "../money/money";
 import {
   addMonths,
   type CompetenceMonth,
+  compareMonths,
   dayOf,
   type IsoDate,
   monthOf,
@@ -192,6 +193,97 @@ export function computeCardBills(
   }
 
   return bills;
+}
+
+/**
+ * The bill (fatura) of a single card **scoped to one competence month** — the sum of
+ * the charges whose bill falls due in `month` (via `competenceOf`), minus the card
+ * credits (estornos) bucketed into that same bill. Unlike {@link computeCardBill}
+ * (the whole open cycle regardless of month), this follows the browsed month, so
+ * navigating months shows each month's own fatura.
+ */
+export function computeCardBillForMonth(
+  cardId: string,
+  transactions: readonly Transaction[],
+  month: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Money {
+  let net = Money.zero();
+  for (const tx of transactions) {
+    if (competenceOf(tx) !== month) continue;
+    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId) {
+      net = net.add(Money.fromCents(tx.amountCents).abs());
+    } else if (isIncome(tx) && tx.cardId === cardId) {
+      net = net.subtract(Money.fromCents(tx.amountCents));
+    }
+  }
+  return net;
+}
+
+/**
+ * {@link computeCardBillForMonth} for every supplied card, keyed by card id. Every
+ * card in `cards` is present (zero when nothing falls in `month`).
+ */
+export function computeCardBillsForMonth(
+  cards: readonly CreditCard[],
+  transactions: readonly Transaction[],
+  month: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  const bills = new Map<string, Money>();
+  for (const card of cards) {
+    bills.set(card.id, computeCardBillForMonth(card.id, transactions, month, competenceOf));
+  }
+  return bills;
+}
+
+/**
+ * The total **outstanding** balance committed against a card's limit — every charge
+ * whose bill is still open or in the future, i.e. competence ≥ `currentMonth`, minus
+ * the estornos in that same window. This is the "limite utilizado" (used limit): a
+ * 12× purchase reserves the whole amount the moment it is made and only frees the
+ * limit as each bill is paid (a parcela's competence < `currentMonth` is presumed
+ * paid and excluded). It naturally covers every case via the bill competence:
+ *   - parcela "atual" (competence = current month) ✓
+ *   - parcela "futura" (competence > current month) ✓
+ *   - parcela "paga" / a past one-off charge (competence < current month) ✗
+ * Only real charges count — recurring "previsto" occurrences are NOT projected here
+ * (a fixed expense doesn't commit limit before it is actually charged).
+ */
+export function computeCardOutstanding(
+  cardId: string,
+  transactions: readonly Transaction[],
+  currentMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Money {
+  let net = Money.zero();
+  for (const tx of transactions) {
+    if (compareMonths(competenceOf(tx), currentMonth) < 0) continue;
+    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId) {
+      net = net.add(Money.fromCents(tx.amountCents).abs());
+    } else if (isIncome(tx) && tx.cardId === cardId) {
+      net = net.subtract(Money.fromCents(tx.amountCents));
+    }
+  }
+  return net;
+}
+
+/**
+ * {@link computeCardOutstanding} for every supplied card, keyed by card id. Every
+ * card in `cards` is present (zero when nothing is open); charges to unknown cards
+ * are ignored.
+ */
+export function computeCardOutstandings(
+  cards: readonly CreditCard[],
+  transactions: readonly Transaction[],
+  currentMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  const out = new Map<string, Money>();
+  for (const card of cards) {
+    out.set(card.id, computeCardOutstanding(card.id, transactions, currentMonth, competenceOf));
+  }
+  return out;
 }
 
 /**

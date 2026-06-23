@@ -104,7 +104,8 @@ export function CardsView({
   // Portfolio totals across every card (shown as a strip when there's more than one).
   const totals = useMemo(() => {
     const limit = cards.reduce((s, c) => s + c.limitCents, 0);
-    const usedAll = cards.reduce((s, c) => s + c.billCents, 0);
+    // "Utilizado" is the total committed against the limit (open + future bills), not just this bill.
+    const usedAll = cards.reduce((s, c) => s + c.outstandingCents, 0);
     const pctAll = limit > 0 ? Math.round((usedAll / limit) * 100) : 0;
     return { limit, used: usedAll, available: limit - usedAll, pct: pctAll };
   }, [cards]);
@@ -130,7 +131,9 @@ export function CardsView({
     );
   }
 
-  const used = card.billCents;
+  // "Utilizado" / disponível / % reflect the total committed against the limit
+  // (open + future bills), not just the current bill.
+  const used = card.outstandingCents;
   const avail = card.limitCents - used;
   const pct = card.limitCents > 0 ? Math.round((used / card.limitCents) * 100) : 0;
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
@@ -351,7 +354,7 @@ export function CardsView({
                 </div>
               </div>
               <div className="l-amt">
-                <AnimatedMoney cents={used} withSign={false} />
+                <AnimatedMoney cents={card.billCents} withSign={false} />
               </div>
             </div>
             <button
@@ -359,7 +362,7 @@ export function CardsView({
               className="btn btn-primary"
               style={{ width: "100%", marginTop: 16 }}
               onClick={() =>
-                toast(`Pagamento de ${formatBRLAbsolute(used)} agendado para o dia ${card.dueDay}`)
+                toast(`Pagamento de ${formatBRLAbsolute(card.billCents)} agendado para o dia ${card.dueDay}`)
               }
             >
               <Icon name="check-circle" size={17} />

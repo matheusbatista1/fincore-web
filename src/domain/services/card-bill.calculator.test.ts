@@ -14,7 +14,11 @@ import {
   cardBillMonth,
   cardUtilization,
   computeCardBill,
+  computeCardBillForMonth,
   computeCardBills,
+  computeCardBillsForMonth,
+  computeCardOutstanding,
+  computeCardOutstandings,
 } from "./card-bill.calculator";
 
 // ---------------------------------------------------------------------------
@@ -489,6 +493,106 @@ describe("billingCompetence", () => {
     const caixa2: CreditCard = { ...card("card-1", 100000), closingDay: 24, dueDay: 2 };
     const resolve2 = billingCompetence([caixa2]);
     expect(resolve2({ ...cardCredit(600, "card-1", "2026-05-26") })).toBe("2026-07");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Month-scoped bill ("fatura do mês") and total outstanding ("limite utilizado").
+// A card that closes 28 / due 29 keeps a charge dated ≤ 28 in its own calendar
+// month, so competence == the date's month — making these cases easy to read.
+// ---------------------------------------------------------------------------
+
+describe("computeCardBillsForMonth — scoped by competence month", () => {
+  const c: CreditCard = { ...card("c", 1_000_000), closingDay: 28, dueDay: 29 };
+  const resolve = billingCompetence([c]);
+  const jun: ExpenseTransaction = { ...cardExpense(-10_000, "c"), date: "2026-06-15" };
+  const jul: ExpenseTransaction = { ...cardExpense(-20_000, "c"), date: "2026-07-15" };
+  const jul2: ExpenseTransaction = { ...cardExpense(-5_000, "c"), date: "2026-07-20" };
+  const txs: Transaction[] = [jun, jul, jul2];
+
+  it("returns only the charges whose bill falls in the given month", () => {
+    expect(computeCardBillsForMonth([c], txs, "2026-06", resolve).get("c")?.cents).toBe(10_000);
+    expect(computeCardBillsForMonth([c], txs, "2026-07", resolve).get("c")?.cents).toBe(25_000);
+    expect(computeCardBillsForMonth([c], txs, "2026-08", resolve).get("c")?.cents).toBe(0);
+  });
+
+  it("subtracts an estorno bucketed into the same bill month", () => {
+    const credit: IncomeTransaction = cardCredit(3_000, "c", "2026-07-10");
+    expect(computeCardBillsForMonth([c], [...txs, credit], "2026-07", resolve).get("c")?.cents).toBe(22_000);
+  });
+
+  it("seeds every card with zero and ignores non-card expenses", () => {
+    const bills = computeCardBillsForMonth(
+      [c, card("empty", 100)],
+      [accountExpense(-9_999, "acc"), jun],
+      "2026-06",
+      resolve,
+    );
+    expect(bills.get("empty")?.cents).toBe(0);
+    expect(bills.get("c")?.cents).toBe(10_000);
+  });
+
+  it("excludes charges and credits belonging to a different card", () => {
+    const foreignCharge: ExpenseTransaction = { ...cardExpense(-7_777, "other"), date: "2026-06-15" };
+    const foreignCredit: IncomeTransaction = cardCredit(1_000, "other", "2026-06-10");
+    expect(computeCardBillForMonth("c", [jun, foreignCharge, foreignCredit], "2026-06", resolve).cents).toBe(
+      10_000,
+    );
+  });
+});
+
+describe("computeCardOutstanding(s) — total committed against the limit", () => {
+  const c: CreditCard = { ...card("c", 1_000_000), closingDay: 28, dueDay: 29 };
+  const resolve = billingCompetence([c]);
+  const currentMonth = "2026-07";
+  // A paid past bill (June), the current bill (July), and two future installments.
+  const past: ExpenseTransaction = { ...cardExpense(-10_000, "c"), date: "2026-06-15" };
+  const atual: ExpenseTransaction = {
+    ...cardExpense(-20_000, "c", { number: 1, total: 3, status: "atual" }),
+    date: "2026-07-15",
+  };
+  const fut1: ExpenseTransaction = {
+    ...cardExpense(-20_000, "c", { number: 2, total: 3, status: "futura" }),
+    date: "2026-08-15",
+  };
+  const fut2: ExpenseTransaction = {
+    ...cardExpense(-20_000, "c", { number: 3, total: 3, status: "futura" }),
+    date: "2026-09-15",
+  };
+  const txs: Transaction[] = [past, atual, fut1, fut2];
+
+  it("includes the current + all future bills and excludes paid past ones", () => {
+    expect(computeCardOutstanding("c", txs, currentMonth, resolve).cents).toBe(60_000);
+  });
+
+  it("future installments count toward outstanding but NOT toward the current month's bill", () => {
+    expect(computeCardBillsForMonth([c], txs, currentMonth, resolve).get("c")?.cents).toBe(20_000);
+    expect(computeCardOutstanding("c", txs, currentMonth, resolve).cents).toBe(60_000);
+  });
+
+  it("an estorno in the window reduces the outstanding", () => {
+    const credit: IncomeTransaction = cardCredit(5_000, "c", "2026-07-10");
+    expect(computeCardOutstanding("c", [...txs, credit], currentMonth, resolve).cents).toBe(55_000);
+  });
+
+  it("computeCardOutstandings matches the single-card version and seeds zero", () => {
+    const cards = [c, card("empty", 100)];
+    const out = computeCardOutstandings(cards, txs, currentMonth, resolve);
+    expect(out.get("c")?.cents).toBe(computeCardOutstanding("c", txs, currentMonth, resolve).cents);
+    expect(out.get("empty")?.cents).toBe(0);
+  });
+
+  it("ignores non-card expenses, account income and transfers", () => {
+    const noise: Transaction[] = [accountExpense(-9_999, "acc"), income(500_000, "acc"), transfer(1_000)];
+    expect(computeCardOutstanding("c", [...txs, ...noise], currentMonth, resolve).cents).toBe(60_000);
+  });
+
+  it("excludes charges and credits belonging to a different card", () => {
+    const foreignCharge: ExpenseTransaction = { ...cardExpense(-7_777, "other"), date: "2026-07-15" };
+    const foreignCredit: IncomeTransaction = cardCredit(1_000, "other", "2026-07-10");
+    expect(
+      computeCardOutstanding("c", [...txs, foreignCharge, foreignCredit], currentMonth, resolve).cents,
+    ).toBe(60_000);
   });
 });
 
