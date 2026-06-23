@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { settlePersonAction } from "@/app/_actions/finance";
+import { deleteSettlementAction, settlePersonAction, updateSettlementAction } from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
+import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
@@ -21,6 +23,12 @@ import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 import { settlementInputSchema } from "@/shared/schemas/transaction";
 
+/** A wallet/account option for the settle account picker. */
+interface AccountOption {
+  readonly id: string;
+  readonly label: string;
+}
+
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
 
 function todayIso(): string {
@@ -33,6 +41,8 @@ function todayIso(): string {
 export function PeopleView({
   people,
   transactions,
+  accounts,
+  settlements,
   today,
   month,
   isCurrent,
@@ -42,6 +52,8 @@ export function PeopleView({
 }: {
   people: PersonMonthView[];
   transactions: TransactionListItem[];
+  accounts: AccountOption[];
+  settlements: SettlementView[];
   today: string;
   month: string;
   isCurrent: boolean;
@@ -50,8 +62,10 @@ export function PeopleView({
   reportData: ReportData;
 }) {
   const toast = useUIStore((s) => s.toast);
+  const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [settleId, setSettleId] = useState<string | null>(null);
+  const [editSettlement, setEditSettlement] = useState<SettlementView | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
   // List + totals are the browsed month's nets (projection-aware for future months).
@@ -60,7 +74,23 @@ export function PeopleView({
   const withPending = people.filter((p) => p.monthBalanceCents !== 0).length;
 
   const open = people.find((p) => p.id === openId) ?? null;
-  const settle = people.find((p) => p.id === settleId) ?? null;
+  // The settle dialog opens to register a new payment (settleId) or to edit one (editSettlement).
+  const settleTarget =
+    people.find((p) => p.id === settleId) ??
+    (editSettlement ? (people.find((p) => p.id === editSettlement.personId) ?? null) : null);
+  const closeSettle = () => {
+    setSettleId(null);
+    setEditSettlement(null);
+  };
+  async function handleDeleteSettlement(id: string) {
+    const res = await deleteSettlementAction(id);
+    if (res.ok) {
+      toast("Acerto desfeito.");
+      router.refresh();
+    } else {
+      toast(res.error, "info");
+    }
+  }
 
   return (
     <MonthTransition prevHref={prevHref} nextHref={nextHref}>
@@ -239,10 +269,16 @@ export function PeopleView({
                 month={month}
                 transactions={transactions}
                 today={today}
+                settlements={settlements.filter((s) => s.personId === open.id)}
                 onSettle={() => {
                   setOpenId(null);
                   setSettleId(open.id);
                 }}
+                onEditSettlement={(s) => {
+                  setOpenId(null);
+                  setEditSettlement(s);
+                }}
+                onDeleteSettlement={handleDeleteSettlement}
                 onRemind={() => toast(`Lembrete enviado para ${firstName(open.name)} via WhatsApp`, "info")}
                 onReport={() => {
                   setOpenId(null);
@@ -253,9 +289,16 @@ export function PeopleView({
           )}
         </Dialog>
 
-        {/* Acerto */}
-        <Dialog open={settle !== null} onOpenChange={(v) => !v && setSettleId(null)}>
-          {settle && <SettleBody person={settle} onDone={() => setSettleId(null)} />}
+        {/* Acerto (registrar ou editar) */}
+        <Dialog open={settleTarget !== null} onOpenChange={(v) => !v && closeSettle()}>
+          {settleTarget && (
+            <SettleBody
+              person={settleTarget}
+              accounts={accounts}
+              editing={editSettlement}
+              onDone={closeSettle}
+            />
+          )}
         </Dialog>
 
         {/* Relatório por pessoa */}
@@ -277,7 +320,10 @@ function ProfileBody({
   month,
   transactions,
   today,
+  settlements,
   onSettle,
+  onEditSettlement,
+  onDeleteSettlement,
   onRemind,
   onReport,
 }: {
@@ -285,7 +331,10 @@ function ProfileBody({
   month: string;
   transactions: TransactionListItem[];
   today: string;
+  settlements: SettlementView[];
   onSettle: () => void;
+  onEditSettlement: (s: SettlementView) => void;
+  onDeleteSettlement: (id: string) => void;
   onRemind: () => void;
   onReport: () => void;
 }) {
@@ -397,21 +446,79 @@ function ProfileBody({
           </div>
         );
       })}
+
+      {settlements.length > 0 && (
+        <>
+          <div className="kicker" style={{ margin: "18px 0 8px" }}>
+            Acertos registrados
+          </div>
+          {settlements.map((s) => (
+            <div className="lrow" key={s.id}>
+              <span className="l-ic" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
+                <Icon name="check-circle" size={18} />
+              </span>
+              <div className="l-main">
+                <div className="l-title">
+                  <Money cents={s.amountCents} withSign={false} />
+                </div>
+                <div className="l-sub">
+                  {relativeDateLabel(s.date, today)} · {s.accountLabel ?? "sem conta"}
+                </div>
+              </div>
+              <div className="row gap-2">
+                <button
+                  type="button"
+                  className="icon-btn btn-sm"
+                  title="Editar acerto"
+                  onClick={() => onEditSettlement(s)}
+                >
+                  <Icon name="pencil" size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn btn-sm"
+                  title="Desfazer acerto"
+                  onClick={() => onDeleteSettlement(s.id)}
+                >
+                  <Icon name="trash-2" size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
 
-function SettleBody({ person, onDone }: { person: PersonMonthView; onDone: () => void }) {
+function SettleBody({
+  person,
+  accounts,
+  editing,
+  onDone,
+}: {
+  person: PersonMonthView;
+  accounts: AccountOption[];
+  editing: SettlementView | null;
+  onDone: () => void;
+}) {
   const toast = useUIStore((s) => s.toast);
+  const router = useRouter();
   // Settle against the REAL booked balance (projected occurrences aren't settleable yet).
   const owes = person.realBalanceCents > 0;
   const max = Math.abs(person.realBalanceCents);
   const first = firstName(person.name);
-  const [cents, setCents] = useState(max);
+  const [cents, setCents] = useState(editing ? editing.amountCents : max);
+  // The account the money moved through; default to the first wallet for a new acerto so
+  // the cash lands in the balance (keeps "fim do mês" consistent). "" = sem conta (perdão).
+  const [accountId, setAccountId] = useState<string | null>(
+    editing ? editing.accountId : (accounts[0]?.id ?? null),
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const applied = Math.min(cents, max);
+  // When editing, the amount is free (the booked balance already reflects this acerto).
+  const applied = editing ? cents : Math.min(cents, max);
   const restante = Math.max(0, max - applied);
   const valid = cents > 0;
 
@@ -421,26 +528,32 @@ function SettleBody({ person, onDone }: { person: PersonMonthView; onDone: () =>
     const parsed = settlementInputSchema.safeParse({
       personId: person.id,
       amountCents: applied,
-      date: todayIso(),
-      accountId: null,
+      date: editing ? editing.date : todayIso(),
+      accountId,
     });
     if (!parsed.success) {
       setError("Revise o valor do acerto.");
       return;
     }
     setSubmitting(true);
-    const res = await settlePersonAction(parsed.data);
+    const res = editing
+      ? await updateSettlementAction(editing.id, parsed.data)
+      : await settlePersonAction(parsed.data);
     setSubmitting(false);
     if (!res.ok) {
       setError(res.error);
       return;
     }
-    toast("Acerto registrado.");
+    toast(editing ? "Acerto atualizado." : "Acerto registrado.");
+    router.refresh();
     onDone();
   }
 
   return (
-    <DialogModal title={owes ? "Registrar pagamento" : "Marcar como pago"} maxWidth={440}>
+    <DialogModal
+      title={editing ? "Editar acerto" : owes ? "Registrar pagamento" : "Marcar como pago"}
+      maxWidth={440}
+    >
       <div className="modal-body">
         <div style={{ textAlign: "center", marginBottom: 6, fontSize: 13.5, color: "var(--text-lo)" }}>
           {owes ? (
@@ -468,14 +581,36 @@ function SettleBody({ person, onDone }: { person: PersonMonthView; onDone: () =>
           aria-label="Valor do acerto"
           style={{ marginBottom: 14, color: owes ? "var(--mint-500)" : "var(--rose-500)" }}
         />
-        <div className="chip-select" style={{ justifyContent: "center", marginBottom: 16 }}>
-          <button type="button" className="person-chip" onClick={() => setCents(Math.round(max / 2))}>
-            Metade
-          </button>
-          <button type="button" className="person-chip" onClick={() => setCents(max)}>
-            Tudo ({formatBRLAbsolute(max)})
-          </button>
-        </div>
+        {!editing && (
+          <div className="chip-select" style={{ justifyContent: "center", marginBottom: 16 }}>
+            <button type="button" className="person-chip" onClick={() => setCents(Math.round(max / 2))}>
+              Metade
+            </button>
+            <button type="button" className="person-chip" onClick={() => setCents(max)}>
+              Tudo ({formatBRLAbsolute(max)})
+            </button>
+          </div>
+        )}
+        <label
+          htmlFor="settle-account"
+          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+        >
+          {owes ? "Entrou em qual conta?" : "Saiu de qual conta?"}
+        </label>
+        <select
+          id="settle-account"
+          className="input"
+          value={accountId ?? ""}
+          onChange={(e) => setAccountId(e.target.value === "" ? null : e.target.value)}
+          style={{ width: "100%", marginBottom: 16 }}
+        >
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.label}
+            </option>
+          ))}
+          <option value="">Sem conta (só baixa / perdão)</option>
+        </select>
         <div className="summary-box">
           <div className="sb-row">
             <span className="k">{owes ? "Recebendo agora" : "Pagando agora"}</span>

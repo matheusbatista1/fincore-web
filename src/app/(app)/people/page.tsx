@@ -2,6 +2,7 @@ import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getPeople } from "@/application/use-cases/get-people";
 import { getPersonStatements } from "@/application/use-cases/get-person-statements";
 import { getReports } from "@/application/use-cases/get-reports";
+import { getSettlements } from "@/application/use-cases/get-settlements";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
@@ -23,14 +24,16 @@ export default async function PeoplePage({
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const today = todayInBrazil();
-  const [people, workspace, transactions, dash, reports, personStatements] = await Promise.all([
+  const [people, workspace, transactions, dash, reports, personStatements, settlements] = await Promise.all([
     getPeople(financeRepository, user.id, month),
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
     getDashboard(financeRepository, user.id, month),
     getReports(financeRepository, user.id, { from: month, to: month }),
     getPersonStatements(financeRepository, user.id, { from: month, to: month }),
+    getSettlements(financeRepository, user.id),
   ]);
+  const accounts = workspace.accounts.map((a) => ({ id: a.id, label: `${a.bank} · ${a.name}` }));
 
   const reportData = buildReportData({
     dash,
@@ -45,6 +48,8 @@ export default async function PeoplePage({
     <PeopleView
       people={people}
       transactions={transactions}
+      accounts={accounts}
+      settlements={settlements}
       today={today}
       month={month}
       isCurrent={month === current}
