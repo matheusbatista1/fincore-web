@@ -17,7 +17,7 @@ import {
 } from "../value-objects/competence-month";
 import { accountDeltas, computeAccountBalances } from "./balance.calculator";
 import type { ViewMode } from "./personal-vs-general";
-import { projectRecurring } from "./recurring.projection";
+import { projectRecurring, recurrenceIdentity } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
 type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
@@ -72,31 +72,49 @@ export function obligationsDueThrough(
 ): Money {
   if (compareMonths(fromMonth, toMonth) > 0) return Money.zero();
 
-  // Project recurring obligations by their CHARGE month (calendar) — using `competenceOf`
-  // here would treat a card charge's due month as its anchor and skip an occurrence.
-  // Re-date each occurrence so `competenceOf` resolves its real bill/due month.
-  const projected: Transaction[] = [];
-  if (currentMonth !== undefined) {
-    for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
-      for (const occ of projectRecurring(transactions, m)) {
-        if (isExpense(occ.source) && occ.source.source !== "account") {
-          projected.push({ ...occ.source, date: occ.date });
-        }
-      }
+  const amountFor = (tx: Transaction & { readonly amountCents: number; readonly myShareCents: number }) =>
+    lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs();
+
+  // Bill (competence) months already occupied by a REAL recurring charge, keyed by the
+  // recurring rule's identity — so a projected occurrence of the same rule landing in the
+  // same bill is NOT double-counted on top of the booked charge. (A recurring CARD charge's
+  // calendar month differs from its bill month, which is exactly why the calendar-based
+  // dedupe inside `projectRecurring` misses it here.)
+  const realCovered = new Set<string>();
+  for (const tx of transactions) {
+    if (isExpense(tx) && tx.recurrence !== null) {
+      realCovered.add(`${competenceOf(tx)}|${recurrenceIdentity(tx)}`);
     }
   }
 
   let net = Money.zero();
-  for (const tx of [...transactions, ...projected]) {
+  for (const tx of transactions) {
     const due = competenceOf(tx);
     if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
     if (isExpense(tx) && tx.source !== "account") {
-      // Personal lens counts only the user's own share of a shared obligation.
-      net = net.add(
-        lens === "personal" ? Money.fromCents(tx.myShareCents) : Money.fromCents(tx.amountCents).abs(),
-      );
+      net = net.add(amountFor(tx));
     } else if (isCardCredit(tx)) {
       net = net.subtract(Money.fromCents(tx.amountCents));
+    }
+  }
+
+  // Projected recurring obligations: project by CHARGE month (calendar) so each monthly
+  // charge is captured, then bucket by its bill competence. Skip an occurrence whose bill is
+  // already covered by a real charge of the same rule, and dedupe projections among
+  // themselves, so nothing is counted twice.
+  if (currentMonth !== undefined) {
+    const seen = new Set<string>();
+    for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
+      for (const occ of projectRecurring(transactions, m)) {
+        const source = occ.source;
+        if (!isExpense(source) || source.source === "account") continue;
+        const due = competenceOf({ ...source, date: occ.date });
+        if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
+        const key = `${due}|${recurrenceIdentity(source)}`;
+        if (realCovered.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        net = net.add(amountFor(source));
+      }
     }
   }
   return net;
