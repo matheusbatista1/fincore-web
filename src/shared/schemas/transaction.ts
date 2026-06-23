@@ -179,3 +179,23 @@ export const settlementInputSchema = z.object({
   note: z.string().max(280).optional(),
 });
 export type SettlementInput = z.infer<typeof settlementInputSchema>;
+
+/**
+ * "Rolar dívida": close the person's current debt and open a new one paid via the chosen
+ * instrument (card / loan / overdraft / own account), for principal + juros, on a new date.
+ * Card and loan can be installmented. The server zeroes the old debt (a rollover settlement)
+ * and creates the new expense (fully owed by the person).
+ */
+export const rollDebtSchema = z.object({
+  personId: idSchema,
+  principalCents: centsSchema.positive("Informe o valor da dívida."),
+  jurosCents: centsSchema.nonnegative().default(0),
+  date: isoDateSchema,
+  source: z.enum(["card", "loan", "overdraft", "account"]),
+  cardId: idSchema.nullable().default(null),
+  accountId: idSchema.nullable().default(null),
+  linkedAccountId: idSchema.nullable().default(null),
+  installments: z.number().int().min(1).max(420).default(1),
+  description: z.string().trim().max(120).default(""),
+});
+export type RollDebtInput = z.infer<typeof rollDebtSchema>;

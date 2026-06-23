@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteSettlementAction, settlePersonAction, updateSettlementAction } from "@/app/_actions/finance";
+import {
+  deleteSettlementAction,
+  rollPersonDebtAction,
+  settlePersonAction,
+  updateSettlementAction,
+} from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
@@ -42,6 +47,7 @@ export function PeopleView({
   people,
   transactions,
   accounts,
+  cards,
   settlements,
   today,
   month,
@@ -53,6 +59,7 @@ export function PeopleView({
   people: PersonMonthView[];
   transactions: TransactionListItem[];
   accounts: AccountOption[];
+  cards: AccountOption[];
   settlements: SettlementView[];
   today: string;
   month: string;
@@ -66,6 +73,7 @@ export function PeopleView({
   const [openId, setOpenId] = useState<string | null>(null);
   const [settleId, setSettleId] = useState<string | null>(null);
   const [editSettlement, setEditSettlement] = useState<SettlementView | null>(null);
+  const [rollId, setRollId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
   // List + totals are the browsed month's nets (projection-aware for future months).
@@ -74,6 +82,7 @@ export function PeopleView({
   const withPending = people.filter((p) => p.monthBalanceCents !== 0).length;
 
   const open = people.find((p) => p.id === openId) ?? null;
+  const roll = people.find((p) => p.id === rollId) ?? null;
   // The settle dialog opens to register a new payment (settleId) or to edit one (editSettlement).
   const settleTarget =
     people.find((p) => p.id === settleId) ??
@@ -274,6 +283,10 @@ export function PeopleView({
                   setOpenId(null);
                   setSettleId(open.id);
                 }}
+                onRoll={() => {
+                  setOpenId(null);
+                  setRollId(open.id);
+                }}
                 onEditSettlement={(s) => {
                   setOpenId(null);
                   setEditSettlement(s);
@@ -301,6 +314,13 @@ export function PeopleView({
           )}
         </Dialog>
 
+        {/* Rolar dívida */}
+        <Dialog open={roll !== null} onOpenChange={(v) => !v && setRollId(null)}>
+          {roll && (
+            <RollDebtBody person={roll} accounts={accounts} cards={cards} onDone={() => setRollId(null)} />
+          )}
+        </Dialog>
+
         {/* Relatório por pessoa */}
         {reportId && (
           <ReportModal
@@ -322,6 +342,7 @@ function ProfileBody({
   today,
   settlements,
   onSettle,
+  onRoll,
   onEditSettlement,
   onDeleteSettlement,
   onRemind,
@@ -333,6 +354,7 @@ function ProfileBody({
   today: string;
   settlements: SettlementView[];
   onSettle: () => void;
+  onRoll: () => void;
   onEditSettlement: (s: SettlementView) => void;
   onDeleteSettlement: (id: string) => void;
   onRemind: () => void;
@@ -401,6 +423,12 @@ function ProfileBody({
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRemind}>
                 <Icon name="bell" size={16} />
                 Cobrar
+              </button>
+            )}
+            {realOwes && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onRoll}>
+                <Icon name="repeat" size={16} />
+                Rolar dívida
               </button>
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={onSettle}>
@@ -488,6 +516,239 @@ function ProfileBody({
         </>
       )}
     </div>
+  );
+}
+
+type Instrument = "card" | "loan" | "overdraft" | "account";
+const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
+  { id: "card", label: "Cartão de crédito" },
+  { id: "loan", label: "Empréstimo" },
+  { id: "overdraft", label: "Cheque especial" },
+  { id: "account", label: "Meu próprio dinheiro" },
+];
+
+/** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
+function RollDebtBody({
+  person,
+  accounts,
+  cards,
+  onDone,
+}: {
+  person: PersonMonthView;
+  accounts: AccountOption[];
+  cards: AccountOption[];
+  onDone: () => void;
+}) {
+  const toast = useUIStore((s) => s.toast);
+  const router = useRouter();
+  const first = firstName(person.name);
+  const max = Math.abs(person.realBalanceCents);
+  const [principal, setPrincipal] = useState(max);
+  const [juros, setJuros] = useState(0);
+  const [instrument, setInstrument] = useState<Instrument>("account");
+  const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
+  const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
+  const [installments, setInstallments] = useState(1);
+  const [date, setDate] = useState(todayIso());
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canInstallment = instrument === "card" || instrument === "loan";
+  const usesCard = instrument === "card";
+  const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
+  const total = principal + juros;
+  const valid =
+    principal > 0 && (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+
+  async function confirm() {
+    if (!valid || submitting) return;
+    setError(null);
+    setSubmitting(true);
+    const res = await rollPersonDebtAction({
+      personId: person.id,
+      principalCents: principal,
+      jurosCents: juros,
+      date,
+      source: instrument,
+      cardId: usesCard ? cardId : null,
+      accountId: instrument === "account" ? acctId : null,
+      linkedAccountId: instrument === "overdraft" || instrument === "loan" ? acctId : null,
+      installments: canInstallment ? installments : 1,
+      description: `Dívida de ${first}`,
+    });
+    setSubmitting(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    toast("Dívida rolada.");
+    router.refresh();
+    onDone();
+  }
+
+  const moneyField = (value: number, onChange: (cents: number) => void, label: string, id: string) => (
+    <div style={{ marginBottom: 12 }}>
+      <label
+        htmlFor={id}
+        style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        className="input"
+        value={formatBRLAbsolute(value)}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "");
+          onChange(digits ? Number.parseInt(digits, 10) : 0);
+        }}
+        inputMode="numeric"
+        style={{ width: "100%" }}
+      />
+    </div>
+  );
+
+  return (
+    <DialogModal title="Rolar dívida" maxWidth={460}>
+      <div className="modal-body">
+        <div style={{ textAlign: "center", marginBottom: 14, fontSize: 13.5, color: "var(--text-lo)" }}>
+          <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(max)}. Você quita a
+          dívida e ela passa a te dever o novo valor.
+        </div>
+
+        {moneyField(principal, setPrincipal, "Dívida que está sendo quitada", "roll-principal")}
+        {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
+
+        <label
+          htmlFor="roll-instrument"
+          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+        >
+          Como você está pagando?
+        </label>
+        <select
+          id="roll-instrument"
+          className="input"
+          value={instrument}
+          onChange={(e) => setInstrument(e.target.value as Instrument)}
+          style={{ width: "100%", marginBottom: 12 }}
+        >
+          {INSTRUMENTS.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.label}
+            </option>
+          ))}
+        </select>
+
+        {usesCard ? (
+          <select
+            aria-label="Cartão"
+            className="input"
+            value={cardId ?? ""}
+            onChange={(e) => setCardId(e.target.value || null)}
+            style={{ width: "100%", marginBottom: 12 }}
+          >
+            {cards.length === 0 && <option value="">Nenhum cartão</option>}
+            {cards.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          usesAccount && (
+            <select
+              aria-label="Conta"
+              className="input"
+              value={acctId ?? ""}
+              onChange={(e) => setAcctId(e.target.value || null)}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              {instrument === "loan" && <option value="">Sem conta vinculada</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )
+        )}
+
+        <div className="row gap-3" style={{ marginBottom: 12 }}>
+          {canInstallment && (
+            <div style={{ flex: 1 }}>
+              <label
+                htmlFor="roll-parcelas"
+                style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+              >
+                Parcelas
+              </label>
+              <input
+                id="roll-parcelas"
+                className="input"
+                type="number"
+                min={1}
+                max={420}
+                value={installments}
+                onChange={(e) => setInstallments(Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
+                style={{ width: "100%" }}
+              />
+            </div>
+          )}
+          <div style={{ flex: 1 }}>
+            <label
+              htmlFor="roll-date"
+              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+            >
+              Vencimento
+            </label>
+            <input
+              id="roll-date"
+              className="input"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </div>
+        </div>
+
+        <div className="summary-box">
+          <div className="sb-row total">
+            <span className="k">{first} passa a te dever</span>
+            <span className="v" style={{ color: "var(--mint-500)" }}>
+              {formatBRLAbsolute(total)}
+              {canInstallment && installments > 1 ? ` em ${installments}x` : ""}
+            </span>
+          </div>
+          {error && (
+            <div className="warn-text">
+              <Icon name="alert-triangle" size={14} />
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="modal-foot">
+        <DialogClose asChild>
+          <button type="button" className="btn btn-ghost">
+            Cancelar
+          </button>
+        </DialogClose>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!valid || submitting}
+          style={{
+            opacity: valid && !submitting ? 1 : 0.45,
+            pointerEvents: valid && !submitting ? "auto" : "none",
+          }}
+          onClick={confirm}
+        >
+          <Icon name="repeat" size={17} />
+          Rolar dívida
+        </button>
+      </div>
+    </DialogModal>
   );
 }
 
