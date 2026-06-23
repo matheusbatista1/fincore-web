@@ -49,10 +49,8 @@ export function buildReportData({
       icon: iconById.get(c.id) ?? "tag",
       totalCents: c.valueCents,
     })),
-    byCard: workspace.cards
-      .filter((c) => c.billCents > 0)
-      .sort((a, b) => b.billCents - a.billCents)
-      .map((c) => ({ id: c.id, name: `${c.bank} · ${c.product}`, valueCents: c.billCents })),
+    // Card spending over the report window (period-aware), not a static current bill.
+    byCard: reports.byCard.map((c) => ({ id: c.id, name: c.name, valueCents: c.valueCents })),
     people: workspace.people.map((p) => ({
       id: p.id,
       name: p.name,

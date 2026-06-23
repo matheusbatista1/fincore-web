@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Category } from "@/domain/entities/category";
+import type { CreditCard } from "@/domain/entities/credit-card";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
 import { addMonths } from "@/domain/value-objects/competence-month";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
@@ -137,6 +138,45 @@ describe("getReports — general vs personal lenses", () => {
     expect(data.from).toBe("2026-04");
     expect(data.to).toBe(ANCHOR);
     expect(data.months).toHaveLength(3);
+  });
+});
+
+describe("getReports — byCard (spending per card over the window)", () => {
+  // Closes 28 / due 29 → a charge dated ≤ 28 bills in its own calendar month.
+  const card: CreditCard = {
+    id: "card-1",
+    bank: "C6",
+    product: "Black",
+    flag: "visa",
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 500000,
+    closingDay: 28,
+    dueDay: 29,
+  };
+  const cardExpense = (cents: number, date: string): ExpenseTransaction =>
+    expense({ amountCents: cents, source: "card", cardId: "card-1", accountId: null, date });
+  const repoWithCard = (txs: (ExpenseTransaction | IncomeTransaction)[]): FinanceRepository =>
+    ({
+      loadWorkspace: async () => ({ ...workspace(txs), creditCards: [card] }),
+    }) as unknown as FinanceRepository;
+
+  it("sums a card's charges whose bill falls in [from, to], excluding out-of-window bills", async () => {
+    const repo = repoWithCard([
+      cardExpense(-10000, "2026-06-15"), // bills June (in window)
+      cardExpense(-5000, "2026-07-15"), // bills July (out of a June-only window)
+    ]);
+    const data = await getReports(repo, "u", justAnchor);
+    expect(data.byCard).toEqual([{ id: "card-1", name: "C6 · Black", valueCents: 10000 }]);
+  });
+
+  it("subtracts an estorno in the window and drops cards with no spend", async () => {
+    const repo = repoWithCard([
+      cardExpense(-10000, "2026-06-15"),
+      income({ amountCents: 2500, cardId: "card-1", accountId: null, date: "2026-06-20" }), // estorno, June bill
+    ]);
+    const data = await getReports(repo, "u", justAnchor);
+    expect(data.byCard).toEqual([{ id: "card-1", name: "C6 · Black", valueCents: 7500 }]);
   });
 });
 
