@@ -1,3 +1,4 @@
+import { isRolled } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
 import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
@@ -56,20 +57,26 @@ export async function getMonthly(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
 
-  const realItems: MonthlyItem[] = real.map((tx) => ({ ...map(tx), projected: false, anchor: null }));
-  const projectedItems: MonthlyItem[] = projected.map((p) => {
-    const anchor = map(p.source);
-    return {
-      ...anchor,
-      id: `proj:${p.source.id}:${month}`,
-      date: p.date,
-      parcela: null,
-      shares: [],
-      projected: true,
-      // The real, persisted source row — opening this lets the user edit/delete the rule.
-      anchor,
-    };
-  });
+  // A rolled (abated) debt is kept only for history — it must not count in the statement's
+  // totals, groups or rows (it's already excluded from every other section).
+  const realItems: MonthlyItem[] = real
+    .filter((tx) => !isRolled(tx))
+    .map((tx) => ({ ...map(tx), projected: false, anchor: null }));
+  const projectedItems: MonthlyItem[] = projected
+    .filter((p) => !isRolled(p.source))
+    .map((p) => {
+      const anchor = map(p.source);
+      return {
+        ...anchor,
+        id: `proj:${p.source.id}:${month}`,
+        date: p.date,
+        parcela: null,
+        shares: [],
+        projected: true,
+        // The real, persisted source row — opening this lets the user edit/delete the rule.
+        anchor,
+      };
+    });
 
   const items = [...realItems, ...projectedItems].sort(byDateDesc);
 

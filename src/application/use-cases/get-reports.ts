@@ -1,4 +1,4 @@
-import { isExpense, isIncome, type Transaction } from "@/domain/entities/transaction";
+import { isExpense, isIncome, isRolled, type Transaction } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -102,8 +102,10 @@ export async function getReports(
   // fixed lançamentos. Past/current months stay real-only (actuals/history unchanged).
   const setForMonth = (month: CompetenceMonth): Transaction[] => {
     const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
-    if (compareMonths(month, current) <= 0) return real;
-    return [...real, ...projected.map((p) => p.source)];
+    const base = compareMonths(month, current) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+    // A rolled (abated) debt is history-only — exclude it from the bars, the category donut
+    // and the per-card spend (the bars' computeViewTotals already skips it; this aligns the rest).
+    return base.filter((tx) => !isRolled(tx));
   };
 
   const months: MonthBar[] = [];
