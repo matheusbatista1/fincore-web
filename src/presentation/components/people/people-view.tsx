@@ -34,6 +34,13 @@ interface AccountOption {
   readonly label: string;
 }
 
+/** One open debt of a person (a shared expense not yet rolled) — the target of "Rolar dívida". */
+interface DebtOption {
+  readonly id: string;
+  readonly label: string;
+  readonly shareCents: number;
+}
+
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
 
 function todayIso(): string {
@@ -83,6 +90,16 @@ export function PeopleView({
 
   const open = people.find((p) => p.id === openId) ?? null;
   const roll = people.find((p) => p.id === rollId) ?? null;
+  // The person's open debts (their share of shared expenses not yet rolled) — what "Rolar dívida" acts on.
+  const rollDebts: DebtOption[] = roll
+    ? transactions
+        .filter((t) => t.kind === "expense" && !t.rolled && t.shares.some((s) => s.personId === roll.id))
+        .map((t) => {
+          const shareCents = t.shares.find((s) => s.personId === roll.id)?.shareCents ?? 0;
+          return { id: t.id, label: `${t.description} · ${formatBRLAbsolute(shareCents)}`, shareCents };
+        })
+        .filter((d) => d.shareCents > 0)
+    : [];
   // The settle dialog opens to register a new payment (settleId) or to edit one (editSettlement).
   const settleTarget =
     people.find((p) => p.id === settleId) ??
@@ -317,7 +334,13 @@ export function PeopleView({
         {/* Rolar dívida */}
         <Dialog open={roll !== null} onOpenChange={(v) => !v && setRollId(null)}>
           {roll && (
-            <RollDebtBody person={roll} accounts={accounts} cards={cards} onDone={() => setRollId(null)} />
+            <RollDebtBody
+              person={roll}
+              accounts={accounts}
+              cards={cards}
+              debts={rollDebts}
+              onDone={() => setRollId(null)}
+            />
           )}
         </Dialog>
 
@@ -462,7 +485,14 @@ function ProfileBody({
               <Icon name="receipt" size={18} />
             </span>
             <div className="l-main">
-              <div className="l-title">{t.description}</div>
+              <div className="l-title">
+                {t.description}
+                {t.rolled && (
+                  <span className="parc-badge" style={{ marginLeft: 8 }}>
+                    Rolada
+                  </span>
+                )}
+              </div>
               <div className="l-sub">
                 {relativeDateLabel(t.date, today)}
                 {t.note ? ` · ${t.note}` : ""}
@@ -532,18 +562,20 @@ function RollDebtBody({
   person,
   accounts,
   cards,
+  debts,
   onDone,
 }: {
   person: PersonMonthView;
   accounts: AccountOption[];
   cards: AccountOption[];
+  debts: DebtOption[];
   onDone: () => void;
 }) {
   const toast = useUIStore((s) => s.toast);
   const router = useRouter();
   const first = firstName(person.name);
-  const max = Math.abs(person.realBalanceCents);
-  const [principal, setPrincipal] = useState(max);
+  const [debtId, setDebtId] = useState<string | null>(debts[0]?.id ?? null);
+  const [principal, setPrincipal] = useState(debts[0]?.shareCents ?? 0);
   const [juros, setJuros] = useState(0);
   const [instrument, setInstrument] = useState<Instrument>("account");
   const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
@@ -558,14 +590,24 @@ function RollDebtBody({
   const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
   const total = principal + juros;
   const valid =
-    principal > 0 && (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+    debtId !== null &&
+    principal > 0 &&
+    (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+
+  // Picking a different debt prefills the principal with that debt's share.
+  const pickDebt = (id: string) => {
+    setDebtId(id);
+    const debt = debts.find((d) => d.id === id);
+    if (debt) setPrincipal(debt.shareCents);
+  };
 
   async function confirm() {
-    if (!valid || submitting) return;
+    if (!valid || submitting || debtId === null) return;
     setError(null);
     setSubmitting(true);
     const res = await rollPersonDebtAction({
       personId: person.id,
+      originalTransactionId: debtId,
       principalCents: principal,
       jurosCents: juros,
       date,
@@ -612,11 +654,39 @@ function RollDebtBody({
     <DialogModal title="Rolar dívida" maxWidth={460}>
       <div className="modal-body">
         <div style={{ textAlign: "center", marginBottom: 14, fontSize: 13.5, color: "var(--text-lo)" }}>
-          <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(max)}. Você quita a
-          dívida e ela passa a te dever o novo valor.
+          Você quita uma dívida de <b style={{ color: "var(--text-hi)" }}>{first}</b> e ela passa a te dever o
+          novo valor — a original fica marcada como rolada (mantida no histórico).
         </div>
 
-        {moneyField(principal, setPrincipal, "Dívida que está sendo quitada", "roll-principal")}
+        {debts.length === 0 ? (
+          <div style={{ color: "var(--text-lo)", fontSize: 13.5, padding: "8px 0 12px" }}>
+            {first} não tem dívidas em aberto para rolar.
+          </div>
+        ) : (
+          <>
+            <label
+              htmlFor="roll-debt"
+              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+            >
+              Qual dívida você quitou?
+            </label>
+            <select
+              id="roll-debt"
+              className="input"
+              value={debtId ?? ""}
+              onChange={(e) => pickDebt(e.target.value)}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              {debts.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {moneyField(principal, setPrincipal, "Valor abatido (dívida original)", "roll-principal")}
         {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
 
         <label

@@ -17,7 +17,7 @@
 import type { Person } from "../entities/person";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome } from "../entities/transaction";
+import { isExpense, isIncome, isRolled } from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -118,6 +118,8 @@ function accumulateWithMovements(
 
   for (const { tx, date, competence, projected } of transactions) {
     if (isExpense(tx)) {
+      // A rolled (abated) expense no longer burdens the person — the new rolled-into debt does.
+      if (isRolled(tx)) continue;
       if (!includeNonCurrentInstallments) {
         const status = tx.installment?.status;
         if (status === "paga" || status === "futura") continue;

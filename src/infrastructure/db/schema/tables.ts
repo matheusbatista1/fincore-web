@@ -220,6 +220,9 @@ export const transactions = pgTable(
     parcelaStatus: parcelaStatus("parcela_status"),
     /** Manual override pinning a card charge to a bill (competence month `YYYY-MM`); null = automatic. */
     billMonthOverride: text("bill_month_override"),
+    /** Set when this expense was "rolled" into a new debt: kept for history but abated (excluded
+     * from balances/obligations/totals/bills/ledger). Null = active. */
+    rolledAt: timestamp("rolled_at", { withTimezone: true }),
 
     // income-only
     fromPersonId: uuid("from_person_id").references(() => people.id, { onDelete: "set null" }),

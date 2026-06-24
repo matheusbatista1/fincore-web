@@ -11,6 +11,7 @@ import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
+import type { IsoDate } from "@/domain/value-objects/competence-month";
 import type {
   accounts,
   budgets,
@@ -185,5 +186,6 @@ export function toTransaction(row: TransactionRow, splits: readonly SplitRow[] =
         : null,
     recurrence,
     billMonthOverride: row.billMonthOverride ?? null,
+    rolledAt: row.rolledAt ? (row.rolledAt.toISOString().slice(0, 10) as IsoDate) : null,
   };
 }

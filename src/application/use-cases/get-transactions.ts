@@ -60,6 +60,8 @@ export interface TransactionListItem {
   /** Manual bill (competence month) override for a card charge; null = automatic. */
   readonly billMonthOverride: string | null;
   readonly isFixed: boolean;
+  /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
+  readonly rolled: boolean;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
@@ -114,6 +116,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       installmentGroupId: null,
       billMonthOverride: null,
       isFixed: false,
+      rolled: false,
       fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
@@ -161,6 +164,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         installmentGroupId: tx.installment?.groupId ?? null,
         billMonthOverride: tx.billMonthOverride,
         isFixed: tx.recurrence !== null,
+        rolled: tx.rolledAt != null,
         shares,
         myShareCents: tx.myShareCents,
       };

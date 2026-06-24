@@ -1,0 +1,1 @@
+ALTER TABLE "transactions" ADD COLUMN "rolled_at" timestamp with time zone;

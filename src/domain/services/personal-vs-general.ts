@@ -23,7 +23,7 @@
  */
 
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome } from "../entities/transaction";
+import { isExpense, isIncome, isRolled } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { monthOf } from "../value-objects/competence-month";
@@ -65,6 +65,8 @@ export function computeViewTotals(
   const expenseParts: Money[] = [];
 
   for (const tx of inScope) {
+    // A rolled (abated) expense is excluded — the new rolled-into debt counts instead.
+    if (isRolled(tx)) continue;
     if (isIncome(tx)) {
       // A card credit (estorno/reembolso) only reduces a card bill — it is never
       // income in either lens.
