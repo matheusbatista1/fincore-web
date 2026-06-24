@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ProjectedCardCharge } from "@/application/use-cases/get-projected-card-charges";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { CardView } from "@/application/use-cases/get-workspace-view";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
 import { cardBillMonth, cardBillOverridesByCard } from "@/domain/services/card-bill.calculator";
-import { addMonths } from "@/domain/value-objects/competence-month";
+import { addMonths, compareMonths } from "@/domain/value-objects/competence-month";
 import { CardBillDatesDialog } from "@/presentation/components/cards/card-bill-dates-dialog";
 import { CreditCardFormDialog } from "@/presentation/components/forms/credit-card-form-dialog";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
@@ -29,6 +30,7 @@ interface ActiveInstallment {
 export function CardsView({
   cards,
   transactions,
+  projectedCharges,
   cardBillDates,
   today,
   currentMonth,
@@ -36,6 +38,7 @@ export function CardsView({
 }: {
   cards: CardView[];
   transactions: TransactionListItem[];
+  projectedCharges: ProjectedCardCharge[];
   cardBillDates: CardBillDate[];
   today: string;
   currentMonth: string;
@@ -55,20 +58,28 @@ export function CardsView({
     : currentMonth;
   const fatKey = addMonths(currentBillMonth, offset);
 
-  const compras = useMemo(
-    () =>
-      card
-        ? transactions.filter(
+  const compras = useMemo<(TransactionListItem | ProjectedCardCharge)[]>(() => {
+    if (!card) return [];
+    const real = transactions.filter(
+      (t) =>
+        t.cardId === card.id &&
+        // Card charges (expense, amount < 0) plus card credits (estorno income, amount > 0).
+        (t.kind === "income" || t.amountCents < 0) &&
+        (t.billMonthOverride ?? cardBillMonth(t.date, card.closingDay, card.dueDay, overrides)) === fatKey,
+    );
+    // Show projected ("previsto") recurring charges on the open bill and any future bill
+    // (past bills stay actuals-only). Each keeps its calendar date, so cardBillMonth buckets
+    // it into the right fatura.
+    const proj =
+      compareMonths(fatKey, currentBillMonth) >= 0
+        ? projectedCharges.filter(
             (t) =>
               t.cardId === card.id &&
-              // Card charges (expense, amount < 0) plus card credits (estorno income, amount > 0).
-              (t.kind === "income" || t.amountCents < 0) &&
-              (t.billMonthOverride ?? cardBillMonth(t.date, card.closingDay, card.dueDay, overrides)) ===
-                fatKey,
+              cardBillMonth(t.date, card.closingDay, card.dueDay, overrides) === fatKey,
           )
-        : [],
-    [transactions, fatKey, card, overrides],
-  );
+        : [];
+    return [...real, ...proj].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  }, [transactions, projectedCharges, fatKey, currentBillMonth, card, overrides]);
 
   const parcelas = useMemo<ActiveInstallment[]>(() => {
     if (!card) return [];
@@ -473,18 +484,23 @@ export function CardsView({
               {compras.map((t) => {
                 const cat = t.category;
                 const isCredit = t.kind === "income";
+                // A projected ("previsto") row opens its real anchor so the recurring rule
+                // can be edited/stopped — mirrors the Mensal statement.
+                const target: TransactionListItem = "anchor" in t ? t.anchor : t;
+                const isProjected = "anchor" in t;
+                const open = () => openTxDetail(target);
                 return (
                   <div
                     role="button"
                     tabIndex={0}
                     className="lrow"
                     key={t.id}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => openTxDetail(t)}
+                    style={{ cursor: "pointer", ...(isProjected ? { opacity: 0.66 } : {}) }}
+                    onClick={open}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        openTxDetail(t);
+                        open();
                       }
                     }}
                   >
@@ -519,6 +535,11 @@ export function CardsView({
                           >
                             <Icon name="repeat" size={11} />
                             fixo
+                          </span>
+                        )}
+                        {isProjected && (
+                          <span className="parc-badge futura" style={{ marginLeft: 6 }}>
+                            previsto
                           </span>
                         )}
                       </div>
