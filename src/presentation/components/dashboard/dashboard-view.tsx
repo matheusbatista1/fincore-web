@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { addMonths } from "@/domain/value-objects/competence-month";
@@ -92,6 +93,8 @@ export interface DashboardData {
   readonly month: string;
   /** Whether `month` is the real current month. */
   readonly isCurrent: boolean;
+  /** "Receitas x Despesas" window: forward = next 6 months (projected), backward = last 6. */
+  readonly cashflowDir: "forward" | "backward";
 }
 
 /** Approx. days from `today` (ISO) to the next occurrence of `dueDay` (1–31). */
@@ -179,6 +182,7 @@ function KpiCard({
 }
 
 export function DashboardView({ data }: { data: DashboardData }) {
+  const router = useRouter();
   const view = useUIStore((s) => s.view);
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
@@ -211,11 +215,14 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
   const chartTotalExpense = isPersonal ? data.totalExpensePersonalCents : data.totalExpenseCents;
   const topCat = chartCategories[0];
+  // Carry the cash-flow direction across month navigation (forward is the default, so only
+  // "backward" needs to be pinned in the URL).
+  const cfQuery = data.cashflowDir === "backward" ? "&cf=backward" : "";
 
   return (
     <MonthTransition
-      prevHref={`/dashboard?m=${addMonths(data.month, -1)}`}
-      nextHref={`/dashboard?m=${addMonths(data.month, 1)}`}
+      prevHref={`/dashboard?m=${addMonths(data.month, -1)}${cfQuery}`}
+      nextHref={`/dashboard?m=${addMonths(data.month, 1)}${cfQuery}`}
       // The horizontal cards carousel conflicts with the month swipe on mobile —
       // keep month nav on the dashboard to the header chevrons only.
       disableSwipe
@@ -224,7 +231,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
         <div className="card card-pad" style={{ marginBottom: 16 }}>
           <div className="month-nav">
             <MonthNavButton
-              href={`/dashboard?m=${addMonths(data.month, -1)}`}
+              href={`/dashboard?m=${addMonths(data.month, -1)}${cfQuery}`}
               dir="prev"
               title="Mês anterior"
             >
@@ -238,12 +245,16 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   Mês atual
                 </span>
               ) : (
-                <Link className="card-link" href="/dashboard">
+                <Link className="card-link" href={`/dashboard${cfQuery ? `?${cfQuery.slice(1)}` : ""}`}>
                   Voltar para hoje
                 </Link>
               )}
             </div>
-            <MonthNavButton href={`/dashboard?m=${addMonths(data.month, 1)}`} dir="next" title="Próximo mês">
+            <MonthNavButton
+              href={`/dashboard?m=${addMonths(data.month, 1)}${cfQuery}`}
+              dir="next"
+              title="Próximo mês"
+            >
               <Icon name="chevron-right" size={19} />
             </MonthNavButton>
           </div>
@@ -560,7 +571,27 @@ export function DashboardView({ data }: { data: DashboardData }) {
               <div className="card-head">
                 <div>
                   <h3>Receitas x Despesas</h3>
-                  <div className="ch-sub">Comparativo dos últimos 6 meses</div>
+                  <div className="ch-sub">
+                    {data.cashflowDir === "backward"
+                      ? "Comparativo dos últimos 6 meses"
+                      : "Comparativo dos próximos 6 meses"}
+                  </div>
+                </div>
+                <div className="seg" style={{ maxWidth: 230 }}>
+                  <button
+                    type="button"
+                    className={data.cashflowDir === "forward" ? "on" : ""}
+                    onClick={() => router.push(`/dashboard?m=${data.month}`)}
+                  >
+                    Próximos
+                  </button>
+                  <button
+                    type="button"
+                    className={data.cashflowDir === "backward" ? "on" : ""}
+                    onClick={() => router.push(`/dashboard?m=${data.month}&cf=backward`)}
+                  >
+                    Últimos
+                  </button>
                 </div>
               </div>
               <div className="card-pad">

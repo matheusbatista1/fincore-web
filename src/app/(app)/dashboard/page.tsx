@@ -21,20 +21,33 @@ function todayInBrazil(): string {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ m?: string | string[] }>;
+  searchParams: Promise<{ m?: string | string[]; cf?: string | string[] }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { m } = await searchParams;
+  const { m, cf } = await searchParams;
   const raw = Array.isArray(m) ? m[0] : m;
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const isCurrent = month === current;
+  // "Receitas x Despesas" cash-flow window: forward (default) shows the browsed month
+  // through +5 (future months fold in projected recurring); backward shows the trailing
+  // 6 months (actuals only). State lives in the URL so the server renders the right window.
+  const rawCf = Array.isArray(cf) ? cf[0] : cf;
+  const cashflowDir: "forward" | "backward" = rawCf === "backward" ? "backward" : "forward";
+  const chartFrom = cashflowDir === "backward" ? addMonths(month, -5) : month;
+  const chartTo = cashflowDir === "backward" ? month : addMonths(month, 5);
   const [dash, reports, transactions, workspace] = await Promise.all([
     getDashboard(financeRepository, user.id, month),
-    // Bars: trailing 6 months ending at the browsed month; donut: just that month.
-    getReports(financeRepository, user.id, { from: addMonths(month, -5), to: month }),
+    // Bars: the 6-month cash-flow window (forward/backward). The donut stays pinned to the
+    // browsed month via categoryFrom/categoryTo, so flipping the bars never moves it.
+    getReports(financeRepository, user.id, {
+      from: chartFrom,
+      to: chartTo,
+      categoryFrom: month,
+      categoryTo: month,
+    }),
     getTransactions(financeRepository, user.id),
     getWorkspaceView(financeRepository, user.id),
   ]);
@@ -143,6 +156,7 @@ export default async function DashboardPage({
     today: todayInBrazil(),
     month,
     isCurrent,
+    cashflowDir,
   };
 
   return <DashboardView data={data} />;

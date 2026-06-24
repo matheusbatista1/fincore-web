@@ -231,3 +231,58 @@ describe("getReports — future months include projected recurring (current = 20
     expect(data.projectedLabel).toBe("");
   });
 });
+
+// The dashboard "Receitas x Despesas" chart drives a 6-month forward (default) or backward
+// window for the bars, while pinning the category donut to the browsed month via
+// categoryFrom/categoryTo — so flipping the bars never drags the donut into the future.
+describe("getReports — dashboard cash-flow windows (current = 2026-06)", () => {
+  it("forward bars span the next 6 months while the donut stays on the browsed month", async () => {
+    const repo = stubRepo([
+      expense({ amountCents: -3000, myShareCents: 3000, date: "2026-06-10", categoryId: food.id }),
+      // Recurring charge: projects into the future bars, but must NOT enter the pinned donut.
+      expense({
+        amountCents: -5000,
+        myShareCents: 5000,
+        date: "2026-06-10",
+        categoryId: transport.id,
+        recurrence: { dayOfMonth: 10 },
+      }),
+    ]);
+    const data = await getReports(repo, "u", {
+      from: "2026-06",
+      to: "2026-11",
+      categoryFrom: "2026-06",
+      categoryTo: "2026-06",
+    });
+    // 6 forward bars: June real, Jul–Nov projected.
+    expect(data.months.map((m) => [m.month, m.projected])).toEqual([
+      ["2026-06", false],
+      ["2026-07", true],
+      ["2026-08", true],
+      ["2026-09", true],
+      ["2026-10", true],
+      ["2026-11", true],
+    ]);
+    // Donut pinned to June only → it does NOT accumulate the projected future months.
+    expect(data.totalExpenseCents).toBe(8000); // food 3000 + transport 5000, June only
+  });
+
+  it("backward bars span the trailing 6 months, actuals only", async () => {
+    const data = await getReports(stubRepo([]), "u", {
+      from: "2026-01",
+      to: "2026-06",
+      categoryFrom: "2026-06",
+      categoryTo: "2026-06",
+    });
+    expect(data.months.map((m) => m.month)).toEqual([
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+    ]);
+    expect(data.months.every((m) => !m.projected)).toBe(true);
+    expect(data.includesProjected).toBe(false);
+  });
+});
