@@ -8,7 +8,13 @@
 
 import type { Account } from "../entities/account";
 import type { Settlement } from "../entities/settlement";
-import { type ExpenseTransaction, isCardCredit, isExpense, type Transaction } from "../entities/transaction";
+import {
+  type ExpenseTransaction,
+  isCardCredit,
+  isExpense,
+  isRolled,
+  type Transaction,
+} from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -95,7 +101,7 @@ export function obligationsDueThrough(
   // Overdraft (cheque especial) is excluded: it debits its linked account, so it is already
   // in the projected balance — counting it here too would double-subtract it.
   const isObligation = (tx: Transaction): tx is ExpenseTransaction =>
-    isExpense(tx) && tx.source !== "account" && tx.source !== "overdraft";
+    isExpense(tx) && tx.source !== "account" && tx.source !== "overdraft" && !isRolled(tx);
 
   let net = Money.zero();
   for (const tx of transactions) {

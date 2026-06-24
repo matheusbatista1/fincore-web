@@ -60,6 +60,12 @@ export interface ExpenseTransaction extends BaseTransaction {
   readonly recurrence: RecurrenceInfo | null;
   /** Manual override pinning a card charge to a specific bill (competence month); null = automatic. */
   readonly billMonthOverride: CompetenceMonth | null;
+  /**
+   * Set when this expense has been "rolled" into a new debt ("Rolar dívida"): it is kept for
+   * history but ABATED — excluded from balances, obligations, totals, card bills and the person
+   * ledger (the new expense takes its place). Null/absent = a normal, active expense.
+   */
+  readonly rolledAt?: IsoDate | null;
 }
 
 /**
@@ -100,3 +106,10 @@ export const isTransfer = (t: Transaction): t is TransferTransaction => t.kind =
 /** A card credit (estorno/reembolso): an income whose destination is a credit card. */
 export const isCardCredit = (t: Transaction): t is IncomeTransaction & { cardId: string } =>
   isIncome(t) && t.cardId !== null;
+
+/**
+ * A "rolled" (abated) expense: kept for history but excluded from every financial calculation
+ * (balance, obligations, totals, card bills, person ledger) — the new rolled-into debt replaces it.
+ */
+export const isRolled = (t: Transaction): boolean =>
+  isExpense(t) && t.rolledAt !== null && t.rolledAt !== undefined;

@@ -239,6 +239,16 @@ describe("obligationsDueThrough", () => {
     );
   });
 
+  it("excludes a rolled (abated) obligation", () => {
+    const rolled: ExpenseTransaction = {
+      ...cardExpense(-30000, "2026-07-03"),
+      source: "boleto",
+      cardId: null,
+      rolledAt: "2026-07-04",
+    };
+    expect(obligationsDueThrough([rolled], "2026-07", "2026-07", competenceOf).cents).toBe(0);
+  });
+
   it("excludes overdraft (cheque especial) — it already debits its linked account", () => {
     // Overdraft now debits its account (PR #108), so counting it here too would double-subtract.
     const overdraft: ExpenseTransaction = {

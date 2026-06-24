@@ -188,6 +188,8 @@ export type SettlementInput = z.infer<typeof settlementInputSchema>;
  */
 export const rollDebtSchema = z.object({
   personId: idSchema,
+  /** The original debt (transaction) being rolled — abated, then replaced by the new one. */
+  originalTransactionId: idSchema,
   principalCents: centsSchema.positive("Informe o valor da dívida."),
   jurosCents: centsSchema.nonnegative().default(0),
   date: isoDateSchema,

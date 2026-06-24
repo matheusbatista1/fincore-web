@@ -21,7 +21,7 @@
 import type { CardBillDate } from "../entities/card-bill-date";
 import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, Transaction } from "../entities/transaction";
-import { isExpense, isIncome } from "../entities/transaction";
+import { isExpense, isIncome, isRolled } from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -120,6 +120,8 @@ export function billingCompetence(
  * either has no installment plan or its current installment is "atual".
  */
 function qualifiesForCurrentBill(expense: ExpenseTransaction, cardId: string): boolean {
+  // A rolled (abated) charge no longer sits on the bill — the new rolled-into debt replaces it.
+  if (isRolled(expense)) return false;
   // Must be a card charge on the target card.
   if (expense.source !== "card" || expense.cardId !== cardId) return false;
 
@@ -211,7 +213,7 @@ export function computeCardBillForMonth(
   let net = Money.zero();
   for (const tx of transactions) {
     if (competenceOf(tx) !== month) continue;
-    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId) {
+    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId && !isRolled(tx)) {
       net = net.add(Money.fromCents(tx.amountCents).abs());
     } else if (isIncome(tx) && tx.cardId === cardId) {
       net = net.subtract(Money.fromCents(tx.amountCents));
@@ -259,7 +261,7 @@ export function computeCardOutstanding(
   let net = Money.zero();
   for (const tx of transactions) {
     if (compareMonths(competenceOf(tx), currentMonth) < 0) continue;
-    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId) {
+    if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId && !isRolled(tx)) {
       net = net.add(Money.fromCents(tx.amountCents).abs());
     } else if (isIncome(tx) && tx.cardId === cardId) {
       net = net.subtract(Money.fromCents(tx.amountCents));

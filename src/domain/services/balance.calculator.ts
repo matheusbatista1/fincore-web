@@ -28,7 +28,7 @@
 import type { Account } from "../entities/account";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome, isTransfer } from "../entities/transaction";
+import { isExpense, isIncome, isRolled, isTransfer } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { IsoDate } from "../value-objects/competence-month";
 import { computePersonBalances } from "./person-ledger.calculator";
@@ -42,6 +42,8 @@ import type { ViewMode } from "./personal-vs-general";
  * and transactions without installment info participate.
  */
 function affectsBalance(tx: Transaction): boolean {
+  // A rolled (abated) expense is excluded from balances — the new rolled-into debt replaces it.
+  if (isRolled(tx)) return false;
   if (isExpense(tx) && tx.installment !== null) {
     return tx.installment.status === "atual";
   }

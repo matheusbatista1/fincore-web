@@ -594,6 +594,16 @@ describe("computeCardOutstanding(s) — total committed against the limit", () =
       computeCardOutstanding("c", [...txs, foreignCharge, foreignCredit], currentMonth, resolve).cents,
     ).toBe(60_000);
   });
+
+  it("excludes a rolled (abated) card charge from outstanding and the month bill", () => {
+    const rolled: ExpenseTransaction = {
+      ...cardExpense(-50_000, "c"),
+      date: "2026-07-15",
+      rolledAt: "2026-07-16",
+    };
+    expect(computeCardOutstanding("c", [rolled], currentMonth, resolve).cents).toBe(0);
+    expect(computeCardBillForMonth("c", [rolled], "2026-07", resolve).cents).toBe(0);
+  });
 });
 
 describe("card credits (estorno) reduce the bill", () => {

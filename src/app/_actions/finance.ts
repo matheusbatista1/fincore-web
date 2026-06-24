@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
-import { createTransaction } from "@/application/use-cases/create-transaction";
+import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
@@ -166,9 +166,9 @@ export async function deleteSettlementAction(id: string): Promise<ActionState> {
 }
 
 /**
- * "Rolar dívida": you front the person's current debt via an instrument and they owe you the
- * new amount (principal + juros) on a new date. Creates the new expense (fully theirs) first
- * — so a validation error never orphans a settlement — then zeroes the old debt (rollover).
+ * "Rolar dívida": abate the original debt (`rolledAt` — kept for history, excluded from all
+ * calculations) and create the new debt on the chosen instrument, for principal + juros, fully
+ * owed by the person. Both happen atomically, so nothing is double-counted.
  */
 export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   const userId = await currentUserId();
@@ -202,17 +202,10 @@ export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   });
   if (!txInput.success) return INVALID;
 
-  const created = await createTransaction(financeRepository, userId, txInput.data);
-  if (!created.ok) return { ok: false, error: created.error.message };
+  const command = buildCommand(txInput.data);
+  if (!command.ok) return { ok: false, error: command.error.message };
 
-  // Zero the old debt as a rollover — no cash of its own (the cash is the new expense).
-  await financeRepository.createSettlement(userId, {
-    personId: r.personId,
-    amountCents: r.principalCents,
-    date: r.date,
-    accountId: null,
-    note: "Rolagem de dívida",
-  });
+  await financeRepository.rollPersonDebt(userId, r.originalTransactionId, command.value);
   revalidatePath("/", "layout");
   return { ok: true };
 }

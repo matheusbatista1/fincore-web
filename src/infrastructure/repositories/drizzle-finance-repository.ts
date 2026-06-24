@@ -469,6 +469,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async rollPersonDebt(userId: string, originalId: string, command: CreateTransactionCommand): Promise<void> {
+    // Abate the original debt (kept for history, excluded from all calculations) and create
+    // the new rolled-into expense, atomically. RLS scopes the row to the user.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ rolledAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.transactions.id, originalId));
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
   async updateTransaction(
     userId: string,
     command: UpdateTransactionCommand,

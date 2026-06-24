@@ -351,6 +351,27 @@ describe("settlements credit/debit the account they name", () => {
   });
 });
 
+describe("rolled (abated) expenses are excluded", () => {
+  it("a rolled account-source expense does not move the balance", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const rolled: ExpenseTransaction = {
+      ...expense(-10_000, { source: "account", accountId: "nu" }),
+      rolledAt: "2026-06-20",
+    };
+    const active = expense(-3_000, { source: "account", accountId: "nu" });
+    expect(computeAccountBalances(accounts, [rolled, active]).get("nu")?.cents).toBe(97_000);
+  });
+
+  it("a rolled overdraft expense does not drive the balance negative", () => {
+    const accounts = [makeAccount("nu", 5_000)];
+    const rolled: ExpenseTransaction = {
+      ...expense(-20_000, { source: "overdraft", linkedAccountId: "nu" }),
+      rolledAt: "2026-06-20",
+    };
+    expect(computeAccountBalances(accounts, [rolled]).get("nu")?.cents).toBe(5_000);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — the business invariants.
 // ---------------------------------------------------------------------------

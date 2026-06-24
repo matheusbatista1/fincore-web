@@ -17,7 +17,7 @@ export interface CreateTransactionError {
 }
 
 /** Build the persist command from raw input, recomputing splits/installments server-side. */
-function buildCommand(
+export function buildCommand(
   input: CreateTransactionInput,
 ): Result<CreateTransactionCommand, CreateTransactionError> {
   if (input.kind === "transfer") {
