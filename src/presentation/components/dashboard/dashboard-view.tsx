@@ -377,7 +377,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     Patrimônio
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
-                    <Money cents={data.saldoTotalCents + data.investedCents} withSign={false} />
+                    {/* Follows the active lens and shows the sign (negative when in overdraft). */}
+                    <Money cents={saldoTotal + data.investedCents} />
                   </div>
                 </div>
               </div>

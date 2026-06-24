@@ -238,4 +238,20 @@ describe("obligationsDueThrough", () => {
       214187,
     );
   });
+
+  it("excludes overdraft (cheque especial) — it already debits its linked account", () => {
+    // Overdraft now debits its account (PR #108), so counting it here too would double-subtract.
+    const overdraft: ExpenseTransaction = {
+      ...cardExpense(-30000, "2026-07-03"),
+      source: "overdraft",
+      cardId: null,
+      linkedAccountId: "nu",
+    };
+    expect(obligationsDueThrough([overdraft], "2026-07", "2026-07", competenceOf).cents).toBe(0);
+    // Even as a recurring overdraft with projection enabled, it stays out of obligations.
+    const rec: ExpenseTransaction = { ...overdraft, recurrence: { dayOfMonth: 3 } };
+    expect(obligationsDueThrough([rec], "2026-06", "2026-09", competenceOf, "general", "2026-06").cents).toBe(
+      0,
+    );
+  });
 });
