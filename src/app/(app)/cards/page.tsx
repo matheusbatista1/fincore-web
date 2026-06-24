@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getProjectedCardCharges } from "@/application/use-cases/get-projected-card-charges";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -11,9 +12,10 @@ export default async function CardsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [{ cards, cardBillDates }, transactions, profile] = await Promise.all([
+  const [{ cards, cardBillDates }, transactions, projectedCharges, profile] = await Promise.all([
     getWorkspaceView(financeRepository, user.id),
     getTransactions(financeRepository, user.id),
+    getProjectedCardCharges(financeRepository, user.id),
     financeRepository.getProfile(user.id),
   ]);
   const holderName = profile.displayName ?? nameFromEmail(user.email ?? "");
@@ -22,6 +24,7 @@ export default async function CardsPage() {
     <CardsView
       cards={cards}
       transactions={transactions}
+      projectedCharges={projectedCharges}
       cardBillDates={cardBillDates}
       today={todayInBrazil()}
       currentMonth={currentMonthInBrazil()}
