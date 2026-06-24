@@ -2,6 +2,7 @@ import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getPeople } from "@/application/use-cases/get-people";
 import { getPersonStatements } from "@/application/use-cases/get-person-statements";
 import { getReports } from "@/application/use-cases/get-reports";
+import { getRollableDebts } from "@/application/use-cases/get-rollable-debts";
 import { getSettlements } from "@/application/use-cases/get-settlements";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
@@ -24,15 +25,17 @@ export default async function PeoplePage({
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const today = todayInBrazil();
-  const [people, workspace, transactions, dash, reports, personStatements, settlements] = await Promise.all([
-    getPeople(financeRepository, user.id, month),
-    getWorkspaceView(financeRepository, user.id),
-    getTransactions(financeRepository, user.id),
-    getDashboard(financeRepository, user.id, month),
-    getReports(financeRepository, user.id, { from: month, to: month }),
-    getPersonStatements(financeRepository, user.id, { from: month, to: month }),
-    getSettlements(financeRepository, user.id),
-  ]);
+  const [people, workspace, transactions, dash, reports, personStatements, settlements, rollableDebts] =
+    await Promise.all([
+      getPeople(financeRepository, user.id, month),
+      getWorkspaceView(financeRepository, user.id),
+      getTransactions(financeRepository, user.id),
+      getDashboard(financeRepository, user.id, month),
+      getReports(financeRepository, user.id, { from: month, to: month }),
+      getPersonStatements(financeRepository, user.id, { from: month, to: month }),
+      getSettlements(financeRepository, user.id),
+      getRollableDebts(financeRepository, user.id, month),
+    ]);
   const accounts = workspace.accounts.map((a) => ({ id: a.id, label: `${a.bank} · ${a.name}` }));
   const cards = workspace.cards.map((c) => ({ id: c.id, label: `${c.bank} · ${c.product}` }));
 
@@ -51,6 +54,7 @@ export default async function PeoplePage({
       transactions={transactions}
       accounts={accounts}
       cards={cards}
+      rollableDebts={rollableDebts}
       settlements={settlements}
       today={today}
       month={month}

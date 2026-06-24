@@ -10,6 +10,7 @@ import {
   updateSettlementAction,
 } from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
+import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
@@ -55,6 +56,7 @@ export function PeopleView({
   transactions,
   accounts,
   cards,
+  rollableDebts,
   settlements,
   today,
   month,
@@ -67,6 +69,7 @@ export function PeopleView({
   transactions: TransactionListItem[];
   accounts: AccountOption[];
   cards: AccountOption[];
+  rollableDebts: RollableDebt[];
   settlements: SettlementView[];
   today: string;
   month: string;
@@ -90,15 +93,18 @@ export function PeopleView({
 
   const open = people.find((p) => p.id === openId) ?? null;
   const roll = people.find((p) => p.id === rollId) ?? null;
-  // The person's open debts (their share of shared expenses not yet rolled) — what "Rolar dívida" acts on.
+  // The person's open debts in the BROWSED MONTH (their share of a shared expense whose
+  // competence is this month and is not yet rolled) — what "Rolar dívida" acts on. Scoping
+  // to the month means rolling abates the parcela that actually weighs on the month's
+  // balance; a parcela number disambiguates installment siblings in the picker.
   const rollDebts: DebtOption[] = roll
-    ? transactions
-        .filter((t) => t.kind === "expense" && !t.rolled && t.shares.some((s) => s.personId === roll.id))
-        .map((t) => {
-          const shareCents = t.shares.find((s) => s.personId === roll.id)?.shareCents ?? 0;
-          return { id: t.id, label: `${t.description} · ${formatBRLAbsolute(shareCents)}`, shareCents };
-        })
-        .filter((d) => d.shareCents > 0)
+    ? rollableDebts
+        .filter((d) => d.personId === roll.id)
+        .map((d) => ({
+          id: d.id,
+          label: `${d.description}${d.parcela ? ` (${d.parcela.number}/${d.parcela.total})` : ""} · ${formatBRLAbsolute(d.shareCents)}`,
+          shareCents: d.shareCents,
+        }))
     : [];
   // The settle dialog opens to register a new payment (settleId) or to edit one (editSettlement).
   const settleTarget =
