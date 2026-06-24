@@ -3,7 +3,7 @@
 import { useCountUp } from "@/presentation/lib/use-count-up";
 import { useReducedMotion } from "@/presentation/lib/use-reduced-motion";
 import { useUIStore } from "@/presentation/stores/ui-store";
-import { formatBRLAbsolute } from "@/shared/formatting/currency";
+import { formatBRL } from "@/shared/formatting/currency";
 
 /**
  * Animated counting money value (the hero balance). Tweens from the previous
@@ -23,5 +23,7 @@ export function CountMoney({
   const reduced = useReducedMotion();
   const value = useCountUp(cents, !hidden && !reduced, dur);
   if (hidden) return <span className={`tnum ${className}`}>R$ ••••</span>;
-  return <span className={`tnum ${className}`}>{formatBRLAbsolute(Math.round(value))}</span>;
+  // Show the sign so a negative balance (e.g. overdraft / cheque especial) reads as "- R$ …";
+  // formatBRL only prefixes "-" for negatives, never "+", so positives are unchanged.
+  return <span className={`tnum ${className}`}>{formatBRL(Math.round(value))}</span>;
 }

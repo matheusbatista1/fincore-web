@@ -8,7 +8,7 @@
 
 import type { Account } from "../entities/account";
 import type { Settlement } from "../entities/settlement";
-import { isCardCredit, isExpense, type Transaction } from "../entities/transaction";
+import { type ExpenseTransaction, isCardCredit, isExpense, type Transaction } from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -57,10 +57,11 @@ export function projectedMonthEndBalances(
 /**
  * Net total of the deferred obligations DUE within `[fromMonth, toMonth]` — everything
  * paid NOT from a cash account (so not already in the account balance): card bills,
- * boletos, loan and financing parcelas, overdraft. Sums those expenses (minus card
- * credits/estornos) whose competence falls in the range. Subtracted from the projected
- * balance to get "what's left after paying the month's bills". Account-source expenses
- * are excluded here because they already reduced the projected account balance.
+ * boletos, loan and financing parcelas. Sums those expenses (minus card credits/estornos)
+ * whose competence falls in the range. Subtracted from the projected balance to get
+ * "what's left after paying the month's bills". Account-source AND overdraft (cheque
+ * especial) expenses are excluded here because they already reduced the projected account
+ * balance (overdraft debits its linked account — see {@link accountDeltas}).
  *
  * When `currentMonth` is given, recurring obligations (e.g. subscriptions on the card,
  * a recurring boleto) are also **projected** into the future months and re-dated to their
@@ -91,11 +92,16 @@ export function obligationsDueThrough(
     }
   }
 
+  // Overdraft (cheque especial) is excluded: it debits its linked account, so it is already
+  // in the projected balance — counting it here too would double-subtract it.
+  const isObligation = (tx: Transaction): tx is ExpenseTransaction =>
+    isExpense(tx) && tx.source !== "account" && tx.source !== "overdraft";
+
   let net = Money.zero();
   for (const tx of transactions) {
     const due = competenceOf(tx);
     if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
-    if (isExpense(tx) && tx.source !== "account") {
+    if (isObligation(tx)) {
       net = net.add(amountFor(tx));
     } else if (isCardCredit(tx)) {
       net = net.subtract(Money.fromCents(tx.amountCents));
@@ -111,7 +117,7 @@ export function obligationsDueThrough(
     for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m)) {
         const source = occ.source;
-        if (!isExpense(source) || source.source === "account") continue;
+        if (!isObligation(source)) continue;
         const due = competenceOf({ ...source, date: occ.date });
         if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
         const key = `${due}|${recurrenceIdentity(source)}`;
