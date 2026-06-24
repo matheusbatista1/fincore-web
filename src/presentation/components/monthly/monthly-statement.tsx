@@ -196,7 +196,8 @@ export function MonthlyStatement({
                 className="mt-val"
                 style={{ color: totIn - totOut >= 0 ? "var(--text-hi)" : "var(--rose-500)" }}
               >
-                <AnimatedMoney cents={totIn - totOut} withSign={false} />
+                {/* Show the sign (− for a deficit) so the result reads without relying on color. */}
+                <AnimatedMoney cents={totIn - totOut} withSign />
               </span>
             </div>
           </div>

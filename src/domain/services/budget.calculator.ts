@@ -12,7 +12,7 @@
 
 import type { Budget } from "../entities/budget";
 import type { Transaction } from "../entities/transaction";
-import { isExpense } from "../entities/transaction";
+import { isExpense, isRolled } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { monthOf } from "../value-objects/competence-month";
@@ -34,7 +34,8 @@ export interface BudgetStatus {
 function spentByCategory(transactions: readonly Transaction[], month: CompetenceMonth): Map<string, Money> {
   const spent = new Map<string, Money>();
   for (const tx of transactions) {
-    if (!isExpense(tx) || tx.categoryId === null || monthOf(tx.date) !== month) continue;
+    // A rolled (abated) debt is history-only — it never counts toward budget spend.
+    if (!isExpense(tx) || isRolled(tx) || tx.categoryId === null || monthOf(tx.date) !== month) continue;
     const current = spent.get(tx.categoryId) ?? Money.zero();
     spent.set(tx.categoryId, current.add(Money.fromCents(Math.abs(tx.amountCents))));
   }

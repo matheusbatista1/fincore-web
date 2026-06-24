@@ -139,6 +139,19 @@ describe("getReports — general vs personal lenses", () => {
     expect(data.to).toBe(ANCHOR);
     expect(data.months).toHaveLength(3);
   });
+
+  it("excludes a rolled (abated) expense from bars, categories and total", async () => {
+    const repo = stubRepo([
+      expense({ amountCents: -3000, myShareCents: 3000, categoryId: food.id }),
+      // Abated debt kept only for history — out of the bars, the donut and the total.
+      expense({ amountCents: -5000, myShareCents: 5000, categoryId: food.id, rolledAt: "2026-06-24" }),
+    ]);
+    const data = await getReports(repo, "u", justAnchor);
+
+    expect(data.months.at(-1)?.expenseCents).toBe(3000); // bar excludes the rolled 50,00
+    expect(data.categories.map((c) => [c.id, c.valueCents])).toEqual([[food.id, 3000]]);
+    expect(data.totalExpenseCents).toBe(3000);
+  });
 });
 
 describe("getReports — byCard (spending per card over the window)", () => {

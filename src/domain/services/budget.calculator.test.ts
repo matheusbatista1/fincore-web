@@ -65,4 +65,14 @@ describe("computeBudgetStatuses", () => {
     expect(food?.ratio).toBe(0);
     expect(food?.over).toBe(false);
   });
+
+  it("ignores a rolled (abated) expense", () => {
+    const txs: Transaction[] = [
+      expense("t1", "food", -60_00, "2026-06-10"),
+      // Abated debt kept only for history — must not count toward the budget.
+      { ...expense("t2", "food", -40_00, "2026-06-15"), rolledAt: "2026-06-20" },
+    ];
+    const [food] = computeBudgetStatuses(budgets, txs, "2026-06");
+    expect(food?.spentCents).toBe(60_00);
+  });
 });
