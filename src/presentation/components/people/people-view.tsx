@@ -447,7 +447,7 @@ function ProfileBody({
           )}
         </div>
         {canSettle && (
-          <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16 }}>
+          <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
             {realOwes && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRemind}>
                 <Icon name="bell" size={16} />

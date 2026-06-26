@@ -70,13 +70,9 @@ export function TxRow({
         <Icon name={iconName} size={18} />
       </span>
       <div className="l-main">
-        <div className="l-title">
-          {item.description || (isTransfer ? "Transferência" : "Lançamento")}
-          {grouped && (
-            <span className="parc-badge" style={{ marginLeft: 8 }}>
-              {parcelaCount}x
-            </span>
-          )}
+        <div className="l-title tx-title">
+          <span className="lt-text">{item.description || (isTransfer ? "Transferência" : "Lançamento")}</span>
+          {grouped && <span className="parc-badge">{parcelaCount}x</span>}
         </div>
         <div className="l-sub">
           {relativeDateLabel(item.date, today)}

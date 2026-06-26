@@ -935,10 +935,30 @@
   color: var(--text-hi);
   font-weight: 600;
 }
+/* Transactions list: keep the description on one line (ellipsis) without clipping the
+   trailing badge — the badge stays a fixed-size flex sibling. */
+.lrow .tx-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lrow .tx-title > .lt-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lrow .tx-title > .parc-badge {
+  flex-shrink: 0;
+}
 .lrow .l-sub {
   font-size: 12.5px;
   color: var(--text-lo);
   margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lrow .l-amt {
   font-family: var(--font-display);
@@ -2603,6 +2623,7 @@ select.input {
   color: var(--text-hi);
 }
 .acct-name .type-badge {
+  flex-shrink: 0;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -2615,6 +2636,9 @@ select.input {
   font-size: 12.5px;
   color: var(--text-lo);
   margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acct-flow {
   display: flex;
@@ -3322,6 +3346,11 @@ html {
     position: sticky;
     bottom: 0;
   }
+  /* Action rows inside a modal wrap instead of overflowing the sheet (e.g. the person
+     profile: Cobrar / Rolar dívida / Registrar pagamento). */
+  .modal-body .row.gap-3 {
+    flex-wrap: wrap;
+  }
   .search-overlay {
     align-items: flex-start;
     padding: 0;
@@ -3350,6 +3379,19 @@ html {
   /* esconde realces de scroll do editor etc */
   .login-grid {
     min-height: 0;
+  }
+}
+
+/* Very small phones (~360px): trim modal chrome so forms/actions have more room. */
+@media (max-width: 480px) {
+  .modal-head {
+    padding: 18px 16px;
+  }
+  .modal-body {
+    padding: 18px 16px;
+  }
+  .modal-foot {
+    padding: 16px 16px;
   }
 }
 
