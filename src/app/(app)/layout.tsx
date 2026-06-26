@@ -58,7 +58,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   };
   const enabledModules = profile.enabledModules;
   const peopleOn = isModuleEnabled(enabledModules, "people");
-  const pendingCount = peopleOn ? workspace.people.filter((p) => p.balanceCents !== 0).length : 0;
+  // Month-scoped, matching the People page (which lists the month's pendências).
+  const pendingCount = peopleOn ? workspace.people.filter((p) => p.monthBalanceCents !== 0).length : 0;
 
   const today = todayInBrazil();
   const displayName = profile.displayName ?? nameFromEmail(user.email ?? "");
@@ -72,17 +73,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       id: c.id,
       bank: c.bank,
       dueDay: c.dueDay,
-      billCents: c.billCents,
+      dueBillCents: c.dueBillCents,
       utilization: c.utilization,
     })),
     debtors: peopleOn
       ? workspace.people
-          .filter((p) => p.balanceCents > 0)
+          .filter((p) => p.monthBalanceCents > 0)
           .map((p) => ({
             id: p.id,
             name: p.name,
             relationship: p.relationship,
-            balanceCents: p.balanceCents,
+            balanceCents: p.monthBalanceCents,
           }))
       : [],
     today,

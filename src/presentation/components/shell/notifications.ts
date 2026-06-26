@@ -6,7 +6,8 @@ export interface NotifData {
     readonly id: string;
     readonly bank: string;
     readonly dueDay: number;
-    readonly billCents: number;
+    /** Amount of the bill that comes due on the next dueDay (not the open cycle). */
+    readonly dueBillCents: number;
     readonly utilization: number;
   }>;
   readonly debtors: ReadonlyArray<{
@@ -48,7 +49,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
   const items: NotifItem[] = [];
 
   const dueSoon = data.cards
-    .filter((c) => c.billCents > 0 && daysUntilDue(c.dueDay, data.today) <= 7)
+    .filter((c) => c.dueBillCents > 0 && daysUntilDue(c.dueDay, data.today) <= 7)
     .sort((a, b) => daysUntilDue(a.dueDay, data.today) - daysUntilDue(b.dueDay, data.today));
   for (const c of dueSoon) {
     items.push({
@@ -56,7 +57,7 @@ export function deriveNotifications(data: NotifData): NotifItem[] {
       ic: "calendar-clock",
       tone: "amber",
       title: `Fatura ${c.bank} vence ${nextDueLabel(c.dueDay, data.today)}`,
-      sub: formatBRLAbsolute(c.billCents),
+      sub: formatBRLAbsolute(c.dueBillCents),
       href: "/cards",
     });
   }

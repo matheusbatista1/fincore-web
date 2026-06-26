@@ -8,10 +8,15 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   cardUtilization,
+  computeCardBillForMonth,
   computeCardBills,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
-import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
+import {
+  computePersonBalances,
+  computePersonBalancesForMonth,
+} from "@/domain/services/person-ledger.calculator";
+import { addMonths, type CompetenceMonth } from "@/domain/value-objects/competence-month";
 import { todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
@@ -20,12 +25,20 @@ export type AccountView = Account & { readonly balanceCents: number };
 export type CardView = CreditCard & {
   /** Current open-cycle bill (fatura atual). */
   readonly billCents: number;
+  /** Bill that comes DUE on the next due date (competence of the upcoming dueDay) — for the
+   * "fatura vence" notification, which must show what you'll actually pay, not the open cycle. */
+  readonly dueBillCents: number;
   /** Total committed against the limit ("limite utilizado"): open + future − estornos. */
   readonly outstandingCents: number;
   /** outstanding / limit ratio. */
   readonly utilization: number;
 };
-export type PersonView = Person & { readonly balanceCents: number };
+export type PersonView = Person & {
+  /** All-time outstanding balance (cumulative). */
+  readonly balanceCents: number;
+  /** Net for the current month — matches the dashboard/People "a receber" figure. */
+  readonly monthBalanceCents: number;
+};
 
 export interface WorkspaceView {
   readonly accounts: AccountView[];
@@ -43,13 +56,20 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
   const balances = computeAccountBalances(ws.accounts, ws.transactions, today, "general", ws.settlements);
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
-  const outstandings = computeCardOutstandings(
-    ws.creditCards,
-    ws.transactions,
-    today.slice(0, 7),
-    competenceOf,
-  );
+  const currentMonth = today.slice(0, 7) as CompetenceMonth;
+  const dayToday = Number(today.slice(8, 10));
+  const outstandings = computeCardOutstandings(ws.creditCards, ws.transactions, currentMonth, competenceOf);
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
+  // Month-scoped person nets (same figure the dashboard/People show) — used by the
+  // "te deve" notification and the pending badge.
+  const monthLedger = computePersonBalancesForMonth(
+    ws.people,
+    ws.transactions,
+    ws.settlements,
+    currentMonth,
+    competenceOf,
+    currentMonth,
+  );
 
   return {
     accounts: ws.accounts.map((account) => ({
@@ -59,9 +79,14 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
     cards: ws.creditCards.map((card) => {
       const bill = bills.get(card.id) ?? Money.zero();
       const outstanding = outstandings.get(card.id) ?? Money.zero();
+      // The bill due on the NEXT due date lives in the competence of that due month
+      // (next month if the dueDay already passed this month, else this month).
+      const dueMonth = card.dueDay < dayToday ? addMonths(currentMonth, 1) : currentMonth;
+      const dueBill = computeCardBillForMonth(card.id, ws.transactions, dueMonth, competenceOf);
       return {
         ...card,
         billCents: bill.cents,
+        dueBillCents: dueBill.cents,
         outstandingCents: outstanding.cents,
         utilization: cardUtilization(outstanding, card),
       };
@@ -69,6 +94,7 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
     people: ws.people.map((person) => ({
       ...person,
       balanceCents: (ledger.get(person.id) ?? Money.zero()).cents,
+      monthBalanceCents: (monthLedger.get(person.id) ?? Money.zero()).cents,
     })),
     categories: ws.categories,
     cardBillDates: ws.cardBillDates,
