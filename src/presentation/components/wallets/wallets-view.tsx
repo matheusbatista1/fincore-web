@@ -26,8 +26,6 @@ export function WalletsView({
   items,
   month,
   isCurrent,
-  projectedTotalCents,
-  projectedByAccount,
   prevHref,
   nextHref,
 }: {
@@ -36,10 +34,6 @@ export function WalletsView({
   items: MonthlyItem[];
   month: string;
   isCurrent: boolean;
-  /** Projected total at month-end (after the month's card bills). */
-  projectedTotalCents: number;
-  /** Projected end-of-month balance per account (account movements only). */
-  projectedByAccount: Record<string, number>;
   prevHref: string;
   nextHref: string;
 }) {
@@ -127,16 +121,6 @@ export function WalletsView({
               <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap" }}>
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   distribuído em {accounts.length} {accounts.length === 1 ? "carteira" : "carteiras"}
-                </span>
-                <span
-                  className="row gap-1"
-                  style={{
-                    color: projectedTotalCents < 0 ? "var(--rose-500)" : "var(--text-lo)",
-                    fontSize: 13.5,
-                  }}
-                  title="Saldo previsto para o fim do mês (só o que é seu), após pagar as faturas do mês"
-                >
-                  · fim do mês ~<AnimatedMoney cents={projectedTotalCents} withSign />
                 </span>
               </div>
             </div>
@@ -240,18 +224,6 @@ export function WalletsView({
                           style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}
                         >
                           <AnimatedMoney cents={a.balanceCents} />
-                        </div>
-                        <div
-                          className="ab-pct"
-                          title="Saldo previsto para o fim do mês (só o que é seu)"
-                          style={
-                            (projectedByAccount[a.id] ?? a.balanceCents) < 0
-                              ? { color: "var(--rose-500)" }
-                              : {}
-                          }
-                        >
-                          fim do mês ~
-                          <AnimatedMoney cents={projectedByAccount[a.id] ?? a.balanceCents} withSign />
                         </div>
                       </div>
                       <span className="acct-edit">
