@@ -44,6 +44,9 @@ interface DebtOption {
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
 
+/** Settle account picker sentinel for "no account" (a baixa/perdão with no cash movement). */
+const ACCOUNT_NONE = "__none__";
+
 function todayIso(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -846,11 +849,10 @@ function SettleBody({
   const max = Math.abs(person.realBalanceCents);
   const first = firstName(person.name);
   const [cents, setCents] = useState(editing ? editing.amountCents : max);
-  // The account the money moved through; default to the first wallet for a new acerto so
-  // the cash lands in the balance (keeps "fim do mês" consistent). "" = sem conta (perdão).
-  const [accountId, setAccountId] = useState<string | null>(
-    editing ? editing.accountId : (accounts[0]?.id ?? null),
-  );
+  // The account the money moved through. A NEW acerto starts unchosen ("" = placeholder) so
+  // the user consciously picks where the cash landed (no silent default to the first wallet).
+  // ACCOUNT_NONE = "sem conta" (baixa/perdão, no cash movement).
+  const [accountSel, setAccountSel] = useState<string>(editing ? (editing.accountId ?? ACCOUNT_NONE) : "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -861,7 +863,12 @@ function SettleBody({
 
   async function confirm() {
     if (!valid || submitting) return;
+    if (accountSel === "") {
+      setError(owes ? "Escolha a conta que recebeu o pagamento." : "Escolha a conta de onde saiu.");
+      return;
+    }
     setError(null);
+    const accountId = accountSel === ACCOUNT_NONE ? null : accountSel;
     const parsed = settlementInputSchema.safeParse({
       personId: person.id,
       amountCents: applied,
@@ -937,16 +944,19 @@ function SettleBody({
         <select
           id="settle-account"
           className="input"
-          value={accountId ?? ""}
-          onChange={(e) => setAccountId(e.target.value === "" ? null : e.target.value)}
+          value={accountSel}
+          onChange={(e) => setAccountSel(e.target.value)}
           style={{ width: "100%", marginBottom: 16 }}
         >
+          <option value="" disabled>
+            Selecione a conta…
+          </option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.label}
             </option>
           ))}
-          <option value="">Sem conta (só baixa / perdão)</option>
+          <option value={ACCOUNT_NONE}>Sem conta (só baixa / perdão)</option>
         </select>
         <div className="summary-box">
           <div className="sb-row">
