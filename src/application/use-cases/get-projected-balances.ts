@@ -22,16 +22,19 @@ export async function getProjectedBalances(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const current = currentMonthInBrazil();
 
-  // Wallets show "what's really mine": the personal lens (only the user's share of
-  // shared expenses, reimbursement income excluded). There is no general/personal
-  // toggle on this screen, so the projection is always personal.
+  // Wallets show the account's REAL money (the same general lens + settlements the live
+  // "saldo" uses), projected to month-end — so "fim do mês" reconciles with the balance.
+  // The personal/general split is about shared-expense reporting, not account cash; using
+  // "personal" here dropped person settlements and overdraft debits, making the projection
+  // diverge from the saldo. There is no lens toggle on this screen.
   const byAccount = projectedMonthEndBalances(
     ws.accounts,
     ws.transactions,
     month,
     competenceOf,
     current,
-    "personal",
+    "general",
+    ws.settlements,
   );
   const byAccountCents: Record<string, number> = {};
   let accountsTotal = 0;
@@ -42,6 +45,6 @@ export async function getProjectedBalances(
   // The headline total nets the month's obligations (card bills, boletos, loan/financing
   // parcelas); per-account figures do not (we can't attribute which account pays them),
   // so their sum differs from the total by those obligations.
-  const bills = obligationsDueThrough(ws.transactions, current, month, competenceOf, "personal", current);
+  const bills = obligationsDueThrough(ws.transactions, current, month, competenceOf, "general", current);
   return { totalCents: accountsTotal - bills.cents, byAccountCents };
 }
