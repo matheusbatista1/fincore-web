@@ -97,6 +97,7 @@ describe("getMonthly", () => {
     const settle = data.items.find((i) => i.id === "settle:s1");
     expect(settle?.kind).toBe("income");
     expect(settle?.amountCents).toBe(10000);
+    expect(settle?.settlement).toBe(true); // flagged so the personal lens can drop it
     // Racha: full expense −100 as a saída, the payment +100 as an entrada → net 0.
     expect(data.realized.incomeCents).toBe(10000);
     expect(data.realized.expenseCents).toBe(10000);

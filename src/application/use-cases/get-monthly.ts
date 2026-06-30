@@ -17,6 +17,12 @@ export type MonthlyItem = TransactionListItem & {
    * on real rows.
    */
   readonly anchor: TransactionListItem | null;
+  /**
+   * True for a synthetic "Acerto" row (a settlement — a person paying you back, or you
+   * paying them). These are reimbursements of others' shares, so the personal lens drops
+   * them (mirrors balance.calculator's personal lens, which ignores settlements).
+   */
+  readonly settlement?: boolean;
 };
 
 export interface MonthlyTotals {
@@ -111,6 +117,7 @@ export async function getMonthly(
         transferValueCents: null,
         projected: false,
         anchor: null,
+        settlement: true,
       };
     });
   realItems.push(...settlementItems);
