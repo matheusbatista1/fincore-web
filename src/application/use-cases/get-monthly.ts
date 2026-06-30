@@ -1,7 +1,9 @@
 import { isRolled } from "@/domain/entities/transaction";
+import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
-import type { CompetenceMonth } from "@/domain/value-objects/competence-month";
+import { type CompetenceMonth, monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 import { byDateDesc, createTransactionMapper, type TransactionListItem } from "./get-transactions";
@@ -62,6 +64,56 @@ export async function getMonthly(
   const realItems: MonthlyItem[] = real
     .filter((tx) => !isRolled(tx))
     .map((tx) => ({ ...map(tx), projected: false, anchor: null }));
+
+  // Settlements ("Acerto" — a person paying you back, or you paying them) are real cash
+  // movements but NOT transactions, so they'd otherwise be invisible in the statement. Add
+  // each account-backed settlement dated this month as a synthetic row: an ENTRADA when the
+  // person owed you, a SAÍDA when you owed them. Direction + amount mirror the account
+  // credit/debit in computeAccountBalances (gross, transaction-derived person balance), so
+  // the statement matches the account. A "sem conta" (perdão) settlement moves no cash → skip.
+  const accountLabel = new Map(ws.accounts.map((a) => [a.id, `${a.bank} · ${a.name}`]));
+  const personFirstName = new Map(ws.people.map((p) => [p.id, p.name.split(" ")[0] ?? p.name] as const));
+  const grossPersonBalances = computePersonBalances([], ws.transactions, []);
+  const settlementItems: MonthlyItem[] = ws.settlements
+    .filter((s) => s.accountId !== null && monthOf(s.date) === month)
+    .map((s): MonthlyItem => {
+      const owedToYou = !(grossPersonBalances.get(s.personId) ?? Money.zero()).isNegative();
+      const first = personFirstName.get(s.personId) ?? "Pessoa";
+      const label = (s.accountId && accountLabel.get(s.accountId)) || "Acerto";
+      return {
+        id: `settle:${s.id}`,
+        kind: owedToYou ? "income" : "expense",
+        description: `Acerto — ${first}`,
+        date: s.date,
+        amountCents: owedToYou ? s.amountCents : -s.amountCents,
+        note: s.note ?? null,
+        category: null,
+        categoryId: null,
+        sourceLabel: label,
+        source: owedToYou ? null : "account",
+        cardId: null,
+        accountId: s.accountId,
+        linkedAccountId: null,
+        parcela: null,
+        installmentGroupId: null,
+        billMonthOverride: null,
+        isFixed: false,
+        rolled: false,
+        shares: [],
+        myShareCents: owedToYou ? null : s.amountCents,
+        isReimbursement: false,
+        fromPersonId: owedToYou ? s.personId : null,
+        fromPersonName: owedToYou ? first : null,
+        transferFromName: null,
+        transferToName: null,
+        transferFromAccountId: null,
+        transferToAccountId: null,
+        transferValueCents: null,
+        projected: false,
+        anchor: null,
+      };
+    });
+  realItems.push(...settlementItems);
   const projectedItems: MonthlyItem[] = projected
     .filter((p) => !isRolled(p.source))
     .map((p) => {
