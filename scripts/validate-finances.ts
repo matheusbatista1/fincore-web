@@ -28,7 +28,10 @@ import {
   computeCardBillForMonth,
   computeCardOutstanding,
 } from "@/domain/services/card-bill.calculator";
-import { computePersonBalancesForMonth } from "@/domain/services/person-ledger.calculator";
+import {
+  computePersonBalancesForMonth,
+  computePersonMonthNets,
+} from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { projectRecurring, transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -153,16 +156,11 @@ async function main() {
     ).cents;
     let peopleNet = 0;
     if (lens === "general") {
+      // Single pass (horizon = browsed month) so a pre-payment re-buckets onto its debt
+      // month — mirrors get-dashboard (a per-month re-call would miss it).
+      const nets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, month, competenceOf);
       for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
-        const ledgerM = computePersonBalancesForMonth(
-          ws.people,
-          ws.transactions,
-          ws.settlements,
-          m,
-          competenceOf,
-          currentMonth,
-        );
-        for (const v of ledgerM.values()) peopleNet += v.cents;
+        for (const person of ws.people) peopleNet += nets.get(person.id)?.get(m) ?? 0;
       }
     }
     return { eomSum, obligations, peopleNet, total: eomSum - obligations + peopleNet };

@@ -7,7 +7,7 @@ import {
   computeCardBillsForMonth,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
-import { computePersonBalancesForMonth } from "@/domain/services/person-ledger.calculator";
+import { computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -129,15 +129,12 @@ export async function getDashboard(
     ? computeCardBills(ws.creditCards, ws.transactions)
     : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
   const outstandings = computeCardOutstandings(ws.creditCards, ws.transactions, currentMonth, competenceOf);
-  // Person nets scoped to the browsed month (drives "A receber" + "Pessoas com pendências").
-  const ledgerMonth = computePersonBalancesForMonth(
-    ws.people,
-    ws.transactions,
-    ws.settlements,
-    month,
-    competenceOf,
-    currentMonth,
-  );
+  // Per-person, per-month nets through the browsed month, in ONE pass — a pre-payment
+  // (settlement before the debt's competence) re-buckets onto the debt's month, so the
+  // month slices stay consistent when summed (a per-month re-call would lock each month at
+  // its own horizon and miss a later settlement that retroactively clears an earlier debt).
+  const monthNets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, month, competenceOf);
+  const personNetFor = (personId: string, m: CompetenceMonth): number => monthNets.get(personId)?.get(m) ?? 0;
   // The month's set: real movements always, plus the projected ("previsto") recurring
   // occurrences for FUTURE months — so browsing months ahead shows expected income and
   // spending. Past/current stay real-only (history/actuals unchanged).
@@ -178,7 +175,7 @@ export async function getDashboard(
       name: person.name,
       relationship: person.relationship,
       color: person.color,
-      balanceCents: (ledgerMonth.get(person.id) ?? Money.zero()).cents,
+      balanceCents: personNetFor(person.id, month),
     }))
     .filter((person) => person.balanceCents !== 0)
     .sort((a, b) => b.balanceCents - a.balanceCents);
@@ -217,15 +214,7 @@ export async function getDashboard(
   // be cumulative over the same window too — otherwise a past month's obligation gets
   // subtracted without crediting that month's receivable.
   for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
-    const ledgerM = computePersonBalancesForMonth(
-      ws.people,
-      ws.transactions,
-      ws.settlements,
-      m,
-      competenceOf,
-      currentMonth,
-    );
-    for (const value of ledgerM.values()) projectedBalanceCents += value.cents;
+    for (const person of ws.people) projectedBalanceCents += personNetFor(person.id, m);
   }
 
   // Personal projection: accounts count only the user's share + drop reimbursements;

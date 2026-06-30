@@ -17,6 +17,7 @@ import {
   computePersonBalancesForMonth,
   computePersonBalancesThrough,
   computePersonLedger,
+  computePersonMonthNets,
   type LedgerMovement,
 } from "./person-ledger.calculator";
 
@@ -426,6 +427,147 @@ describe("computePersonBalancesForMonth", () => {
     expect(
       computePersonBalancesForMonth(people, txs, [], "2026-07", calOf, "2026-06").get("p-ana")?.cents,
     ).toBe(10_000);
+  });
+
+  // Pre-payment: a person pays BEFORE the debt's competence month (e.g. a card-bill share
+  // sits in August, but they Pix you in June). The payment must cover the debt in its own
+  // month so the month view stops contradicting the all-time "quitado".
+  it("a pre-payment covers a later-competence debt in the debt's month (the pastel case)", () => {
+    const people = [person("p-irmao")];
+    const txs: Transaction[] = [
+      expense({ id: "pastel", date: "2026-08-10", splits: [{ personId: "p-irmao", shareCents: 1_200 }] }),
+    ];
+    const setts: Settlement[] = [
+      { id: "s", personId: "p-irmao", amountCents: 1_200, date: "2026-06-21", accountId: "nu" },
+    ];
+    // August (the bill month) nets to zero — the June pre-payment covered it.
+    expect(
+      computePersonBalancesForMonth(people, txs, setts, "2026-08", calOf, "2026-06").get("p-irmao")?.cents,
+    ).toBe(0);
+    // June shows no spurious credit, and the all-time is quitado.
+    expect(
+      computePersonBalancesForMonth(people, txs, setts, "2026-06", calOf, "2026-06").get("p-irmao")?.cents,
+    ).toBe(0);
+    expect(computePersonBalancesThrough(people, txs, setts, "2026-08", calOf).get("p-irmao")?.cents).toBe(0);
+  });
+
+  it("a partial pre-payment leaves only the remainder in the debt's month", () => {
+    const people = [person("p")];
+    const txs: Transaction[] = [
+      expense({ id: "x", date: "2026-08-10", splits: [{ personId: "p", shareCents: 1_200 }] }),
+    ];
+    const setts: Settlement[] = [
+      { id: "s", personId: "p", amountCents: 500, date: "2026-06-21", accountId: null },
+    ];
+    expect(
+      computePersonBalancesForMonth(people, txs, setts, "2026-08", calOf, "2026-06").get("p")?.cents,
+    ).toBe(700);
+  });
+
+  it("paying AFTER the debt: still owed when browsing the debt month, covered once the horizon includes the payment", () => {
+    const people = [person("p")];
+    const txs: Transaction[] = [
+      expense({ id: "x", date: "2026-08-10", splits: [{ personId: "p", shareCents: 1_200 }] }),
+    ];
+    const setts: Settlement[] = [
+      { id: "s", personId: "p", amountCents: 1_200, date: "2026-09-05", accountId: null },
+    ];
+    // Browsing August (the Sep payment hasn't happened yet): they still owe you.
+    expect(
+      computePersonBalancesForMonth(people, txs, setts, "2026-08", calOf, "2026-08").get("p")?.cents,
+    ).toBe(1_200);
+    // Through September (payment made): the August debt is covered, no spurious 'você deve' in Sep.
+    const nets = computePersonMonthNets(people, txs, setts, "2026-09", calOf).get("p");
+    expect(nets?.get("2026-08") ?? 0).toBe(0);
+    expect(nets?.get("2026-09") ?? 0).toBe(0);
+  });
+});
+
+// =============================================================================
+// computePersonMonthNets — per-month nets with pre-payment re-bucketing.
+// =============================================================================
+
+describe("computePersonMonthNets", () => {
+  it("re-buckets a settlement onto the oldest debt month it covers", () => {
+    const people = [person("p")];
+    const txs: Transaction[] = [
+      expense({ id: "jul", date: "2026-07-10", splits: [{ personId: "p", shareCents: 1_000 }] }),
+      expense({ id: "aug", date: "2026-08-10", splits: [{ personId: "p", shareCents: 1_200 }] }),
+    ];
+    const setts: Settlement[] = [
+      { id: "s", personId: "p", amountCents: 1_500, date: "2026-06-21", accountId: null },
+    ];
+    const nets = computePersonMonthNets(people, txs, setts, "2026-08", calOf).get("p");
+    expect(nets?.get("2026-07") ?? 0).toBe(0); // oldest fully covered
+    expect(nets?.get("2026-08") ?? 0).toBe(700); // remainder
+  });
+
+  // Master invariant: in a SINGLE pass, the month nets sum to the through-balance.
+  it("Σ over months === computePersonBalancesThrough(H) (property)", () => {
+    const personIdArb = fc.constantFrom("p-a", "p-b", "p-c");
+    const monthArb = fc.constantFrom("2026-01", "2026-02", "2026-03", "2026-04", "2026-05");
+    const dateIn = (m: string) => `${m}-10`;
+    const shareArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      shareCents: fc.integer({ min: 1, max: 100_000 }),
+    });
+    const payArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      amountCents: fc.integer({ min: 1, max: 50_000 }),
+    });
+    const settArb = fc.record({
+      personId: personIdArb,
+      month: monthArb,
+      amountCents: fc.integer({ min: 1, max: 120_000 }),
+    });
+
+    fc.assert(
+      fc.property(
+        fc.array(shareArb, { maxLength: 12 }),
+        fc.array(payArb, { maxLength: 8 }),
+        fc.array(settArb, { maxLength: 6 }),
+        monthArb,
+        (shares, pays, setts, horizon) => {
+          const people = [person("p-a"), person("p-b"), person("p-c")];
+          const txs: Transaction[] = [
+            ...shares.map(
+              (s, i): Transaction =>
+                expense({
+                  id: `e${i}`,
+                  date: dateIn(s.month),
+                  splits: [{ personId: s.personId, shareCents: s.shareCents }],
+                }),
+            ),
+            ...pays.map(
+              (p, i): Transaction =>
+                income({
+                  id: `i${i}`,
+                  date: dateIn(p.month),
+                  amountCents: p.amountCents,
+                  fromPersonId: p.personId,
+                }),
+            ),
+          ];
+          const settlements: Settlement[] = setts.map((s, i) => ({
+            id: `s${i}`,
+            personId: s.personId,
+            amountCents: s.amountCents,
+            date: dateIn(s.month),
+            accountId: null,
+          }));
+
+          const nets = computePersonMonthNets(people, txs, settlements, horizon, calOf);
+          const through = computePersonBalancesThrough(people, txs, settlements, horizon, calOf);
+          for (const id of ["p-a", "p-b", "p-c"]) {
+            let sum = 0;
+            for (const c of nets.get(id)?.values() ?? []) sum += c;
+            expect(sum).toBe(through.get(id)?.cents ?? 0);
+          }
+        },
+      ),
+    );
   });
 });
 
