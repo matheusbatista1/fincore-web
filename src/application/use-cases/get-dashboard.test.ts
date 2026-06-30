@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Account } from "@/domain/entities/account";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
+import type { Settlement } from "@/domain/entities/settlement";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
@@ -70,6 +71,7 @@ function stubRepo(
   transactions: (ExpenseTransaction | IncomeTransaction)[],
   cards: CreditCard[] = [],
   people: Person[] = [],
+  settlements: Settlement[] = [],
 ): FinanceRepository {
   const ws: Workspace = {
     accounts: [account],
@@ -77,7 +79,7 @@ function stubRepo(
     people,
     categories: [],
     transactions,
-    settlements: [],
+    settlements,
     budgets: [],
     goals: [],
     cardBillDates: [],
@@ -188,6 +190,33 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     expect(data.projectedBalanceCents).toBe(70000); // 100000 − 30000
     // Personal debits only my share (10000) → 90000.
     expect(data.projectedBalancePersonalCents).toBe(90000);
+  });
+
+  it("a person's pre-payment of a future-bill share is covered (no double-count)", async () => {
+    const irmao: Person = { id: "p1", name: "Irmão", relationship: "Família", color: "#000000" };
+    // Pastel R$43 on the card, billed in August (override); brother owes R$12, my share R$31.
+    const pastel = expense({
+      id: "pastel",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-06-12",
+      billMonthOverride: "2026-08",
+      amountCents: -4300,
+      myShareCents: 3100,
+      splits: [{ personId: "p1", shareCents: 1200 }],
+      recurrence: null,
+    });
+    // Brother pre-paid R$12 in June into the account.
+    const setts: Settlement[] = [
+      { id: "s", personId: "p1", amountCents: 1200, date: "2026-06-12", accountId: "acc-1" },
+    ];
+    const data = await getDashboard(stubRepo([pastel], [card], [irmao], setts), "u", "2026-08");
+    // August "a receber" is 0 — the June pre-payment covered the brother's August-bill share.
+    expect(data.aReceberCents).toBe(0);
+    // Projection: opening 100000 + 1200 (settlement cash) − 4300 (bill) + 0 (people) = 96900,
+    // i.e. −R$31 net from the pastel — the R$12 is NOT counted twice.
+    expect(data.projectedBalanceCents).toBe(96900);
   });
 
   it("future month: a recurring shared expense projects the person's a-receber", async () => {

@@ -205,15 +205,87 @@ export function computePersonBalances(
 }
 
 /**
- * Per-person NET for a single month — the change a person's balance saw in `month`.
+ * Per-person, per-month NET through `throughMonth`, where each settlement's effect is
+ * re-attributed to the competence month(s) of the DEBITS it covers (oldest competence
+ * first) instead of the settlement's own date-month.
  *
- * Unlike {@link computePersonBalances} (all-time), this is the month's flow: the sum of
- * their expense shares with competence `month`, minus payments received from them in
- * `month`, then settlements dated in `month` applied toward zero (same clamp as the
- * all-time ledger, but against the month's own net). For FUTURE months (`month >
- * currentMonth`) it also folds in the projected ("previsto") recurring occurrences, so a
- * recurring shared expense still counts what the person will owe that month. Convention
- * unchanged: `> 0` they owe you, `< 0` you owe them.
+ * Why: a card-expense share is bucketed by the card's BILL month, but a person often
+ * pays you BEFORE the bill (a "pre-payment" — settlement dated earlier than the debt's
+ * competence). The naive per-month view clamps that payment to zero in its own month and
+ * shows the debt unpaid in the bill month, which (a) contradicts the all-time "quitado"
+ * and (b) double-counts the cash in the dashboard projection. Re-bucketing the
+ * settlement's coverage onto the debt's month fixes both.
+ *
+ * Built from {@link computePersonLedger}'s movements (which reconcile exactly to the
+ * through-balance, clamps and all), then only the settlement deltas are redistributed —
+ * the per-person totals are preserved, so for every person:
+ *   `Σ_{m ≤ throughMonth} net(m) === computePersonBalancesThrough(throughMonth)`.
+ * Convention unchanged: `> 0` they owe you, `< 0` you owe them.
+ *
+ * @returns personId → (competence month → signed net cents). Zero buckets are omitted.
+ */
+export function computePersonMonthNets(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Map<CompetenceMonth, number>> {
+  const { movements } = computePersonLedger(people, transactions, settlements, throughMonth, competenceOf);
+
+  const byPerson = new Map<string, LedgerMovement[]>();
+  for (const mv of movements) {
+    const list = byPerson.get(mv.personId);
+    if (list) list.push(mv);
+    else byPerson.set(mv.personId, [mv]);
+  }
+
+  const result = new Map<string, Map<CompetenceMonth, number>>();
+  for (const person of people) result.set(person.id, new Map());
+
+  for (const [personId, mvs] of byPerson) {
+    const buckets = new Map<CompetenceMonth, number>();
+    const add = (m: CompetenceMonth, c: number) => buckets.set(m, (buckets.get(m) ?? 0) + c);
+
+    // Shares + income payments stay at their own competence; settlements are re-bucketed.
+    const settlementMvs: LedgerMovement[] = [];
+    for (const mv of mvs) {
+      if (mv.source.type === "settlement") settlementMvs.push(mv);
+      else add(mv.competence, mv.signedDeltaCents);
+    }
+    // Each settlement's clamped delta reduces the oldest opposite-sign buckets toward zero.
+    for (const mv of settlementMvs) {
+      let remaining = mv.signedDeltaCents; // <0 reduces positive (they owe you), >0 reduces negative
+      if (remaining === 0) continue;
+      for (const m of [...buckets.keys()].sort((a, b) => compareMonths(a, b))) {
+        if (remaining === 0) break;
+        const b = buckets.get(m) ?? 0;
+        if (remaining < 0 && b > 0) {
+          const take = Math.min(-remaining, b);
+          add(m, -take);
+          remaining += take;
+        } else if (remaining > 0 && b < 0) {
+          const take = Math.min(remaining, -b);
+          add(m, take);
+          remaining -= take;
+        }
+      }
+    }
+
+    const out = result.get(personId) ?? new Map<CompetenceMonth, number>();
+    for (const [m, c] of buckets) if (c !== 0) out.set(m, c);
+    result.set(personId, out);
+  }
+
+  return result;
+}
+
+/**
+ * Per-person NET for a single month — the change a person's balance saw in `month`,
+ * with pre-payments correctly covering their (possibly later-competence) debts. A thin
+ * selector over {@link computePersonMonthNets}. Convention: `> 0` they owe you, `< 0` you
+ * owe them. (`currentMonth` is accepted for signature stability; projection now follows
+ * the through-ledger.)
  *
  * @returns a Map from personId to their month net as Money; every `people` id is present.
  */
@@ -223,18 +295,14 @@ export function computePersonBalancesForMonth(
   settlements: readonly Settlement[],
   month: CompetenceMonth,
   competenceOf: CompetenceResolver,
-  currentMonth: CompetenceMonth,
+  _currentMonth: CompetenceMonth,
 ): Map<string, Money> {
-  // Real movements of the month (including an installment parcela whose competence is
-  // this month, even if its status is "futura"), plus the projected recurring for future
-  // months (their `.source` carries the splits / fromPersonId).
-  const real = transactions.filter((t) => competenceOf(t) === month);
-  const projected =
-    compareMonths(month, currentMonth) > 0
-      ? projectRecurring(transactions, month, competenceOf).map((p) => p.source)
-      : [];
-  const monthSettlements = settlements.filter((s) => monthOf(s.date) === month);
-  return accumulate(people, [...real, ...projected], monthSettlements, true);
+  const nets = computePersonMonthNets(people, transactions, settlements, month, competenceOf);
+  const out = new Map<string, Money>();
+  for (const person of people) {
+    out.set(person.id, Money.fromCents(nets.get(person.id)?.get(month) ?? 0));
+  }
+  return out;
 }
 
 /**
