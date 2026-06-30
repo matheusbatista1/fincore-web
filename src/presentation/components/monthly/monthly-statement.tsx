@@ -17,12 +17,14 @@ import { useUIStore } from "@/presentation/stores/ui-store";
 
 /**
  * Recast a group through the personal lens: expenses show only the user's share,
- * income drops reimbursements; transfers and the general lens pass through.
+ * income drops reimbursements; settlements ("Acerto") are reimbursements of others'
+ * shares, so they're dropped from both directions (mirrors balance.calculator's
+ * personal lens, which ignores settlements). Transfers and the general lens pass through.
  */
-function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
+export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
   if (!isPersonal || !group.lens || group.lens === "transfer") return group;
   if (group.lens === "income") {
-    const items = group.items.filter((i) => !i.isReimbursement);
+    const items = group.items.filter((i) => !i.isReimbursement && !i.settlement);
     return {
       ...group,
       items,
@@ -32,11 +34,13 @@ function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
       countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
     };
   }
-  // expense: display only the user's own share per row.
-  const items = group.items.map((i) => ({
-    ...i,
-    amountCents: -(i.myShareCents ?? Math.abs(i.amountCents)),
-  }));
+  // expense: drop settlements, then display only the user's own share per row.
+  const items = group.items
+    .filter((i) => !i.settlement)
+    .map((i) => ({
+      ...i,
+      amountCents: -(i.myShareCents ?? Math.abs(i.amountCents)),
+    }));
   return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
 }
 
