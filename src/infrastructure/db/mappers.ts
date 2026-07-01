@@ -187,5 +187,8 @@ export function toTransaction(row: TransactionRow, splits: readonly SplitRow[] =
     recurrence,
     billMonthOverride: row.billMonthOverride ?? null,
     rolledAt: row.rolledAt ? (row.rolledAt.toISOString().slice(0, 10) as IsoDate) : null,
+    paidAt: (row.paidAt as IsoDate | null) ?? null,
+    paidAccountId: row.paidAccountId ?? null,
+    paidAmountCents: row.paidAmountCents ?? null,
   };
 }

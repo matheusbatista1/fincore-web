@@ -1,4 +1,4 @@
-import { isRolled } from "@/domain/entities/transaction";
+import { isExpense, isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
@@ -31,6 +31,14 @@ export interface MonthlyTotals {
   readonly netCents: number;
 }
 
+/** A paid deferred obligation's cash movement, in the month it was PAID (may differ from its due
+ * month). Used by the Carteiras per-account in/out flow, which buckets by cash-movement month —
+ * a paid boleto's accountId is null (its bank is in paidAccountId), so it needs its own channel. */
+export interface PaidObligationFlow {
+  readonly accountId: string;
+  readonly outCents: number;
+}
+
 /** Serializable monthly statement: realized totals, projected totals and the rows. */
 export interface MonthlyData {
   readonly month: CompetenceMonth;
@@ -39,6 +47,8 @@ export interface MonthlyData {
   /** Totals including projected recurring occurrences ("previsto"). */
   readonly projectedTotals: MonthlyTotals;
   readonly items: MonthlyItem[];
+  /** Paid obligations whose payment landed in this month (for the Carteiras per-account flow). */
+  readonly paidObligationFlows: PaidObligationFlow[];
 }
 
 function sumTotals(items: readonly MonthlyItem[]): MonthlyTotals {
@@ -105,6 +115,12 @@ export async function getMonthly(
         billMonthOverride: null,
         isFixed: false,
         rolled: false,
+        isPayable: false,
+        isPaid: false,
+        paidAt: null,
+        paidAccountId: null,
+        paidAccountLabel: null,
+        paidAmountCents: null,
         shares: [],
         myShareCents: owedToYou ? null : s.amountCents,
         isReimbursement: false,
@@ -139,10 +155,21 @@ export async function getMonthly(
 
   const items = [...realItems, ...projectedItems].sort(byDateDesc);
 
+  // Paid deferred obligations (boleto/loan/financing) move cash on their paid date — which may
+  // fall in a different month than their due (competence) month, so they're NOT in `items` for the
+  // paid month. Their accountId is null (the bank is in paidAccountId), so the Carteiras flow can't
+  // derive them from the rows. Surface them here, bucketed by the month the payment landed.
+  const paidObligationFlows: PaidObligationFlow[] = ws.transactions.flatMap((tx) => {
+    if (!isExpense(tx) || !isPayableObligation(tx) || !isPaid(tx) || isRolled(tx)) return [];
+    if (tx.paidAccountId == null || tx.paidAt == null || monthOf(tx.paidAt) !== month) return [];
+    return [{ accountId: tx.paidAccountId, outCents: tx.paidAmountCents ?? Math.abs(tx.amountCents) }];
+  });
+
   return {
     month,
     realized: sumTotals(realItems),
     projectedTotals: sumTotals(items),
     items,
+    paidObligationFlows,
   };
 }

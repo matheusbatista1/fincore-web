@@ -29,6 +29,7 @@ export default async function WalletsPage({
     <WalletsView
       accounts={accounts}
       items={monthly.items}
+      paidFlows={monthly.paidObligationFlows}
       month={month}
       isCurrent={month === current}
       prevHref={`/wallets?m=${addMonths(month, -1)}`}

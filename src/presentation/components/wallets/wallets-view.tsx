@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import type { MonthlyItem } from "@/application/use-cases/get-monthly";
+import type { MonthlyItem, PaidObligationFlow } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import {
@@ -24,6 +24,7 @@ const themeAccent = (themeKey: string, bank: string): string => resolveBankTheme
 export function WalletsView({
   accounts,
   items,
+  paidFlows,
   month,
   isCurrent,
   prevHref,
@@ -32,6 +33,8 @@ export function WalletsView({
   accounts: AccountView[];
   /** The browsed month's movements (real + projected), from getMonthly. */
   items: MonthlyItem[];
+  /** Paid obligations whose payment landed this month (bucketed by paid date, not due date). */
+  paidFlows: PaidObligationFlow[];
   month: string;
   isCurrent: boolean;
   prevHref: string;
@@ -63,8 +66,15 @@ export function WalletsView({
       if (t.amountCents > 0) acc.in += t.amountCents;
       else acc.out += Math.abs(t.amountCents);
     }
+    // Paid deferred obligations debit their paying account on the paid date (their row lives in the
+    // due month with a null accountId, so they're not in the loop above). Attribute the out-flow to
+    // paidAccountId so the per-account "saídas" reconciles with the balance movement.
+    for (const pf of paidFlows) {
+      const acc = f.get(pf.accountId);
+      if (acc) acc.out += pf.outCents;
+    }
     return f;
-  }, [items, accounts]);
+  }, [items, paidFlows, accounts]);
 
   const cash = (cents: number): string => (privacy ? "•••" : formatBRLAbsolute(cents));
 

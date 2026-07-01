@@ -4,7 +4,7 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
-import { isExpense, isIncome, isTransfer } from "@/domain/entities/transaction";
+import { isExpense, isIncome, isPaid, isPayableObligation, isTransfer } from "@/domain/entities/transaction";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
@@ -62,6 +62,18 @@ export interface TransactionListItem {
   readonly isFixed: boolean;
   /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
   readonly rolled: boolean;
+  /** True when this is a payable obligation (boleto/loan/financing) that can be settled via the Pay flow. */
+  readonly isPayable: boolean;
+  /** True when a deferred obligation has been paid (see paidAt/paidAccountId/paidAmountCents). */
+  readonly isPaid: boolean;
+  /** Date the payment was made (`YYYY-MM-DD`); null when unpaid. */
+  readonly paidAt: IsoDate | null;
+  /** Account the payment was drawn from; null when unpaid. */
+  readonly paidAccountId: string | null;
+  /** Resolved label of the paying account ("Itaú · Conta principal"); null when unpaid. */
+  readonly paidAccountLabel: string | null;
+  /** Amount actually paid, in cents; null when unpaid. */
+  readonly paidAmountCents: number | null;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
@@ -117,6 +129,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       billMonthOverride: null,
       isFixed: false,
       rolled: false,
+      isPayable: false,
+      isPaid: false,
+      paidAt: null,
+      paidAccountId: null,
+      paidAccountLabel: null,
+      paidAmountCents: null,
       fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
@@ -165,6 +183,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         billMonthOverride: tx.billMonthOverride,
         isFixed: tx.recurrence !== null,
         rolled: tx.rolledAt != null,
+        isPayable: isPayableObligation(tx),
+        isPaid: isPaid(tx),
+        paidAt: tx.paidAt ?? null,
+        paidAccountId: tx.paidAccountId ?? null,
+        paidAccountLabel: tx.paidAccountId ? (accountName.get(tx.paidAccountId) ?? null) : null,
+        paidAmountCents: tx.paidAmountCents ?? null,
         shares,
         myShareCents: tx.myShareCents,
       };

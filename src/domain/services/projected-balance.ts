@@ -51,7 +51,14 @@ export function projectedMonthEndBalances(
   const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31), lens, settlements);
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
-      for (const [accountId, delta] of accountDeltas(occurrence.source, lens)) {
+      // A projected FUTURE occurrence is a fresh, not-yet-paid (nor rolled) instance — it must
+      // never inherit the anchor's paid state, or accountDeltas would re-debit the paying account
+      // every projected month. Stripped, a deferred obligation correctly debits no account.
+      const src = occurrence.source;
+      const forProjection = isExpense(src)
+        ? { ...src, paidAt: null, paidAccountId: null, paidAmountCents: null, rolledAt: null }
+        : src;
+      for (const [accountId, delta] of accountDeltas(forProjection, lens)) {
         const current = balances.get(accountId);
         if (current !== undefined) balances.set(accountId, current.add(delta));
       }
@@ -99,9 +106,21 @@ export function obligationsDueThrough(
   }
 
   // Overdraft (cheque especial) is excluded: it debits its linked account, so it is already
-  // in the projected balance — counting it here too would double-subtract it.
+  // in the projected balance — counting it here too would double-subtract it. A PAID obligation
+  // is excluded ONLY once its debit has actually landed in the projected balance — i.e. its
+  // paidAt is on/before the browsed range's month-end (the same cutoff computeAccountBalances
+  // uses). While paidAt is still AFTER that month-end (a payment dated later than the month being
+  // projected), the debit isn't in the balance yet, so the obligation must still count as pending
+  // — otherwise it would vanish from both the balance and the obligations and overstate the total.
+  const obligationCutoff = dateInMonth(toMonth, 31);
+  const debitLanded = (tx: Transaction): boolean =>
+    isExpense(tx) && tx.paidAt != null && tx.paidAt <= obligationCutoff;
   const isObligation = (tx: Transaction): tx is ExpenseTransaction =>
-    isExpense(tx) && tx.source !== "account" && tx.source !== "overdraft" && !isRolled(tx);
+    isExpense(tx) &&
+    tx.source !== "account" &&
+    tx.source !== "overdraft" &&
+    !isRolled(tx) &&
+    !debitLanded(tx);
 
   let net = Money.zero();
   for (const tx of transactions) {

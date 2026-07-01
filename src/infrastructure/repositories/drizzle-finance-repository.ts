@@ -14,6 +14,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { type ModuleKey, sanitizeModules } from "@/shared/modules";
 import type {
   AccountInput,
@@ -478,6 +479,36 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .set({ rolledAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.transactions.id, originalId));
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async payTransaction(
+    userId: string,
+    id: string,
+    payment: { paidAt: IsoDate; paidAccountId: string; paidAmountCents: number },
+  ): Promise<void> {
+    // Record the payment on a deferred obligation: it debits the paying account on `paidAt`
+    // (the original occurred_on/amount stay intact for history). RLS scopes the row to the user.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({
+          paidAt: payment.paidAt,
+          paidAccountId: payment.paidAccountId,
+          paidAmountCents: payment.paidAmountCents,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async undoPayment(userId: string, id: string): Promise<void> {
+    // Revert a payment: clear the paid fields so the obligation is pending again.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ paidAt: null, paidAccountId: null, paidAmountCents: null, updatedAt: new Date() })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
     });
   }
 

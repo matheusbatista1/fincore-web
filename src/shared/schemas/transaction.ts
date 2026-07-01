@@ -171,6 +171,22 @@ export const moveBillSchema = z.object({
   direction: z.enum(["prev", "next"]),
 });
 
+/**
+ * Pay a deferred obligation (boleto/loan/financing): choose the paying account, optionally the
+ * paid date (defaults to today) and a custom paid amount (early settlement, e.g. a loan discount).
+ * The original due date and amount are kept intact for history.
+ */
+export const payTransactionSchema = z.object({
+  id: idSchema,
+  paidAccountId: idSchema,
+  paidAt: isoDateSchema.optional(),
+  paidAmountCents: centsSchema.positive("Informe um valor maior que zero.").optional(),
+});
+export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
+
+/** Revert a payment (make the obligation pending again). */
+export const undoPaymentSchema = z.object({ id: idSchema });
+
 export const settlementInputSchema = z.object({
   personId: idSchema,
   amountCents: centsSchema.positive("Informe um valor maior que zero."),
