@@ -28,7 +28,14 @@
 import type { Account } from "../entities/account";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome, isRolled, isTransfer } from "../entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isPaid,
+  isPayableObligation,
+  isRolled,
+  isTransfer,
+} from "../entities/transaction";
 import { Money } from "../money/money";
 import type { IsoDate } from "../value-objects/competence-month";
 import { computePersonBalances } from "./person-ledger.calculator";
@@ -44,6 +51,9 @@ import type { ViewMode } from "./personal-vs-general";
 function affectsBalance(tx: Transaction): boolean {
   // A rolled (abated) expense is excluded from balances — the new rolled-into debt replaces it.
   if (isRolled(tx)) return false;
+  // A paid deferred obligation always moves cash on its paid date, regardless of installment
+  // status — you can settle a `futura` parcela early and it must debit the paying account.
+  if (isExpense(tx) && isPaid(tx)) return true;
   if (isExpense(tx) && tx.installment !== null) {
     return tx.installment.status === "atual";
   }
@@ -97,6 +107,22 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
   // from its linked account and debits it too (the balance can go negative). Card and
   // the other linked sources (boleto/loan/financing) never move a balance.
   if (isExpense(tx)) {
+    // A paid deferred obligation (boleto/loan/financing) debits its paying account by the amount
+    // actually paid, on its paid date. The effective-date cutoff in computeAccountBalances gates
+    // this by `paidAt` (which may differ from the due date). Card charges are settled through the
+    // whole bill, never per-charge, so `isPayableObligation` keeps them out.
+    const paidAccountId = tx.paidAccountId ?? null;
+    if (isPaid(tx) && isPayableObligation(tx) && paidAccountId !== null) {
+      const paidCents = tx.paidAmountCents ?? Math.abs(tx.amountCents);
+      // Personal debits only the user's own share when the obligation is shared; otherwise the
+      // full amount paid (loans/financing/taxes are essentially never split).
+      const magnitude =
+        lens === "personal" && tx.splits.length > 0
+          ? Money.fromCents(tx.myShareCents)
+          : Money.fromCents(paidCents);
+      credit(paidAccountId, magnitude.negate());
+      return deltas;
+    }
     const debitAccountId =
       tx.source === "account" ? tx.accountId : tx.source === "overdraft" ? tx.linkedAccountId : null;
     if (debitAccountId !== null) {
@@ -108,6 +134,15 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
   }
 
   return deltas;
+}
+
+/**
+ * The date a transaction's account effect lands on. A paid deferred obligation moves cash on its
+ * `paidAt` (which may differ from the due date it's still filed under); everything else uses its
+ * own date. Used to gate the balance cutoff in {@link computeAccountBalances}.
+ */
+function balanceEffectiveDate(tx: Transaction): IsoDate {
+  return isExpense(tx) && tx.paidAt != null ? tx.paidAt : tx.date;
 }
 
 /**
@@ -138,7 +173,8 @@ export function computeAccountBalances(
   // Apply each transaction's deltas. Deltas referencing an unknown account id
   // (e.g. an account not in `accounts`) are ignored, matching the prototype's
   // `commitTx`, which only updates accounts that exist in its list.
-  const applicable = upToDate === undefined ? transactions : transactions.filter((tx) => tx.date <= upToDate);
+  const applicable =
+    upToDate === undefined ? transactions : transactions.filter((tx) => balanceEffectiveDate(tx) <= upToDate);
   for (const tx of applicable) {
     for (const [accountId, delta] of accountDeltas(tx, lens)) {
       const current = balances.get(accountId);

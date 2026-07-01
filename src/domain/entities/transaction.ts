@@ -66,6 +66,22 @@ export interface ExpenseTransaction extends BaseTransaction {
    * ledger (the new expense takes its place). Null/absent = a normal, active expense.
    */
   readonly rolledAt?: IsoDate | null;
+  /**
+   * When a deferred obligation (boleto/loan/financing) has been PAID: the date the money
+   * actually left the account. Set alongside {@link paidAccountId} and {@link paidAmountCents}.
+   * The original {@link date} (due date) and {@link amountCents} are kept intact for tracking —
+   * a paid obligation debits its paying account on `paidAt` and drops out of the pending
+   * obligations. Null/absent = not yet paid. Card charges are never paid per-item (settled via
+   * the whole bill), so this stays null for `source === "card"`.
+   */
+  readonly paidAt?: IsoDate | null;
+  /** The account the payment was drawn from (debited on {@link paidAt}). Set iff paid. */
+  readonly paidAccountId?: string | null;
+  /**
+   * The amount actually paid, in cents (> 0). May differ from `|amountCents|` when a loan or
+   * financing is settled early with a discount. Defaults to `|amountCents|` when unspecified.
+   */
+  readonly paidAmountCents?: number | null;
 }
 
 /**
@@ -113,3 +129,26 @@ export const isCardCredit = (t: Transaction): t is IncomeTransaction & { cardId:
  */
 export const isRolled = (t: Transaction): boolean =>
   isExpense(t) && t.rolledAt !== null && t.rolledAt !== undefined;
+
+/**
+ * A PAID expense: a deferred obligation that has been settled. It debits its paying account on
+ * `paidAt` (see the balance calculator) and drops out of the pending obligations, while keeping
+ * its original due date and amount for history.
+ */
+export const isPaid = (t: Transaction): boolean =>
+  isExpense(t) && t.paidAt !== null && t.paidAt !== undefined;
+
+/**
+ * A "payable obligation" — a deferred expense the user settles individually via the Pay flow:
+ * boleto, loan and financing. Excludes `account`/`overdraft` (those already debit a balance when
+ * booked) and `card` (settled through the whole bill, never per-charge).
+ */
+export const isPayableObligation = (t: Transaction): t is ExpenseTransaction =>
+  isExpense(t) && t.source !== "account" && t.source !== "overdraft" && t.source !== "card";
+
+/**
+ * An OVERDUE obligation: a payable obligation, not yet paid nor rolled, whose due date is strictly
+ * before `today`. Surfaced as an "Atrasado" signal when automatic payments are off.
+ */
+export const isOverdue = (t: Transaction, today: IsoDate): boolean =>
+  isPayableObligation(t) && !isPaid(t) && !isRolled(t) && t.date < today;

@@ -200,6 +200,17 @@ export interface FinanceRepository {
    * calculations) and persist `command` (the new debt on the chosen instrument), atomically.
    */
   rollPersonDebt(userId: string, originalId: string, command: CreateTransactionCommand): Promise<void>;
+  /**
+   * Mark a deferred obligation (boleto/loan/financing) as PAID: it debits `paidAccountId` by
+   * `paidAmountCents` on `paidAt`, while its original due date and amount stay intact for history.
+   */
+  payTransaction(
+    userId: string,
+    id: string,
+    payment: { paidAt: IsoDate; paidAccountId: string; paidAmountCents: number },
+  ): Promise<void>;
+  /** Revert a payment: clears the paid fields so the obligation is pending again. */
+  undoPayment(userId: string, id: string): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
   /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */

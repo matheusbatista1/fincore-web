@@ -372,6 +372,90 @@ describe("rolled (abated) expenses are excluded", () => {
   });
 });
 
+describe("paid deferred obligations debit the paying account on their paid date", () => {
+  it("a paid boleto debits its paying account (was invisible while unpaid)", () => {
+    const accounts = [makeAccount("nu", 100_000), makeAccount("it", 0)];
+    // MEI tax: filed under its due date, linked to 'it', but paid from 'nu'.
+    const unpaid = expense(-24_000, { source: "boleto", linkedAccountId: "it", date: "2026-07-20" });
+    expect(computeAccountBalances(accounts, [unpaid]).get("nu")?.cents).toBe(100_000); // no effect while unpaid
+    const paid: ExpenseTransaction = { ...unpaid, paidAt: "2026-07-01", paidAccountId: "nu" };
+    // Paid → debits the chosen account by its amount; the linked 'it' is untouched.
+    expect(computeAccountBalances(accounts, [paid]).get("nu")?.cents).toBe(76_000);
+    expect(computeAccountBalances(accounts, [paid]).get("it")?.cents).toBe(0);
+  });
+
+  it("the debit lands on the paid date, not the (later) due date", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // Due 2026-07-20 but paid early on 2026-07-01.
+    const paid: ExpenseTransaction = {
+      ...expense(-24_000, { source: "boleto", linkedAccountId: "it", date: "2026-07-20" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+    };
+    // As of 2026-07-10 the money already left (paidAt passed) even though the due date hasn't.
+    expect(computeAccountBalances(accounts, [paid], "2026-07-10").get("nu")?.cents).toBe(76_000);
+    // As of 2026-06-30 neither date has arrived → untouched.
+    expect(computeAccountBalances(accounts, [paid], "2026-06-30").get("nu")?.cents).toBe(100_000);
+  });
+
+  it("respects a custom paid amount (loan settled early with a discount)", () => {
+    const accounts = [makeAccount("nu", 200_000)];
+    const paid: ExpenseTransaction = {
+      ...expense(-100_000, { source: "loan", linkedAccountId: "nu", date: "2026-08-05" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+      paidAmountCents: 90_000, // R$100 owed, settled for R$90
+    };
+    expect(computeAccountBalances(accounts, [paid], "2026-07-01").get("nu")?.cents).toBe(110_000);
+  });
+
+  it("falls back to the full amount when no custom paid amount is given", () => {
+    const accounts = [makeAccount("nu", 200_000)];
+    const paid: ExpenseTransaction = {
+      ...expense(-64_000, { source: "loan", linkedAccountId: "nu" }),
+      paidAt: "2026-06-01",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [paid]).get("nu")?.cents).toBe(136_000);
+  });
+
+  it("personal lens debits only the user's share for a shared obligation, full when unshared", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const sharedPaid: ExpenseTransaction = {
+      ...expense(-30_000, { source: "boleto", linkedAccountId: "it" }),
+      splits: [{ personId: "p1", shareCents: 20_000 }],
+      myShareCents: 10_000,
+      paidAt: "2026-06-05",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [sharedPaid]).get("nu")?.cents).toBe(70_000); // general: full
+    expect(computeAccountBalances(accounts, [sharedPaid], undefined, "personal").get("nu")?.cents).toBe(
+      90_000,
+    ); // personal: only the R$100 share
+  });
+
+  it("a paid 'futura' installment still debits (you can settle a parcela early)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const paidFuture: ExpenseTransaction = {
+      ...expense(-10_000, { source: "financing", linkedAccountId: "it", installmentStatus: "futura" }),
+      paidAt: "2026-06-10",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [paidFuture]).get("nu")?.cents).toBe(90_000);
+  });
+
+  it("accountDeltas of a paid obligation is a single debit on the paying account", () => {
+    const paid: ExpenseTransaction = {
+      ...expense(-24_000, { source: "boleto", linkedAccountId: "it" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+    };
+    const deltas = accountDeltas(paid);
+    expect(deltas.size).toBe(1);
+    expect(deltas.get("nu")?.cents).toBe(-24_000);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — the business invariants.
 // ---------------------------------------------------------------------------

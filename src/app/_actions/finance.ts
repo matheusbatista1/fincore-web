@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
+import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -24,9 +25,11 @@ import {
   createTransactionSchema,
   deleteTransactionSchema,
   moveBillSchema,
+  payTransactionSchema,
   rollDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
+  undoPaymentSchema,
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
 
@@ -124,6 +127,34 @@ export async function moveTransactionBillAction(raw: unknown): Promise<ActionSta
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/**
+ * Pay a deferred obligation (boleto/loan/financing): it debits the chosen account on the paid
+ * date, keeping the original due date and amount for history. `paidAt` defaults to today and
+ * `paidAmountCents` to the full amount (a custom value settles early with a discount).
+ */
+export async function payTransactionAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = payTransactionSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await payTransaction(financeRepository, userId, {
+    id: parsed.data.id,
+    paidAccountId: parsed.data.paidAccountId,
+    ...(parsed.data.paidAt !== undefined ? { paidAt: parsed.data.paidAt } : {}),
+    ...(parsed.data.paidAmountCents !== undefined ? { paidAmountCents: parsed.data.paidAmountCents } : {}),
+  });
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Revert a payment: the obligation becomes pending again (money returns to the balance). */
+export async function undoPaymentAction(raw: unknown): Promise<ActionState> {
+  return withParsed(undoPaymentSchema, raw, (userId, input) =>
+    financeRepository.undoPayment(userId, input.id),
+  );
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {

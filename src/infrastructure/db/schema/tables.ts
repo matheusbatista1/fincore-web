@@ -223,6 +223,13 @@ export const transactions = pgTable(
     /** Set when this expense was "rolled" into a new debt: kept for history but abated (excluded
      * from balances/obligations/totals/bills/ledger). Null = active. */
     rolledAt: timestamp("rolled_at", { withTimezone: true }),
+    /** When a deferred obligation (boleto/loan/financing) was PAID: the date the money left the
+     * account. The original occurred_on (due date) and amount_cents stay intact for tracking. */
+    paidAt: date("paid_at", { mode: "string" }),
+    /** Account the payment was drawn from (debited on paid_at). Set together with paid_at. */
+    paidAccountId: uuid("paid_account_id").references(() => accounts.id, { onDelete: "set null" }),
+    /** Amount actually paid, in cents (may differ from amount_cents on early settlement). */
+    paidAmountCents: bigint("paid_amount_cents", { mode: "number" }),
 
     // income-only
     fromPersonId: uuid("from_person_id").references(() => people.id, { onDelete: "set null" }),
@@ -263,6 +270,8 @@ export const transactions = pgTable(
       sql`kind <> 'transfer' OR (transfer_from_account_id IS NOT NULL AND transfer_to_account_id IS NOT NULL AND transfer_value_cents > 0 AND transfer_from_account_id <> transfer_to_account_id)`,
     ),
     check("chk_parcela_pair", sql`(installment_group_id IS NULL) = (parcela_no IS NULL)`),
+    // A payment records its date and paying account together (both or neither).
+    check("chk_paid_pair", sql`(paid_at IS NULL) = (paid_account_id IS NULL)`),
     ownerPolicy("transactions_owner"),
   ],
 );

@@ -164,4 +164,51 @@ describe("getMonthly", () => {
     expect(aug.items.some((i) => i.id === "settle:s1")).toBe(false);
     expect(aug.realized.expenseCents).toBe(4300);
   });
+
+  it("surfaces a paid obligation's out-flow in the month it was paid, on the paying account", async () => {
+    const repo = stubRepo([
+      expense({
+        id: "boleto",
+        source: "boleto",
+        accountId: null,
+        amountCents: -30000,
+        myShareCents: 30000,
+        paidAt: "2026-06-15" as IsoDate,
+        paidAccountId: "acc-1",
+        paidAmountCents: 30000,
+      }),
+    ]);
+    const data = await getMonthly(repo, "u", "2026-06");
+    expect(data.paidObligationFlows).toEqual([{ accountId: "acc-1", outCents: 30000 }]);
+  });
+
+  it("buckets the paid out-flow by the paid month, not the due month", async () => {
+    // Boleto due June 28 but paid July 2 → the cash moved in July.
+    const repo = stubRepo([
+      expense({
+        id: "boleto",
+        source: "boleto",
+        accountId: null,
+        date: "2026-06-28" as IsoDate,
+        amountCents: -30000,
+        myShareCents: 30000,
+        paidAt: "2026-07-02" as IsoDate,
+        paidAccountId: "acc-1",
+        paidAmountCents: 30000,
+      }),
+    ]);
+    // June: the row is a due-month expense, but no cash moved in June → no flow.
+    expect((await getMonthly(repo, "u", "2026-06")).paidObligationFlows).toEqual([]);
+    // July: the payment landed → out-flow on acc-1.
+    expect((await getMonthly(repo, "u", "2026-07")).paidObligationFlows).toEqual([
+      { accountId: "acc-1", outCents: 30000 },
+    ]);
+  });
+
+  it("ignores an unpaid obligation (no cash moved yet)", async () => {
+    const repo = stubRepo([
+      expense({ id: "boleto", source: "boleto", accountId: null, amountCents: -30000, myShareCents: 30000 }),
+    ]);
+    expect((await getMonthly(repo, "u", "2026-06")).paidObligationFlows).toEqual([]);
+  });
 });

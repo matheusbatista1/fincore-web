@@ -1,7 +1,11 @@
 "use client";
 
 import { type CSSProperties, useState } from "react";
-import { deleteTransactionAction, moveTransactionBillAction } from "@/app/_actions/finance";
+import {
+  deleteTransactionAction,
+  moveTransactionBillAction,
+  undoPaymentAction,
+} from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -28,8 +32,23 @@ export function TxDetailModal({ today }: { today: string }) {
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
+  const openPay = useTxUIStore((s) => s.openPay);
   const peopleOn = useModuleEnabled("people");
   const [moving, setMoving] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+
+  async function undoPay(id: string) {
+    if (undoing) return;
+    setUndoing(true);
+    const result = await undoPaymentAction({ id });
+    setUndoing(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast("Pagamento desfeito.");
+    closeDetail();
+  }
 
   async function moveBill(id: string, direction: "prev" | "next") {
     if (moving) return;
@@ -197,6 +216,42 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
+            {tx.isPaid && (
+              <div style={{ marginTop: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>
+                  Pagamento
+                </div>
+                <div className="summary-box" style={{ margin: 0 }}>
+                  <div className="sb-row">
+                    <span className="k">Pago em</span>
+                    <span className="v">{relativeDateLabel(tx.paidAt ?? today, today)}</span>
+                  </div>
+                  <div className="sb-row">
+                    <span className="k">Valor pago</span>
+                    <span className="v">
+                      <Money cents={tx.paidAmountCents ?? 0} withSign={false} />
+                    </span>
+                  </div>
+                  {tx.paidAccountLabel && (
+                    <div className="sb-row">
+                      <span className="k">Conta</span>
+                      <span className="v">{tx.paidAccountLabel}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ marginTop: 10 }}
+                  onClick={() => undoPay(tx.id)}
+                  disabled={undoing}
+                >
+                  <Icon name="rotate-ccw" size={14} />
+                  Desfazer pagamento
+                </button>
+              </div>
+            )}
+
             {peopleOn && tx.shares.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
@@ -257,6 +312,12 @@ export function TxDetailModal({ today }: { today: string }) {
               Excluir
             </button>
             <div className="row gap-2">
+              {tx.isPayable && !tx.isPaid && !tx.rolled && !tx.id.startsWith("proj:") && (
+                <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
+                  <Icon name="wallet" size={16} />
+                  Pagar
+                </button>
+              )}
               <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>
                 <Icon name="pencil" size={16} />
                 Editar
