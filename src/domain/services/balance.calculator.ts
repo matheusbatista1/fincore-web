@@ -26,6 +26,7 @@
  */
 
 import type { Account } from "../entities/account";
+import type { CardBillPayment } from "../entities/card-bill-payment";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import {
@@ -162,6 +163,7 @@ export function computeAccountBalances(
   upToDate?: IsoDate,
   lens: ViewMode = "general",
   settlements: readonly Settlement[] = [],
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
 
@@ -200,6 +202,17 @@ export function computeAccountBalances(
       const cash = owedToYou ? s.amountCents : -s.amountCents;
       balances.set(s.accountId, current.add(Money.fromCents(cash)));
     }
+  }
+
+  // A card fatura payment debits its account by the amount paid, on its pay date. Card charges
+  // never touch a live balance (they defer to the whole bill), so this is the ONLY place a card
+  // moves an account. Applied in BOTH lenses — a fatura is the user's own money and card charges
+  // are not lens-split at the account level (unlike settlements, which the personal lens drops).
+  for (const p of cardBillPayments) {
+    if (upToDate !== undefined && p.date > upToDate) continue;
+    const current = balances.get(p.accountId);
+    if (current === undefined) continue;
+    balances.set(p.accountId, current.subtract(Money.fromCents(p.amountCents)));
   }
 
   return balances;

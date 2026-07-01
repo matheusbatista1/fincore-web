@@ -39,6 +39,7 @@ function stubRepo(transactions: ExpenseTransaction[]): FinanceRepository {
     budgets: [],
     goals: [],
     cardBillDates: [],
+    cardBillPayments: [],
   };
   return { loadWorkspace: async () => ws } as unknown as FinanceRepository;
 }

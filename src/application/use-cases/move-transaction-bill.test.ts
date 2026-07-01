@@ -47,6 +47,7 @@ function workspace(tx: ExpenseTransaction): Workspace {
     budgets: [],
     goals: [],
     cardBillDates: [],
+    cardBillPayments: [],
   };
 }
 

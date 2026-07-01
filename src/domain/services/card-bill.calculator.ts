@@ -19,6 +19,7 @@
  */
 
 import type { CardBillDate } from "../entities/card-bill-date";
+import type { CardBillPayment } from "../entities/card-bill-payment";
 import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, Transaction } from "../entities/transaction";
 import { isExpense, isIncome, isRolled } from "../entities/transaction";
@@ -257,10 +258,19 @@ export function computeCardOutstanding(
   transactions: readonly Transaction[],
   currentMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Money {
+  // A bill explicitly PAID frees its committed limit — the same way past bills (competence <
+  // currentMonth) are presumed paid and excluded. Date-independent: a settled bill releases limit
+  // regardless of when it was paid. Estornos on a paid bill are skipped too (same competence).
+  const paidCompetences = new Set(
+    cardBillPayments.filter((p) => p.cardId === cardId).map((p) => p.competence),
+  );
   let net = Money.zero();
   for (const tx of transactions) {
-    if (compareMonths(competenceOf(tx), currentMonth) < 0) continue;
+    const comp = competenceOf(tx);
+    if (compareMonths(comp, currentMonth) < 0) continue;
+    if (paidCompetences.has(comp)) continue;
     if (isExpense(tx) && tx.source === "card" && tx.cardId === cardId && !isRolled(tx)) {
       net = net.add(Money.fromCents(tx.amountCents).abs());
     } else if (isIncome(tx) && tx.cardId === cardId) {
@@ -280,10 +290,14 @@ export function computeCardOutstandings(
   transactions: readonly Transaction[],
   currentMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Map<string, Money> {
   const out = new Map<string, Money>();
   for (const card of cards) {
-    out.set(card.id, computeCardOutstanding(card.id, transactions, currentMonth, competenceOf));
+    out.set(
+      card.id,
+      computeCardOutstanding(card.id, transactions, currentMonth, competenceOf, cardBillPayments),
+    );
   }
   return out;
 }

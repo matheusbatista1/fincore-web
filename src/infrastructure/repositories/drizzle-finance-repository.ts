@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type {
+  CardBillPaymentData,
   CreateTransactionCommand,
   FinanceRepository,
   NewTransactionEntry,
@@ -29,6 +30,7 @@ import {
   toAccount,
   toBudget,
   toCardBillDate,
+  toCardBillPayment,
   toCategory,
   toCreditCard,
   toGoal,
@@ -181,6 +183,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         budgetRows,
         goalRows,
         cardBillDateRows,
+        cardBillPaymentRows,
       ] = await Promise.all([
         tx.select().from(schema.accounts).where(isNull(schema.accounts.deletedAt)),
         tx.select().from(schema.creditCards).where(isNull(schema.creditCards.deletedAt)),
@@ -192,6 +195,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt)),
         tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt)),
         tx.select().from(schema.cardBillDates),
+        tx.select().from(schema.cardBillPayments).where(isNull(schema.cardBillPayments.deletedAt)),
       ]);
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
@@ -200,6 +204,10 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         list.push(split);
         splitsByTx.set(split.transactionId, list);
       }
+      // A fatura payment whose paying account is no longer live (soft-deleted) reverts to unpaid:
+      // keeping it would free the card limit and drop the projected obligation while no account
+      // reflects the debit. Accounts are soft-deleted, so the FK set-null never fires — filter here.
+      const liveAccountIds = new Set(accountRows.map((a) => a.id));
 
       return {
         accounts: accountRows.map(toAccount),
@@ -211,6 +219,11 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         budgets: budgetRows.map(toBudget),
         goals: goalRows.map(toGoal),
         cardBillDates: cardBillDateRows.map(toCardBillDate),
+        // Drop payments whose paying account is gone (see liveAccountIds above) — the fatura
+        // reverts to unpaid so the balance, limit and projection stay consistent.
+        cardBillPayments: cardBillPaymentRows
+          .map(toCardBillPayment)
+          .filter((p): p is NonNullable<typeof p> => p !== null && liveAccountIds.has(p.accountId)),
       };
     });
   }
@@ -745,6 +758,47 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .update(schema.settlements)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.settlements.id, id));
+    });
+  }
+
+  async payCardBill(userId: string, input: CardBillPaymentData): Promise<void> {
+    // Upsert the one ACTIVE payment for (card, competence): soft-delete any existing active row
+    // (re-pay) then insert the new one — keeps the partial unique index satisfied. RLS-scoped.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.cardBillPayments)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.cardBillPayments.cardId, input.cardId),
+            eq(schema.cardBillPayments.competenceMonth, input.competenceMonth),
+            isNull(schema.cardBillPayments.deletedAt),
+          ),
+        );
+      await tx.insert(schema.cardBillPayments).values({
+        userId,
+        cardId: input.cardId,
+        competenceMonth: input.competenceMonth,
+        amountCents: input.amountCents,
+        accountId: input.accountId,
+        paidOn: input.paidOn,
+        note: input.note ?? null,
+      });
+    });
+  }
+
+  async undoCardBillPayment(userId: string, cardId: string, competenceMonth: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.cardBillPayments)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.cardBillPayments.cardId, cardId),
+            eq(schema.cardBillPayments.competenceMonth, competenceMonth),
+            isNull(schema.cardBillPayments.deletedAt),
+          ),
+        );
     });
   }
 }

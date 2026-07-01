@@ -123,6 +123,30 @@ describe("projectedMonthEndBalances", () => {
     expect(sum(projectedMonthEndBalances([account], [rec], "2026-08", calendar, "2026-07"))).toBe(80000);
     expect(sum(projectedMonthEndBalances([account], [rec], "2026-09", calendar, "2026-07"))).toBe(80000);
   });
+
+  it("debits a paid card fatura from the projected month-end balance on the pay date", () => {
+    // A card charge never debits; paying the fatura (07-05) debits acc-1 by the paid amount.
+    const charge = cardExpense(-30000, "2026-06-10");
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    const out = projectedMonthEndBalances(
+      [account],
+      [charge],
+      "2026-07",
+      calendar,
+      "2026-07",
+      "general",
+      [],
+      [pay],
+    );
+    expect(sum(out)).toBe(70000);
+  });
 });
 
 describe("projectedMonthEndBalances — personal lens", () => {
@@ -310,6 +334,64 @@ describe("obligationsDueThrough", () => {
     expect(sum(projectedMonthEndBalances([account], [paid], "2026-06", calendar, "2026-06"))).toBe(50000);
     // …so it must NOT also be counted as a still-pending obligation.
     expect(obligationsDueThrough([paid], "2026-06", "2026-07", competenceOf).cents).toBe(0);
+  });
+
+  it("excludes a PAID card fatura's charges from the obligations (no double-count)", () => {
+    // Charge 2026-06-10 → bill due July. Paying the July fatura (07-05) removes it from pending.
+    const charge = cardExpense(-30000, "2026-06-10");
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    expect(obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(0);
+  });
+
+  it("also excludes the estorno of a paid fatura (no negative drift)", () => {
+    const charge = cardExpense(-30000, "2026-06-10");
+    const estorno = cardCredit(600, "2026-06-12"); // also bills in July
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 29400,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    // Unpaid: 30000 − 600 = 29400 pending.
+    expect(obligationsDueThrough([charge, estorno], "2026-07", "2026-07", competenceOf).cents).toBe(29400);
+    // Paid: the whole competence drops (charge AND estorno) → 0, not −600.
+    expect(
+      obligationsDueThrough([charge, estorno], "2026-07", "2026-07", competenceOf, "general", undefined, [
+        pay,
+      ]).cents,
+    ).toBe(0);
+  });
+
+  it("keeps a fatura pending until its payment lands (paid after the browsed month-end)", () => {
+    const charge = cardExpense(-30000, "2026-06-10"); // due July
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-09-05" as const,
+    };
+    // Browsing July: paid in September (after July-end) → debit not landed → still pending.
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(30000);
+    // Browsing through September: landed → excluded.
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-09", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(0);
   });
 
   it("excludes overdraft (cheque especial) — it already debits its linked account", () => {

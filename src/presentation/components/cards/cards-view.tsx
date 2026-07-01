@@ -1,13 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { undoCardBillPaymentAction } from "@/app/_actions/finance";
 import type { ProjectedCardCharge } from "@/application/use-cases/get-projected-card-charges";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { CardView } from "@/application/use-cases/get-workspace-view";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import { cardBillMonth, cardBillOverridesByCard } from "@/domain/services/card-bill.calculator";
 import { addMonths, compareMonths } from "@/domain/value-objects/competence-month";
 import { CardBillDatesDialog } from "@/presentation/components/cards/card-bill-dates-dialog";
+import {
+  type PayFaturaAccount,
+  PayFaturaModal,
+  type PayFaturaTarget,
+} from "@/presentation/components/cards/pay-fatura-modal";
 import { CreditCardFormDialog } from "@/presentation/components/forms/credit-card-form-dialog";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { CreditCardWidget } from "@/presentation/components/ui/credit-card-widget";
@@ -32,6 +39,8 @@ export function CardsView({
   transactions,
   projectedCharges,
   cardBillDates,
+  cardBillPayments,
+  accounts,
   today,
   currentMonth,
   holderName,
@@ -40,12 +49,32 @@ export function CardsView({
   transactions: TransactionListItem[];
   projectedCharges: ProjectedCardCharge[];
   cardBillDates: CardBillDate[];
+  cardBillPayments: CardBillPayment[];
+  accounts: PayFaturaAccount[];
   today: string;
   currentMonth: string;
   holderName: string;
 }) {
   const toast = useUIStore((s) => s.toast);
   const [sel, setSel] = useState<string | undefined>(cards[0]?.id);
+  const [payingFatura, setPayingFatura] = useState<PayFaturaTarget | null>(null);
+  const [undoingFatura, setUndoingFatura] = useState(false);
+  const accountLabel = useMemo(
+    () => new Map(accounts.map((a) => [a.id, `${a.bank} · ${a.name}`])),
+    [accounts],
+  );
+
+  async function undoFatura(cardId: string, competence: string) {
+    if (undoingFatura) return;
+    setUndoingFatura(true);
+    const result = await undoCardBillPaymentAction({ cardId, competenceMonth: competence });
+    setUndoingFatura(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast("Pagamento da fatura desfeito.");
+  }
   const card = cards.find((c) => c.id === sel) ?? cards[0];
   // Per-bill closing/due overrides for the selected card (month → days).
   const overridesByCard = useMemo(() => cardBillOverridesByCard(cardBillDates), [cardBillDates]);
@@ -150,6 +179,12 @@ export function CardsView({
   const meterCls = pct > 85 ? "danger" : pct > 65 ? "warn" : "";
   // Net bill: charges (amount < 0) minus credits (amount > 0) → −Σ amount.
   const faturaMes = compras.reduce((s, t) => s - t.amountCents, 0);
+  // Payable total = REAL charges only (a projected/"previsto" occurrence isn't booked yet). This
+  // matches what the server computes and debits (computeCardBillForMonth ignores projections), so
+  // the pay dialog shows exactly what will leave the account.
+  const faturaMesReal = compras.reduce((s, t) => ("anchor" in t ? s : s - t.amountCents), 0);
+  // The payment for the browsed fatura (card + competence), if it has been paid.
+  const paidFatura = cardBillPayments.find((p) => p.cardId === card.id && p.competence === fatKey);
   // Effective closing/due day for the bill being viewed (override for this month or the card default).
   const billOverride = overrides?.get(fatKey);
   const effClosingDay = billOverride?.closingDay ?? card.closingDay;
@@ -368,17 +403,6 @@ export function CardsView({
                 <AnimatedMoney cents={card.billCents} withSign={false} />
               </div>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ width: "100%", marginTop: 16 }}
-              onClick={() =>
-                toast(`Pagamento de ${formatBRLAbsolute(card.billCents)} agendado para o dia ${card.dueDay}`)
-              }
-            >
-              <Icon name="check-circle" size={17} />
-              Pagar fatura
-            </button>
           </div>
           <div className="card">
             <div className="card-head">
@@ -555,9 +579,71 @@ export function CardsView({
                 );
               })}
             </div>
+            {/* Pagar fatura (a fatura inteira; lançamentos de cartão não se pagam avulsos). */}
+            <div className="card-pad" style={{ paddingTop: 0, paddingBottom: 16 }}>
+              {paidFatura ? (
+                <div
+                  className="row"
+                  style={{
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                    background: "var(--mint-soft)",
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <Icon name="check-circle" size={17} style={{ color: "var(--mint-500)", flex: "none" }} />
+                    <span style={{ fontSize: 13, color: "var(--text-mid)" }}>
+                      Fatura paga · <Money cents={paidFatura.amountCents} withSign={false} /> ·{" "}
+                      {relativeDateLabel(paidFatura.date, today)}
+                      {accountLabel.get(paidFatura.accountId)
+                        ? ` · ${accountLabel.get(paidFatura.accountId)}`
+                        : ""}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    style={{ flex: "none" }}
+                    onClick={() => undoFatura(card.id, fatKey)}
+                    disabled={undoingFatura}
+                  >
+                    <Icon name="rotate-ccw" size={14} />
+                    Desfazer
+                  </button>
+                </div>
+              ) : (
+                faturaMesReal > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ width: "100%" }}
+                    onClick={() =>
+                      setPayingFatura({
+                        cardId: card.id,
+                        competence: fatKey,
+                        competenceLabel: monthLabel(fatKey, { long: false }),
+                        amountCents: faturaMesReal,
+                      })
+                    }
+                  >
+                    <Icon name="check-circle" size={17} />
+                    Pagar fatura
+                  </button>
+                )
+              )}
+            </div>
           </div>
         </div>
       </div>
+      <PayFaturaModal
+        target={payingFatura}
+        accounts={accounts}
+        today={today}
+        onClose={() => setPayingFatura(null)}
+      />
     </div>
   );
 }

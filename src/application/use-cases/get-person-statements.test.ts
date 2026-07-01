@@ -64,6 +64,7 @@ function workspace(
     budgets: [],
     goals: [],
     cardBillDates: [],
+    cardBillPayments: [],
   };
 }
 

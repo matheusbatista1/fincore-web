@@ -111,13 +111,21 @@ export async function getDashboard(
   // Headline balances are "live" (as of today), independent of the browsed month.
   // Settlements that name an account move real cash (a person paying you, or you paying
   // them); overdraft (cheque especial) debits its account — both reflected here.
-  const balances = computeAccountBalances(ws.accounts, ws.transactions, today, "general", ws.settlements);
+  const balances = computeAccountBalances(
+    ws.accounts,
+    ws.transactions,
+    today,
+    "general",
+    ws.settlements,
+    ws.cardBillPayments,
+  );
   const balancesPersonal = computeAccountBalances(
     ws.accounts,
     ws.transactions,
     today,
     "personal",
     ws.settlements,
+    ws.cardBillPayments,
   );
   // Card charges count in their bill's due month; everything else by its date's month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
@@ -128,7 +136,13 @@ export async function getDashboard(
   const bills = isCurrentView
     ? computeCardBills(ws.creditCards, ws.transactions)
     : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
-  const outstandings = computeCardOutstandings(ws.creditCards, ws.transactions, currentMonth, competenceOf);
+  const outstandings = computeCardOutstandings(
+    ws.creditCards,
+    ws.transactions,
+    currentMonth,
+    competenceOf,
+    ws.cardBillPayments,
+  );
   // Per-person, per-month nets through the browsed month, in ONE pass — a pre-payment
   // (settlement before the debt's competence) re-buckets onto the debt's month, so the
   // month slices stay consistent when summed (a per-month re-call would lock each month at
@@ -198,6 +212,7 @@ export async function getDashboard(
     currentMonth,
     "general",
     ws.settlements,
+    ws.cardBillPayments,
   );
   let projectedBalanceCents = 0;
   for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
@@ -208,6 +223,7 @@ export async function getDashboard(
     competenceOf,
     "general",
     currentMonth,
+    ws.cardBillPayments,
   ).cents;
   // General "fim do mês" also reflects the receivables/payables with people. Obligations
   // above are summed cumulatively (currentMonth → browsed month), so the people net must
@@ -227,6 +243,7 @@ export async function getDashboard(
     currentMonth,
     "personal",
     ws.settlements,
+    ws.cardBillPayments,
   );
   let projectedBalancePersonalCents = 0;
   for (const value of eomPersonal.values()) projectedBalancePersonalCents += value.cents;
@@ -237,6 +254,7 @@ export async function getDashboard(
     competenceOf,
     "personal",
     currentMonth,
+    ws.cardBillPayments,
   ).cents;
 
   // Trailing 6-month cumulative balance: re-run the balance calculator with the
@@ -250,6 +268,7 @@ export async function getDashboard(
       dateInMonth(m, 31),
       "general",
       ws.settlements,
+      ws.cardBillPayments,
     );
     let total = 0;
     for (const value of monthBalances.values()) total += value.cents;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { centsSchema, idSchema, isoDateSchema } from "./common";
+import { centsSchema, competenceMonthSchema, idSchema, isoDateSchema } from "./common";
 
 /**
  * Which rows an edit (or delete) applies to: just this one, this + later, or the
@@ -186,6 +186,24 @@ export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
 
 /** Revert a payment (make the obligation pending again). */
 export const undoPaymentSchema = z.object({ id: idSchema });
+
+/**
+ * Pay a whole card fatura: the server computes the bill total for (card, competence) and debits
+ * the chosen account on the paid date (defaults to today). Card charges are settled via the bill,
+ * never per-charge.
+ */
+export const payCardBillSchema = z.object({
+  cardId: idSchema,
+  competenceMonth: competenceMonthSchema,
+  paidAccountId: idSchema,
+  paidAt: isoDateSchema.optional(),
+});
+
+/** Revert a fatura payment (the whole bill becomes pending again). */
+export const undoCardBillPaymentSchema = z.object({
+  cardId: idSchema,
+  competenceMonth: competenceMonthSchema,
+});
 
 export const settlementInputSchema = z.object({
   personId: idSchema,

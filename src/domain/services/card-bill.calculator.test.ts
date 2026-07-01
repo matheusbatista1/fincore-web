@@ -575,6 +575,22 @@ describe("computeCardOutstanding(s) — total committed against the limit", () =
     expect(computeCardOutstanding("c", [...txs, credit], currentMonth, resolve).cents).toBe(55_000);
   });
 
+  it("frees the committed limit when a bill's competence is explicitly paid", () => {
+    // Paying the July fatura removes its R$200 from the used limit → only Aug + Sep (40k) remain.
+    const pay = {
+      id: "p",
+      cardId: "c",
+      competence: "2026-07",
+      amountCents: 20_000,
+      accountId: "acc",
+      date: "2026-07-20" as const,
+    };
+    expect(computeCardOutstanding("c", txs, currentMonth, resolve, [pay]).cents).toBe(40_000);
+    // A payment for a DIFFERENT card doesn't free this card's limit.
+    const other = { ...pay, cardId: "zzz" };
+    expect(computeCardOutstanding("c", txs, currentMonth, resolve, [other]).cents).toBe(60_000);
+  });
+
   it("computeCardOutstandings matches the single-card version and seeds zero", () => {
     const cards = [c, card("empty", 100)];
     const out = computeCardOutstandings(cards, txs, currentMonth, resolve);

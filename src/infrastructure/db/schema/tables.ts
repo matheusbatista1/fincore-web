@@ -368,3 +368,43 @@ export const settlements = pgTable(
     ownerPolicy("settlements_owner"),
   ],
 );
+
+/**
+ * Payment of a whole credit-card bill (fatura). A fatura is a computed aggregate (no row to
+ * stamp), so its payment is its own record, keyed by (card, competence) — the bill's due month
+ * as `billingCompetence` buckets it, NOT the calendar month. Paying a fatura debits `accountId`
+ * by `amountCents` on `paidOn`; it is the only way a card moves a live account balance.
+ */
+export const cardBillPayments = pgTable(
+  "card_bill_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => creditCards.id, { onDelete: "cascade" }),
+    /** The paid bill's competence (due) month `YYYY-MM`. */
+    competenceMonth: text("competence_month").notNull(),
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    /** Account debited on paidOn; the write path requires a real account (a fatura always moves
+     * cash). Accounts are soft-deleted, so loadWorkspace drops payments whose account is no longer
+     * live (this FK set-null only fires on a physical purge). */
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    paidOn: date("paid_on", { mode: "string" }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("idx_card_bill_payments_card").on(t.cardId).where(sql`deleted_at IS NULL`),
+    // At most one ACTIVE payment per (card, competence) — a fatura is paid once.
+    uniqueIndex("uq_card_bill_payment_card_competence")
+      .on(t.cardId, t.competenceMonth)
+      .where(sql`deleted_at IS NULL`),
+    check("chk_card_bill_payment_amount", sql`amount_cents > 0`),
+    ownerPolicy("card_bill_payments_owner"),
+  ],
+);
