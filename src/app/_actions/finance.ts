@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
+import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -25,10 +26,12 @@ import {
   createTransactionSchema,
   deleteTransactionSchema,
   moveBillSchema,
+  payCardBillSchema,
   payTransactionSchema,
   rollDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
+  undoCardBillPaymentSchema,
   undoPaymentSchema,
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
@@ -154,6 +157,33 @@ export async function payTransactionAction(raw: unknown): Promise<ActionState> {
 export async function undoPaymentAction(raw: unknown): Promise<ActionState> {
   return withParsed(undoPaymentSchema, raw, (userId, input) =>
     financeRepository.undoPayment(userId, input.id),
+  );
+}
+
+/**
+ * Pay a whole card fatura: debits the chosen account by the computed bill total on the paid date.
+ * The bill amount is computed server-side (never trusted from the client).
+ */
+export async function payCardBillAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = payCardBillSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await payCardBill(financeRepository, userId, {
+    cardId: parsed.data.cardId,
+    competenceMonth: parsed.data.competenceMonth,
+    paidAccountId: parsed.data.paidAccountId,
+    ...(parsed.data.paidAt !== undefined ? { paidAt: parsed.data.paidAt } : {}),
+  });
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Revert a fatura payment: the whole bill becomes pending again. */
+export async function undoCardBillPaymentAction(raw: unknown): Promise<ActionState> {
+  return withParsed(undoCardBillPaymentSchema, raw, (userId, input) =>
+    financeRepository.undoCardBillPayment(userId, input.cardId, input.competenceMonth),
   );
 }
 

@@ -5,17 +5,19 @@
 import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
-import type { IsoDate } from "@/domain/value-objects/competence-month";
+import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import type {
   accounts,
   budgets,
   cardBillDates,
+  cardBillPayments,
   categories,
   creditCards,
   goals,
@@ -33,6 +35,7 @@ type CategoryRow = typeof categories.$inferSelect;
 type TransactionRow = typeof transactions.$inferSelect;
 type SplitRow = typeof transactionSplits.$inferSelect;
 type SettlementRow = typeof settlements.$inferSelect;
+type CardBillPaymentRow = typeof cardBillPayments.$inferSelect;
 type BudgetRow = typeof budgets.$inferSelect;
 type GoalRow = typeof goals.$inferSelect;
 
@@ -125,6 +128,24 @@ export function toSettlement(row: SettlementRow): Settlement {
     amountCents: row.amountCents,
     date: row.settledOn,
     accountId: row.accountId,
+    ...(row.note != null ? { note: row.note } : {}),
+  };
+}
+
+/**
+ * Map a card_bill_payments row. A payment always names an account at write time; the caller
+ * (loadWorkspace) additionally drops any whose account is no longer live (accounts are
+ * soft-deleted, so the FK set-null never fires) — the fatura then reverts to unpaid.
+ */
+export function toCardBillPayment(row: CardBillPaymentRow): CardBillPayment | null {
+  if (row.accountId === null) return null;
+  return {
+    id: row.id,
+    cardId: row.cardId,
+    competence: row.competenceMonth as CompetenceMonth,
+    amountCents: row.amountCents,
+    accountId: row.accountId,
+    date: row.paidOn,
     ...(row.note != null ? { note: row.note } : {}),
   };
 }

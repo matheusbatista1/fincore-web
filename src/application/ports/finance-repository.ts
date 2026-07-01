@@ -1,6 +1,7 @@
 import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
@@ -48,6 +49,8 @@ export interface Workspace {
   readonly goals: Goal[];
   /** Per-bill closing/due-day overrides (one row per card+competence month). */
   readonly cardBillDates: CardBillDate[];
+  /** Paid credit-card faturas (one active row per card+competence month). */
+  readonly cardBillPayments: CardBillPayment[];
 }
 
 /** One transaction row to persist (a single tx, or one parcela of an installment). */
@@ -115,6 +118,15 @@ export interface SettlementData {
   readonly amountCents: number;
   readonly date: IsoDate;
   readonly accountId?: string | null;
+  readonly note?: string;
+}
+
+export interface CardBillPaymentData {
+  readonly cardId: string;
+  readonly competenceMonth: string;
+  readonly amountCents: number;
+  readonly accountId: string;
+  readonly paidOn: IsoDate;
   readonly note?: string;
 }
 
@@ -223,4 +235,12 @@ export interface FinanceRepository {
   updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
   /** Soft-delete a settlement (revert a person payment). */
   deleteSettlement(userId: string, id: string): Promise<void>;
+
+  /**
+   * Pay a card fatura (upsert the one active payment for its card+competence): debits the account
+   * by `amountCents` on `paidOn`. Re-paying the same bill replaces the active row.
+   */
+  payCardBill(userId: string, input: CardBillPaymentData): Promise<void>;
+  /** Revert a fatura payment: soft-delete the active payment for that card+competence. */
+  undoCardBillPayment(userId: string, cardId: string, competenceMonth: string): Promise<void>;
 }

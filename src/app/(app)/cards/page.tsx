@@ -12,12 +12,13 @@ export default async function CardsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [{ cards, cardBillDates }, transactions, projectedCharges, profile] = await Promise.all([
-    getWorkspaceView(financeRepository, user.id),
-    getTransactions(financeRepository, user.id),
-    getProjectedCardCharges(financeRepository, user.id),
-    financeRepository.getProfile(user.id),
-  ]);
+  const [{ cards, cardBillDates, cardBillPayments, accounts }, transactions, projectedCharges, profile] =
+    await Promise.all([
+      getWorkspaceView(financeRepository, user.id),
+      getTransactions(financeRepository, user.id),
+      getProjectedCardCharges(financeRepository, user.id),
+      financeRepository.getProfile(user.id),
+    ]);
   const holderName = profile.displayName ?? nameFromEmail(user.email ?? "");
 
   return (
@@ -26,6 +27,8 @@ export default async function CardsPage() {
       transactions={transactions}
       projectedCharges={projectedCharges}
       cardBillDates={cardBillDates}
+      cardBillPayments={cardBillPayments}
+      accounts={accounts}
       today={todayInBrazil()}
       currentMonth={currentMonthInBrazil()}
       holderName={holderName}

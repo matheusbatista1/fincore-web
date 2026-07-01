@@ -7,6 +7,7 @@
  */
 
 import type { Account } from "../entities/account";
+import type { CardBillPayment } from "../entities/card-bill-payment";
 import type { Settlement } from "../entities/settlement";
 import {
   type ExpenseTransaction,
@@ -45,10 +46,19 @@ export function projectedMonthEndBalances(
   fromMonth: CompetenceMonth,
   lens: ViewMode = "general",
   settlements: readonly Settlement[] = [],
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Map<string, Money> {
   // Settlements dated through month-end credit/debit their account (cash actually moved),
-  // so a person paying you keeps the projection consistent (receivable −X, account +X).
-  const balances = computeAccountBalances(accounts, transactions, dateInMonth(month, 31), lens, settlements);
+  // so a person paying you keeps the projection consistent (receivable −X, account +X). A card
+  // fatura payment dated through month-end debits its account (paying the bill moves real cash).
+  const balances = computeAccountBalances(
+    accounts,
+    transactions,
+    dateInMonth(month, 31),
+    lens,
+    settlements,
+    cardBillPayments,
+  );
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
       // A projected FUTURE occurrence is a fresh, not-yet-paid (nor rolled) instance — it must
@@ -87,6 +97,7 @@ export function obligationsDueThrough(
   competenceOf: CompetenceResolver,
   lens: ViewMode = "general",
   currentMonth?: CompetenceMonth,
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Money {
   if (compareMonths(fromMonth, toMonth) > 0) return Money.zero();
 
@@ -115,6 +126,17 @@ export function obligationsDueThrough(
   const obligationCutoff = dateInMonth(toMonth, 31);
   const debitLanded = (tx: Transaction): boolean =>
     isExpense(tx) && tx.paidAt != null && tx.paidAt <= obligationCutoff;
+  // A PAID card fatura's charges (and its estornos) already left the balance on the pay date, so
+  // its whole competence must drop from the pending obligations — else it's subtracted twice. Keyed
+  // by `${cardId}|${competence}`, gated by the SAME month-end cutoff as debitLanded: while the
+  // payment is dated after the browsed month-end, its debit hasn't landed yet, so the bill still
+  // counts as pending (symmetric with debitLanded).
+  const paidBillLanded = new Set<string>();
+  for (const p of cardBillPayments) {
+    if (p.date <= obligationCutoff) paidBillLanded.add(`${p.cardId}|${p.competence}`);
+  }
+  const isPaidCardBill = (tx: Transaction, due: CompetenceMonth): boolean =>
+    (isExpense(tx) || isCardCredit(tx)) && tx.cardId !== null && paidBillLanded.has(`${tx.cardId}|${due}`);
   const isObligation = (tx: Transaction): tx is ExpenseTransaction =>
     isExpense(tx) &&
     tx.source !== "account" &&
@@ -126,6 +148,7 @@ export function obligationsDueThrough(
   for (const tx of transactions) {
     const due = competenceOf(tx);
     if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
+    if (isPaidCardBill(tx, due)) continue; // whole fatura already paid → neither charge nor estorno counts
     if (isObligation(tx)) {
       net = net.add(amountFor(tx));
     } else if (isCardCredit(tx)) {
@@ -145,6 +168,7 @@ export function obligationsDueThrough(
         if (!isObligation(source)) continue;
         const due = competenceOf({ ...source, date: occ.date });
         if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
+        if (isPaidCardBill(source, due)) continue; // a recurring charge on an already-paid fatura
         const key = `${due}|${recurrenceIdentity(source)}`;
         if (realCovered.has(key) || seen.has(key)) continue;
         seen.add(key);

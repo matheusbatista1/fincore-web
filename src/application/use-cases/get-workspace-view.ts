@@ -1,5 +1,6 @@
 import type { Account } from "@/domain/entities/account";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
@@ -46,6 +47,8 @@ export interface WorkspaceView {
   readonly people: PersonView[];
   readonly categories: Category[];
   readonly cardBillDates: CardBillDate[];
+  /** Paid faturas (one active per card+competence) — lets the Cards view mark a bill paid. */
+  readonly cardBillPayments: CardBillPayment[];
 }
 
 /** A user's entities enriched with derived balances/bills/ledger — serializable for RSC. */
@@ -53,12 +56,25 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
   const ws = await loadWorkspaceCached(repo, userId);
   // Live balances exclude future-dated entries (e.g. a salary booked for next month).
   const today = todayInBrazil();
-  const balances = computeAccountBalances(ws.accounts, ws.transactions, today, "general", ws.settlements);
+  const balances = computeAccountBalances(
+    ws.accounts,
+    ws.transactions,
+    today,
+    "general",
+    ws.settlements,
+    ws.cardBillPayments,
+  );
   const bills = computeCardBills(ws.creditCards, ws.transactions);
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const currentMonth = today.slice(0, 7) as CompetenceMonth;
   const dayToday = Number(today.slice(8, 10));
-  const outstandings = computeCardOutstandings(ws.creditCards, ws.transactions, currentMonth, competenceOf);
+  const outstandings = computeCardOutstandings(
+    ws.creditCards,
+    ws.transactions,
+    currentMonth,
+    competenceOf,
+    ws.cardBillPayments,
+  );
   const ledger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
   // Month-scoped person nets (same figure the dashboard/People show) — used by the
   // "te deve" notification and the pending badge.
@@ -98,5 +114,6 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
     })),
     categories: ws.categories,
     cardBillDates: ws.cardBillDates,
+    cardBillPayments: ws.cardBillPayments,
   };
 }

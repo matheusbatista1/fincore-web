@@ -164,6 +164,14 @@ export async function getMonthly(
     if (tx.paidAccountId == null || tx.paidAt == null || monthOf(tx.paidAt) !== month) return [];
     return [{ accountId: tx.paidAccountId, outCents: tx.paidAmountCents ?? Math.abs(tx.amountCents) }];
   });
+  // A card fatura payment is cash out of its account in the month it was PAID. The individual card
+  // charges already show in the statement in their competence month, so the payment is NOT a
+  // statement row (that would double-count the spend) — it only feeds the Carteiras per-account flow.
+  for (const p of ws.cardBillPayments) {
+    if (monthOf(p.date) === month) {
+      paidObligationFlows.push({ accountId: p.accountId, outCents: p.amountCents });
+    }
+  }
 
   return {
     month,

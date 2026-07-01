@@ -456,6 +456,58 @@ describe("paid deferred obligations debit the paying account on their paid date"
   });
 });
 
+describe("card fatura payments debit the paying account", () => {
+  const payment = (over: Partial<import("../entities/card-bill-payment").CardBillPayment> = {}) => ({
+    id: nextId(),
+    cardId: "c1",
+    competence: "2026-07",
+    amountCents: 30000,
+    accountId: "nu",
+    date: "2026-07-10",
+    ...over,
+  });
+
+  it("debits the account by the paid amount on the pay date (card charges alone never do)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const charge = expense(-30_000, { source: "card", cardId: "c1" });
+    // The charge itself never moves the balance.
+    expect(computeAccountBalances(accounts, [charge]).get("nu")?.cents).toBe(100_000);
+    // Paying the fatura debits the chosen account by the paid amount.
+    expect(
+      computeAccountBalances(accounts, [charge], undefined, "general", [], [payment()]).get("nu")?.cents,
+    ).toBe(70_000);
+  });
+
+  it("debits identically in the personal lens (a fatura is the user's own money)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    expect(
+      computeAccountBalances(accounts, [], undefined, "personal", [], [payment({ amountCents: 25_000 })]).get(
+        "nu",
+      )?.cents,
+    ).toBe(75_000);
+  });
+
+  it("lands on the pay date (excluded before it, included on/after)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const p = payment({ date: "2026-07-10" });
+    expect(computeAccountBalances(accounts, [], "2026-07-09", "general", [], [p]).get("nu")?.cents).toBe(
+      100_000,
+    );
+    expect(computeAccountBalances(accounts, [], "2026-07-10", "general", [], [p]).get("nu")?.cents).toBe(
+      70_000,
+    );
+  });
+
+  it("ignores a payment naming an unknown account", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    expect(
+      computeAccountBalances(accounts, [], undefined, "general", [], [payment({ accountId: "gone" })]).get(
+        "nu",
+      )?.cents,
+    ).toBe(100_000);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — the business invariants.
 // ---------------------------------------------------------------------------
