@@ -17,13 +17,22 @@
  *    since `myShareCents = |amount| − Σ split shares ≥ 0`).
  *  - A reimbursement is an income with `isReimbursement === true`; the personal
  *    income excludes those, i.e. it is the sum of non-reimbursement incomes.
+ *  - Once a deferred obligation is PAID, its expense counts at the amount actually
+ *    paid (`settledExpenseCents`/`settledMyShareCents`), not its original face value,
+ *    so an early payoff with a discount lowers the "gasto".
  *
  * All money math goes through Money (integer cents) — no floats, no rounding drift.
  * Transfers never affect either view (no net effect on wealth).
  */
 
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome, isRolled } from "../entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isRolled,
+  settledExpenseCents,
+  settledMyShareCents,
+} from "../entities/transaction";
 import { Money } from "../money/money";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { monthOf } from "../value-objects/competence-month";
@@ -76,9 +85,13 @@ export function computeViewTotals(
         incomeParts.push(Money.fromCents(tx.amountCents));
       }
     } else if (isExpense(tx)) {
-      // General uses the full (absolute) amount; personal uses only the user's share.
+      // General uses the full (settled) amount; personal uses only the user's share. Both use the
+      // amount actually PAID once an obligation is settled — a loan paid with a discount counts at
+      // what left the account, not its original face value.
       const part =
-        mode === "general" ? Money.fromCents(tx.amountCents).abs() : Money.fromCents(tx.myShareCents);
+        mode === "general"
+          ? Money.fromCents(settledExpenseCents(tx))
+          : Money.fromCents(settledMyShareCents(tx));
       expenseParts.push(part);
     }
     // Transfers are intentionally ignored in both views.

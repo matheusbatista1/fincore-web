@@ -58,7 +58,11 @@ function sumTotals(items: readonly MonthlyItem[]): MonthlyTotals {
     // A card credit (estorno, income with a cardId) only reduces a card bill — it
     // is shown on the Cards screen, not counted as monthly income.
     if (item.kind === "income" && item.cardId === null) incomeCents += item.amountCents;
-    else if (item.kind === "expense") expenseCents += Math.abs(item.amountCents);
+    // A paid obligation counts at what actually left the account (settled amount) — a loan paid
+    // with a discount lowers the month's "gasto", matching settledExpenseCents/computeViewTotals.
+    else if (item.kind === "expense")
+      expenseCents +=
+        item.isPaid && item.paidAmountCents != null ? item.paidAmountCents : Math.abs(item.amountCents);
   }
   return { incomeCents, expenseCents, netCents: incomeCents - expenseCents };
 }
