@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MonthlyItem } from "@/application/use-cases/get-monthly";
-import { applyLens } from "./monthly-statement";
+import { applyLens } from "./monthly-lens";
 import type { StmtGroup } from "./stmt-card";
 
 const item = (over: Partial<MonthlyItem>): MonthlyItem =>
