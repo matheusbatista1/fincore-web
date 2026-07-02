@@ -7,6 +7,7 @@ import { importStatement } from "@/application/use-cases/import-statement";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
+import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -185,6 +186,19 @@ export async function undoCardBillPaymentAction(raw: unknown): Promise<ActionSta
   return withParsed(undoCardBillPaymentSchema, raw, (userId, input) =>
     financeRepository.undoCardBillPayment(userId, input.cardId, input.competenceMonth),
   );
+}
+
+/**
+ * Auto-payments: book every due obligation/fatura as paid from the default account. Idempotent —
+ * safe to fire on app load. Revalidates only when something was actually booked.
+ */
+export async function reconcileAutoPaymentsAction(): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const result = await reconcileAutoPayments(financeRepository, userId);
+  const count = result.paidObligations + result.paidFaturas;
+  if (count > 0) revalidatePath("/", "layout");
+  return { ok: true, count };
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {

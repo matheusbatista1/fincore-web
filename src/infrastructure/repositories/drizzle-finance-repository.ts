@@ -106,6 +106,9 @@ export class DrizzleFinanceRepository implements FinanceRepository {
             avatarUrl: schema.users.avatarUrl,
             enabledModules: schema.users.enabledModules,
             onboardedAt: schema.users.onboardedAt,
+            autoPaymentsEnabled: schema.users.autoPaymentsEnabled,
+            defaultPayAccountId: schema.users.defaultPayAccountId,
+            autoPaymentsSince: schema.users.autoPaymentsSince,
           })
           .from(schema.users)
           .where(eq(schema.users.id, userId)),
@@ -137,6 +140,27 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       await tx
         .update(schema.users)
         .set({ enabledModules: sanitizeModules(modules), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async updatePreferences(
+    userId: string,
+    input: {
+      autoPaymentsEnabled: boolean;
+      defaultPayAccountId: string | null;
+      autoPaymentsSince: string | null;
+    },
+  ): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({
+          autoPaymentsEnabled: input.autoPaymentsEnabled,
+          defaultPayAccountId: input.defaultPayAccountId,
+          autoPaymentsSince: input.autoPaymentsSince,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.users.id, userId));
     });
   }
@@ -253,6 +277,13 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   async deleteAccount(userId: string, id: string): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.update(schema.accounts).set({ deletedAt: new Date() }).where(eq(schema.accounts.id, id));
+      // Accounts are soft-deleted, so the users.default_pay_account_id FK set-null never fires. If
+      // this was the auto-payments account, clear it and switch auto-pay off — otherwise auto-pay
+      // reads as "on" but books nothing, silently hiding the "atrasado" signal.
+      await tx
+        .update(schema.users)
+        .set({ defaultPayAccountId: null, autoPaymentsEnabled: false, updatedAt: new Date() })
+        .where(and(eq(schema.users.id, userId), eq(schema.users.defaultPayAccountId, id)));
     });
   }
 

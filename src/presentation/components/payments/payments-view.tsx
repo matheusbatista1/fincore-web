@@ -11,7 +11,15 @@ import { relativeDateLabel } from "@/shared/formatting/dates";
 const IC_STYLE: CSSProperties = { background: "var(--purple-soft)", color: "var(--purple-300)" };
 
 /** Pagamentos — settle deferred obligations (boleto/loan/financing) individually. */
-export function PaymentsView({ payments, today }: { payments: PaymentsData; today: string }) {
+export function PaymentsView({
+  payments,
+  today,
+  autoPaymentsEnabled,
+}: {
+  payments: PaymentsData;
+  today: string;
+  autoPaymentsEnabled: boolean;
+}) {
   const openDetail = useTxUIStore((s) => s.openDetail);
   const openPay = useTxUIStore((s) => s.openPay);
   const { pending, paid, pendingTotalCents } = payments;
@@ -63,7 +71,14 @@ export function PaymentsView({ payments, today }: { payments: PaymentsData; toda
               A vencer
             </div>
             {pending.map((t) => (
-              <PendingRow key={t.id} tx={t} today={today} onOpen={openDetail} onPay={openPay} />
+              <PendingRow
+                key={t.id}
+                tx={t}
+                today={today}
+                showOverdue={!autoPaymentsEnabled}
+                onOpen={openDetail}
+                onPay={openPay}
+              />
             ))}
           </div>
         </div>
@@ -93,15 +108,18 @@ const rowIcStyle = (tx: TransactionListItem): CSSProperties =>
 function PendingRow({
   tx,
   today,
+  showOverdue,
   onOpen,
   onPay,
 }: {
   tx: TransactionListItem;
   today: string;
+  showOverdue: boolean;
   onOpen: (t: TransactionListItem) => void;
   onPay: (t: TransactionListItem) => void;
 }) {
-  const overdue = tx.date < today;
+  // With auto-payments on, a due bill is booked automatically — don't alarm it as "atrasado".
+  const overdue = showOverdue && tx.date < today;
   // The row's text is the open-detail control (a div role=button — it holds block children, so it
   // can't be a native <button>, mirroring tx-row.tsx). "Pagar" is a sibling control, never nested.
   const open = () => onOpen(tx);

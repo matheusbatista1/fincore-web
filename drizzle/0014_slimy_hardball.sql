@@ -1,0 +1,3 @@
+ALTER TABLE "users" ADD COLUMN "auto_payments_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "default_pay_account_id" uuid;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_default_pay_account_id_accounts_id_fk" FOREIGN KEY ("default_pay_account_id") REFERENCES "public"."accounts"("id") ON DELETE set null ON UPDATE no action;
