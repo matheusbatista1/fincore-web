@@ -38,9 +38,12 @@ import {
   isTransfer,
 } from "../entities/transaction";
 import { Money } from "../money/money";
-import type { IsoDate } from "../value-objects/competence-month";
+import type { CompetenceMonth, IsoDate } from "../value-objects/competence-month";
 import { computePersonBalances } from "./person-ledger.calculator";
 import type { ViewMode } from "./personal-vs-general";
+
+/** Maps a transaction to its competence month (calendar month, or a card charge's bill month). */
+type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
 
 /**
  * Whether a transaction affects account balances at all.
@@ -147,6 +150,36 @@ function balanceEffectiveDate(tx: Transaction): IsoDate {
 }
 
 /**
+ * The user's own slice of a paid card fatura, for the personal lens. A {@link CardBillPayment}
+ * stores only the total paid, so the personal fraction is reconstructed from the bill's underlying
+ * card charges: `Σ myShareCents / Σ |amountCents|` over the charges whose bill competence matches
+ * the payment, applied to the amount actually paid. With no charges to base a ratio on (e.g. an
+ * imported bill with no itemized charges), the full amount is debited — the safe, real-cash default.
+ */
+function faturaPersonalDebit(
+  p: CardBillPayment,
+  transactions: readonly Transaction[],
+  competenceOf: CompetenceResolver,
+): Money {
+  let full = 0;
+  let mine = 0;
+  for (const tx of transactions) {
+    if (
+      isExpense(tx) &&
+      !isRolled(tx) &&
+      tx.source === "card" &&
+      tx.cardId === p.cardId &&
+      competenceOf(tx) === p.competence
+    ) {
+      full += Math.abs(tx.amountCents);
+      mine += tx.myShareCents;
+    }
+  }
+  if (full <= 0) return Money.fromCents(p.amountCents);
+  return Money.fromCents(Math.round((p.amountCents * mine) / full));
+}
+
+/**
  * Compute the live balance of every account: opening balance plus the net effect
  * of all transactions. Accounts with no movement keep their opening balance.
  *
@@ -164,6 +197,7 @@ export function computeAccountBalances(
   lens: ViewMode = "general",
   settlements: readonly Settlement[] = [],
   cardBillPayments: readonly CardBillPayment[] = [],
+  competenceOf?: CompetenceResolver,
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
 
@@ -206,13 +240,20 @@ export function computeAccountBalances(
 
   // A card fatura payment debits its account by the amount paid, on its pay date. Card charges
   // never touch a live balance (they defer to the whole bill), so this is the ONLY place a card
-  // moves an account. Applied in BOTH lenses — a fatura is the user's own money and card charges
-  // are not lens-split at the account level (unlike settlements, which the personal lens drops).
+  // moves an account. In the PERSONAL lens a fatura that includes other people's shares (e.g. a
+  // split card charge) must debit only the user's own slice — mirroring how accountDeltas already
+  // debits `myShareCents` for a paid obligation. The payment stores only the total, so the personal
+  // fraction is reconstructed from the underlying charges of that bill (needs `competenceOf`); with
+  // no resolver, or in the general lens, the full amount is debited (real cash out).
   for (const p of cardBillPayments) {
     if (upToDate !== undefined && p.date > upToDate) continue;
     const current = balances.get(p.accountId);
     if (current === undefined) continue;
-    balances.set(p.accountId, current.subtract(Money.fromCents(p.amountCents)));
+    const debit =
+      lens === "personal" && competenceOf !== undefined
+        ? faturaPersonalDebit(p, transactions, competenceOf)
+        : Money.fromCents(p.amountCents);
+    balances.set(p.accountId, current.subtract(debit));
   }
 
   return balances;

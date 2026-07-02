@@ -58,6 +58,7 @@ export function projectedMonthEndBalances(
     lens,
     settlements,
     cardBillPayments,
+    competenceOf,
   );
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
