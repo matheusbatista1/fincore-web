@@ -26,6 +26,16 @@ import { toast as fireToast, useUIStore } from "@/presentation/stores/ui-store";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 
 type Filter = "all" | "out" | "in" | "xfer";
+/** Which statement to show: executed cash movements (the extrato) or upcoming/pending items. */
+type StmtView = "executed" | "future";
+type Order = "desc" | "asc";
+
+/** Oldest-first comparator (the future view defaults to this). */
+const byDateAsc = (a: TransactionListItem, b: TransactionListItem): number => -byDateDesc(a, b);
+
+/** Synthetic rows (settlement / fatura payment / projected) carry a `type:id` id and aren't
+ * editable transactions — the detail modal shows them read-only and swipe actions are disabled. */
+const isSynthetic = (t: TransactionListItem): boolean => t.id.includes(":");
 
 /** How many rows to reveal per "Ver mais" step (the list loads fully, paginates in the UI). */
 const PAGE_SIZE = 30;
@@ -61,19 +71,26 @@ async function removeDirect(item: TransactionListItem) {
 
 /** Transações — ported 1:1 from the prototype (more.jsx TransactionsScreen): desktop table + mobile swipe list. */
 export function TransactionsView({
-  transactions,
+  executed,
+  future,
   today,
 }: {
-  transactions: TransactionListItem[];
+  /** Cash movements that already happened (the extrato) — the default view. */
+  executed: TransactionListItem[];
+  /** Upcoming/pending: future-dated reals, unpaid obligations, projected recurring. */
+  future: TransactionListItem[];
   today: string;
 }) {
   const toast = useUIStore((s) => s.toast);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
   const isMobile = useIsMobile();
+  const [view, setView] = useState<StmtView>("executed");
   const [filter, setFilter] = useState<Filter>("all");
+  const [order, setOrder] = useState<Order>("desc");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const transactions = view === "executed" ? executed : future;
   const q = query.trim().toLowerCase();
   const matchesQuery = (t: TransactionListItem): boolean => {
     if (q === "") return true;
@@ -102,7 +119,7 @@ export function TransactionsView({
             : t.kind === "expense",
     )
     .filter(matchesQuery)
-    .sort(byDateDesc);
+    .sort(order === "desc" ? byDateDesc : byDateAsc);
   // Collapse installment parcelas into one row per group (the modal lists them all).
   const collapsed = collapseRowsByInstallments(rows);
   const shown = collapsed.slice(0, visibleCount);
@@ -119,7 +136,8 @@ export function TransactionsView({
     agg.count += 1;
     monthAgg.set(key, agg);
   }
-  // Group the shown rows into consecutive month sections (already newest-first).
+  // Group the shown rows into consecutive month sections (order follows the sort above:
+  // newest-first for the extrato, oldest-first for the future view).
   const sections: { month: string; items: TransactionListItem[] }[] = [];
   for (const t of shown) {
     const key = t.date.slice(0, 7);
@@ -133,9 +151,48 @@ export function TransactionsView({
     setVisibleCount(PAGE_SIZE); // reset the window whenever the filter changes
   }
 
+  function pickView(next: StmtView) {
+    setView(next);
+    setOrder(next === "executed" ? "desc" : "asc"); // extrato: mais recentes; futuras: mais próximas
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  function toggleOrder() {
+    setOrder((o) => (o === "desc" ? "asc" : "desc"));
+    setVisibleCount(PAGE_SIZE);
+  }
+
   // A collapsed installment row opens the group modal; anything else opens the detail.
   const openRow = (t: TransactionListItem) =>
     t.installmentGroupId && t.parcela ? openInstallmentGroup(t.installmentGroupId) : openTxDetail(t);
+
+  /** Status badges for a row: pago (settled), previsto (projected), a vencer (pending, future view). */
+  const rowBadges = (t: TransactionListItem) => (
+    <>
+      {t.isPaid && (
+        <span
+          className="parc-badge"
+          style={{ marginLeft: 6, background: "var(--mint-soft)", color: "var(--mint-500)" }}
+        >
+          <Icon name="check" size={11} />
+          pago
+        </span>
+      )}
+      {t.projected && (
+        <span className="parc-badge futura" style={{ marginLeft: 6 }}>
+          previsto
+        </span>
+      )}
+      {view === "future" && t.isPayable && !t.isPaid && !t.projected && (
+        <span
+          className="parc-badge"
+          style={{ marginLeft: 6, background: "var(--purple-soft)", color: "var(--purple-300)" }}
+        >
+          a vencer
+        </span>
+      )}
+    </>
+  );
 
   const moreFooter = hasMore ? (
     <div
@@ -176,7 +233,7 @@ export function TransactionsView({
       csvMoney(t.kind === "transfer" ? (t.transferValueCents ?? 0) : t.amountCents),
     ]);
     exportCSV(
-      `transacoes-${filter}-${today}.csv`,
+      `${view === "executed" ? "extrato" : "futuras"}-${filter}-${today}.csv`,
       ["Data", "Descrição", "Categoria", "Origem", "Pessoas", "Tipo", "Parcela", "Valor (R$)"],
       csvRows,
     );
@@ -251,8 +308,8 @@ export function TransactionsView({
 
     try {
       await exportPDF({
-        filename: `transacoes-${filter}-${today}.pdf`,
-        title: "Extrato de lançamentos",
+        filename: `${view === "executed" ? "extrato" : "futuras"}-${filter}-${today}.pdf`,
+        title: view === "executed" ? "Extrato de lançamentos" : "Compromissos e previstos",
         subtitle: `${filterLabel} · ${rows.length} ${rows.length === 1 ? "lançamento" : "lançamentos"}`,
         generatedOn: today,
         orientation: "landscape",
@@ -268,6 +325,20 @@ export function TransactionsView({
   const filtersHead = (
     <div className="card-head">
       <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+        <div className="view-toggle">
+          <button
+            type="button"
+            className={view === "executed" ? "on" : ""}
+            onClick={() => pickView("executed")}
+          >
+            <Icon name="check-circle" size={15} />
+            Executadas
+          </button>
+          <button type="button" className={view === "future" ? "on" : ""} onClick={() => pickView("future")}>
+            <Icon name="calendar-range" size={15} />
+            Futuras
+          </button>
+        </div>
         {FILTERS.map(([k, l]) => (
           <button
             type="button"
@@ -280,6 +351,10 @@ export function TransactionsView({
         ))}
       </div>
       <div className="row gap-2">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={toggleOrder}>
+          <Icon name={order === "desc" ? "chevron-down" : "chevron-up"} size={16} />
+          {order === "desc" ? "Mais recentes" : "Mais antigas"}
+        </button>
         <Link className="btn btn-ghost btn-sm" href="/import">
           <Icon name="file-up" size={16} />
           Importar
@@ -341,9 +416,13 @@ export function TransactionsView({
     <div style={{ color: "var(--text-lo)", padding: "28px 12px", textAlign: "center" }}>
       <Icon name="search-x" size={26} style={{ color: "var(--text-faint)" }} />
       <div style={{ marginTop: 8, fontSize: 14 }}>
-        {q ? `Nada encontrado para “${query.trim()}”.` : "Nenhum lançamento ainda."}
+        {q
+          ? `Nada encontrado para “${query.trim()}”.`
+          : view === "executed"
+            ? "Nenhum movimento executado ainda."
+            : "Nada previsto ou a vencer por aqui."}
       </div>
-      {!q && (
+      {!q && view === "executed" && (
         <Link className="btn btn-ghost btn-sm" href="/import" style={{ marginTop: 12 }}>
           <Icon name="file-up" size={15} />
           Importar extrato
@@ -399,8 +478,10 @@ export function TransactionsView({
                     <SwipeRow
                       key={t.id}
                       onOpen={() => openRow(t)}
-                      onEdit={isTransfer ? null : () => openEdit(t)}
-                      onDelete={() => (t.parcela ? openDelete(t) : void removeDirect(t))}
+                      onEdit={isTransfer || isSynthetic(t) ? null : () => openEdit(t)}
+                      onDelete={
+                        isSynthetic(t) ? null : () => (t.parcela ? openDelete(t) : void removeDirect(t))
+                      }
                     >
                       <div className="lrow" style={{ background: "var(--surface-1)" }}>
                         <span className="l-ic" style={icStyle}>
@@ -417,6 +498,7 @@ export function TransactionsView({
                                 {t.parcela.total}x
                               </span>
                             )}
+                            {rowBadges(t)}
                           </div>
                           <div className="l-sub">
                             {relativeDateLabel(t.date, today)}
@@ -523,6 +605,7 @@ export function TransactionsView({
                               {t.installmentGroupId && t.parcela && (
                                 <span className="parc-badge">{t.parcela.total}x</span>
                               )}
+                              {rowBadges(t)}
                             </div>
                           </td>
                           <td>
