@@ -66,6 +66,9 @@ export interface TransactionListItem {
    * match the competence-based balances instead of the raw calendar date. Set by the mapper.
    */
   readonly billMonth?: CompetenceMonth;
+  /** True for a projected ("previsto") recurring occurrence that isn't a booked transaction yet
+   * (only ever set by the statement/future builder). Absent on real rows. */
+  readonly projected?: boolean;
   readonly isFixed: boolean;
   /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
   readonly rolled: boolean;
