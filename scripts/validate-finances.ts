@@ -29,6 +29,7 @@ import {
   computeCardOutstanding,
 } from "@/domain/services/card-bill.calculator";
 import {
+  computePersonBalances,
   computePersonBalancesForMonth,
   computePersonMonthNets,
 } from "@/domain/services/person-ledger.calculator";
@@ -254,6 +255,8 @@ async function main() {
   hr(`"SOBRA REAL" (dashboard) = "RESULTADO" (visão mensal) — month flow, both lenses`);
   console.log("  These are income − expense FOR THE MONTH (a flow), NOT the projected balance.");
   console.log("  month     |  Economia (geral)  |  Sobra real (pessoal)");
+  // Gross (transaction-derived) person balances give each settlement its direction (owed to you?).
+  const grossPersonBalances = computePersonBalances([], ws.transactions, []);
   for (let i = 0; i <= 6; i++) {
     const month = addMonths(currentMonth, i) as CompetenceMonth;
     const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
@@ -271,7 +274,15 @@ async function main() {
     );
     let aReceber = 0;
     for (const v of ledgerMonth.values()) if (v.cents > 0) aReceber += v.cents;
-    const economiaGeneral = general.net.cents + aReceber; // dashboard "Economia do mês" / monthly "Resultado"
+    // Account-backed settlements dated this month: entrada (+) when they owed you, saída (−) when
+    // you owed them — credited in the general economia (same as the monthly view / get-dashboard).
+    let settlementNet = 0;
+    for (const s of ws.settlements) {
+      if (s.accountId === null || s.date.slice(0, 7) !== month) continue;
+      const owedToYou = !(grossPersonBalances.get(s.personId) ?? Money.zero()).isNegative();
+      settlementNet += owedToYou ? s.amountCents : -s.amountCents;
+    }
+    const economiaGeneral = general.net.cents + aReceber + settlementNet; // dashboard "Economia do mês"
     const sobraPersonal = personal.net.cents; // dashboard "Sobra real" / monthly "Resultado" (personal)
     const flag =
       Math.abs(economiaGeneral) === 13358 || Math.abs(sobraPersonal) === 13358 ? "  <<< 133,58!" : "";

@@ -220,6 +220,48 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     expect(data.projectedBalanceCents).toBe(96900);
   });
 
+  it("exposes the month's account-backed settlement cash as settlementNetCents (received = +)", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    // Ana owes R$200 of a shared expense → a debtor (gross balance positive), so paying back is +.
+    const shared = expense({
+      id: "shared",
+      source: "account",
+      accountId: "acc-1",
+      cardId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 10000,
+      splits: [{ personId: "p1", shareCents: 20000 }],
+      recurrence: null,
+    });
+    const setts: Settlement[] = [
+      { id: "s", personId: "p1", amountCents: 20000, date: "2026-06-12", accountId: "acc-1" },
+    ];
+    const data = await getDashboard(stubRepo([shared], [], [ana], setts), "u", "2026-06");
+    expect(data.settlementNetCents).toBe(20000);
+  });
+
+  it("settlementNetCents ignores other months and account-less (perdão) settlements", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const shared = expense({
+      id: "shared",
+      source: "account",
+      accountId: "acc-1",
+      cardId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 10000,
+      splits: [{ personId: "p1", shareCents: 20000 }],
+      recurrence: null,
+    });
+    const setts: Settlement[] = [
+      { id: "s1", personId: "p1", amountCents: 20000, date: "2026-05-12", accountId: "acc-1" }, // May
+      { id: "s2", personId: "p1", amountCents: 5000, date: "2026-06-12", accountId: null }, // perdão
+    ];
+    const data = await getDashboard(stubRepo([shared], [], [ana], setts), "u", "2026-06");
+    expect(data.settlementNetCents).toBe(0);
+  });
+
   it("future month: a recurring shared expense projects the person's a-receber", async () => {
     const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
     // Recurring shared expense anchored June (R$300, my share 100, Ana owes 200) → projects into July.

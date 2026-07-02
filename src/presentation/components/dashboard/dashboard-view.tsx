@@ -72,6 +72,8 @@ export interface DashboardData {
   /** Whether the browsed month is already in the past (no projection to show). */
   readonly isPast: boolean;
   readonly aReceberCents: number;
+  /** Net cash from account-backed settlements this month (received +, paid −); general economia only. */
+  readonly settlementNetCents: number;
   readonly investedCents: number;
   readonly general: Totals;
   readonly personal: Totals;
@@ -195,10 +197,16 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   const personalInc = Math.max(0, data.personal.incomeCents);
   const personalExp = Math.max(0, data.personal.expenseCents);
-  // General income also counts what people owe you this month ("a receber"); personal
-  // counts only your own (no people). Expense is the full amount in both lenses.
-  const receitaMes = isPersonal ? personalInc : data.general.incomeCents + data.aReceberCents;
-  const gastoMes = isPersonal ? personalExp : data.general.expenseCents;
+  // General income also counts what people owe you this month ("a receber") plus the cash a person
+  // actually paid you back (settlement entrada); a settlement you paid out is a saída. Since general
+  // expense includes other people's shares, crediting the settlement cash keeps a reimbursed share
+  // from dragging the month down twice. Personal counts only your own (no people, no settlements).
+  const receitaMes = isPersonal
+    ? personalInc
+    : data.general.incomeCents + data.aReceberCents + Math.max(0, data.settlementNetCents);
+  const gastoMes = isPersonal
+    ? personalExp
+    : data.general.expenseCents + Math.max(0, -data.settlementNetCents);
   const economia = receitaMes - gastoMes;
   // Savings rate against the real income — null when there's no income to measure against
   // (avoids the bogus huge % from dividing by ~zero).
