@@ -40,12 +40,15 @@ export function PayFaturaModal({
   const [paidAt, setPaidAt] = useState(today);
   const [saving, setSaving] = useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when a new fatura opens.
+  // Reset the form each time the modal opens. Keyed on the `target` object (a fresh object per
+  // open) rather than its cardId/competence, so reopening the SAME fatura still clears a stale
+  // account/date left from a previous, abandoned open.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open only (not on account/today changes).
   useEffect(() => {
     if (!target) return;
     setAccountId(accounts[0]?.id ?? "");
     setPaidAt(today);
-  }, [target?.cardId, target?.competence]);
+  }, [target]);
 
   async function submit() {
     if (!target || saving) return;
