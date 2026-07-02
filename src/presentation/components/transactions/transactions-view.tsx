@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { deleteTransactionAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { byDateDesc } from "@/application/use-cases/get-transactions";
@@ -72,7 +72,25 @@ export function TransactionsView({
   const openDelete = useTxUIStore((s) => s.openDelete);
   const isMobile = useIsMobile();
   const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (t: TransactionListItem): boolean => {
+    if (q === "") return true;
+    const haystack = [
+      t.description,
+      t.category?.name,
+      t.sourceLabel,
+      t.note,
+      t.transferFromName,
+      t.transferToName,
+      ...t.shares.map((s) => s.name),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(q);
+  };
   const rows = transactions
     .filter((t) =>
       filter === "all"
@@ -83,11 +101,32 @@ export function TransactionsView({
             ? t.kind === "income"
             : t.kind === "expense",
     )
+    .filter(matchesQuery)
     .sort(byDateDesc);
   // Collapse installment parcelas into one row per group (the modal lists them all).
   const collapsed = collapseRowsByInstallments(rows);
   const shown = collapsed.slice(0, visibleCount);
   const hasMore = collapsed.length > visibleCount;
+
+  // Per-month totals over the WHOLE filtered set (accurate even while paginating), so each month
+  // header shows a stable "resultado do mês" hint.
+  const monthAgg = new Map<string, { inCents: number; outCents: number; count: number }>();
+  for (const t of collapsed) {
+    const key = t.date.slice(0, 7);
+    const agg = monthAgg.get(key) ?? { inCents: 0, outCents: 0, count: 0 };
+    if (t.kind === "income") agg.inCents += t.amountCents;
+    else if (t.kind === "expense") agg.outCents += Math.abs(t.amountCents);
+    agg.count += 1;
+    monthAgg.set(key, agg);
+  }
+  // Group the shown rows into consecutive month sections (already newest-first).
+  const sections: { month: string; items: TransactionListItem[] }[] = [];
+  for (const t of shown) {
+    const key = t.date.slice(0, 7);
+    const last = sections[sections.length - 1];
+    if (last && last.month === key) last.items.push(t);
+    else sections.push({ month: key, items: [t] });
+  }
 
   function pickFilter(next: Filter) {
     setFilter(next);
@@ -263,66 +302,144 @@ export function TransactionsView({
     </div>
   );
 
+  const searchBar = (
+    <div className="card-pad" style={{ paddingTop: 0, paddingBottom: 8 }}>
+      <div style={{ position: "relative" }}>
+        <Icon
+          name="search"
+          size={16}
+          style={{
+            position: "absolute",
+            left: 12,
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: "var(--text-lo)",
+          }}
+        />
+        <input
+          className="input"
+          style={{ paddingLeft: 36 }}
+          placeholder="Buscar por descrição, categoria, pessoa…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setVisibleCount(PAGE_SIZE);
+          }}
+          aria-label="Buscar lançamentos"
+        />
+      </div>
+    </div>
+  );
+
+  /** Month divider label + net-of-month hint (income − expense over the whole filtered set). */
+  const monthHead = (month: string): { label: string; net: number; count: number } => {
+    const agg = monthAgg.get(month) ?? { inCents: 0, outCents: 0, count: 0 };
+    return { label: monthLabel(month, { long: true }), net: agg.inCents - agg.outCents, count: agg.count };
+  };
+
+  const emptyState = (
+    <div style={{ color: "var(--text-lo)", padding: "28px 12px", textAlign: "center" }}>
+      <Icon name="search-x" size={26} style={{ color: "var(--text-faint)" }} />
+      <div style={{ marginTop: 8, fontSize: 14 }}>
+        {q ? `Nada encontrado para “${query.trim()}”.` : "Nenhum lançamento ainda."}
+      </div>
+      {!q && (
+        <Link className="btn btn-ghost btn-sm" href="/import" style={{ marginTop: 12 }}>
+          <Icon name="file-up" size={15} />
+          Importar extrato
+        </Link>
+      )}
+    </div>
+  );
+
   // ---- mobile: swipe-to-action list (more.jsx:23-46) ----
   if (isMobile) {
     return (
       <div className="card">
         {filtersHead}
-        <div className="card-pad" style={{ paddingTop: 4, paddingBottom: 8 }}>
-          {shown.map((t) => {
-            const isTransfer = t.kind === "transfer";
-            const cat = t.category;
-            const icStyle: CSSProperties = isTransfer
-              ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
-              : cat
-                ? { background: `${cat.color}22`, color: cat.color }
-                : { background: "var(--mint-soft)", color: "var(--mint-500)" };
+        {searchBar}
+        <div className="card-pad" style={{ paddingTop: 0, paddingBottom: 8 }}>
+          {sections.map((section) => {
+            const h = monthHead(section.month);
             return (
-              <SwipeRow
-                key={t.id}
-                onOpen={() => openRow(t)}
-                onEdit={isTransfer ? null : () => openEdit(t)}
-                onDelete={() => (t.parcela ? openDelete(t) : void removeDirect(t))}
-              >
-                <div className="lrow" style={{ background: "var(--surface-1)" }}>
-                  <span className="l-ic" style={icStyle}>
-                    <Icon
-                      name={isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left"}
-                      size={18}
-                    />
+              <div key={section.month}>
+                <div
+                  className="row"
+                  style={{ justifyContent: "space-between", alignItems: "baseline", padding: "12px 2px 6px" }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 600,
+                      fontSize: 13.5,
+                      color: "var(--text-hi)",
+                    }}
+                  >
+                    {h.label}
                   </span>
-                  <div className="l-main">
-                    <div className="l-title">
-                      {t.description || (isTransfer ? "Transferência" : "Lançamento")}
-                      {t.installmentGroupId && t.parcela && (
-                        <span className="parc-badge" style={{ marginLeft: 8 }}>
-                          {t.parcela.total}x
-                        </span>
-                      )}
-                    </div>
-                    <div className="l-sub">
-                      {relativeDateLabel(t.date, today)}
-                      {t.note ? ` · ${t.note}` : cat ? ` · ${cat.name}` : ""}
-                    </div>
-                  </div>
-                  {isTransfer ? (
-                    <div className="l-amt" style={{ color: "var(--sky-500)" }}>
-                      <Money cents={t.transferValueCents ?? 0} withSign={false} />
-                    </div>
-                  ) : (
-                    <div className={`l-amt ${t.amountCents < 0 ? "neg" : "pos"}`}>
-                      <Money cents={t.amountCents} />
-                    </div>
-                  )}
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: h.net >= 0 ? "var(--mint-500)" : "var(--rose-500)",
+                    }}
+                  >
+                    <Money cents={h.net} withSign />
+                  </span>
                 </div>
-              </SwipeRow>
+                {section.items.map((t) => {
+                  const isTransfer = t.kind === "transfer";
+                  const cat = t.category;
+                  const icStyle: CSSProperties = isTransfer
+                    ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
+                    : cat
+                      ? { background: `${cat.color}22`, color: cat.color }
+                      : { background: "var(--mint-soft)", color: "var(--mint-500)" };
+                  return (
+                    <SwipeRow
+                      key={t.id}
+                      onOpen={() => openRow(t)}
+                      onEdit={isTransfer ? null : () => openEdit(t)}
+                      onDelete={() => (t.parcela ? openDelete(t) : void removeDirect(t))}
+                    >
+                      <div className="lrow" style={{ background: "var(--surface-1)" }}>
+                        <span className="l-ic" style={icStyle}>
+                          <Icon
+                            name={isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left"}
+                            size={18}
+                          />
+                        </span>
+                        <div className="l-main">
+                          <div className="l-title">
+                            {t.description || (isTransfer ? "Transferência" : "Lançamento")}
+                            {t.installmentGroupId && t.parcela && (
+                              <span className="parc-badge" style={{ marginLeft: 8 }}>
+                                {t.parcela.total}x
+                              </span>
+                            )}
+                          </div>
+                          <div className="l-sub">
+                            {relativeDateLabel(t.date, today)}
+                            {t.note ? ` · ${t.note}` : cat ? ` · ${cat.name}` : ""}
+                          </div>
+                        </div>
+                        {isTransfer ? (
+                          <div className="l-amt" style={{ color: "var(--sky-500)" }}>
+                            <Money cents={t.transferValueCents ?? 0} withSign={false} />
+                          </div>
+                        ) : (
+                          <div className={`l-amt ${t.amountCents < 0 ? "neg" : "pos"}`}>
+                            <Money cents={t.amountCents} />
+                          </div>
+                        )}
+                      </div>
+                    </SwipeRow>
+                  );
+                })}
+              </div>
             );
           })}
-          {rows.length === 0 && (
-            <div style={{ color: "var(--text-lo)", padding: "20px 0", textAlign: "center" }}>
-              Nenhuma transação.
-            </div>
-          )}
+          {rows.length === 0 && emptyState}
           {moreFooter}
         </div>
       </div>
@@ -332,7 +449,8 @@ export function TransactionsView({
   return (
     <div className="card">
       {filtersHead}
-      <div style={{ padding: "8px 12px 12px" }}>
+      {searchBar}
+      <div style={{ padding: "0 12px 12px" }}>
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
@@ -346,79 +464,114 @@ export function TransactionsView({
               </tr>
             </thead>
             <tbody>
-              {shown.map((t) => {
-                const isTransfer = t.kind === "transfer";
-                const cat = t.category;
-                const avaStyle = isTransfer
-                  ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
-                  : cat
-                    ? { background: `${cat.color}22`, color: cat.color }
-                    : { background: "var(--mint-soft)", color: "var(--mint-500)" };
-                const iconName = isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left";
-                const origem = isTransfer
-                  ? t.transferFromName && t.transferToName
-                    ? `${t.transferFromName} → ${t.transferToName}`
-                    : (t.note ?? "—")
-                  : (t.sourceLabel ?? "—");
+              {sections.map((section) => {
+                const h = monthHead(section.month);
                 return (
-                  <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openRow(t)}>
-                    <td>
-                      <div className="row gap-3">
-                        <span className="tx-ava" style={avaStyle}>
-                          <Icon name={iconName} size={16} />
-                        </span>
-                        <span className="t-strong">{t.description}</span>
-                        {t.installmentGroupId && t.parcela && (
-                          <span className="parc-badge">{t.parcela.total}x</span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      {isTransfer ? (
-                        <span className="pill sky">Transferência</span>
-                      ) : cat ? (
-                        <span className="pill neutral">{cat.name}</span>
-                      ) : (
-                        <span className="pill mint">Receita</span>
-                      )}
-                    </td>
-                    <td>{origem}</td>
-                    <td>
-                      {t.shares.length ? (
-                        <div className="row">
-                          {t.shares.slice(0, 3).map((p, i) => (
-                            <span key={p.personId} style={{ marginLeft: i ? -7 : 0 }}>
-                              <Avatar name={p.name} color={p.color} size={26} />
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span style={{ color: "var(--text-faint)" }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ color: "var(--text-lo)" }}>{relativeDateLabel(t.date, today)}</td>
-                    <td className="r">
-                      {isTransfer ? (
-                        <span className="tnum" style={{ color: "var(--sky-500)", fontWeight: 700 }}>
-                          <Money cents={t.transferValueCents ?? 0} withSign={false} />
-                        </span>
-                      ) : (
-                        <span
-                          className="tnum t-strong"
-                          style={{ color: t.amountCents < 0 ? "var(--rose-500)" : "var(--mint-500)" }}
+                  <Fragment key={section.month}>
+                    <tr>
+                      <td colSpan={6} style={{ padding: "16px 8px 4px" }}>
+                        <div
+                          className="row"
+                          style={{ justifyContent: "space-between", alignItems: "baseline" }}
                         >
-                          <Money cents={t.amountCents} />
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                          <span
+                            style={{
+                              fontFamily: "var(--font-display)",
+                              fontWeight: 600,
+                              fontSize: 14,
+                              color: "var(--text-hi)",
+                            }}
+                          >
+                            {h.label}
+                          </span>
+                          <span style={{ fontSize: 12.5, color: "var(--text-lo)" }}>
+                            {h.count} {h.count === 1 ? "lançamento" : "lançamentos"} ·{" "}
+                            <span
+                              style={{
+                                color: h.net >= 0 ? "var(--mint-500)" : "var(--rose-500)",
+                                fontWeight: 600,
+                              }}
+                            >
+                              <Money cents={h.net} withSign />
+                            </span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {section.items.map((t) => {
+                      const isTransfer = t.kind === "transfer";
+                      const cat = t.category;
+                      const avaStyle = isTransfer
+                        ? { background: "var(--sky-soft)", color: "var(--sky-500)" }
+                        : cat
+                          ? { background: `${cat.color}22`, color: cat.color }
+                          : { background: "var(--mint-soft)", color: "var(--mint-500)" };
+                      const iconName = isTransfer ? "arrow-left-right" : cat ? cat.icon : "arrow-down-left";
+                      const origem = isTransfer
+                        ? t.transferFromName && t.transferToName
+                          ? `${t.transferFromName} → ${t.transferToName}`
+                          : (t.note ?? "—")
+                        : (t.sourceLabel ?? "—");
+                      return (
+                        <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openRow(t)}>
+                          <td>
+                            <div className="row gap-3">
+                              <span className="tx-ava" style={avaStyle}>
+                                <Icon name={iconName} size={16} />
+                              </span>
+                              <span className="t-strong">{t.description}</span>
+                              {t.installmentGroupId && t.parcela && (
+                                <span className="parc-badge">{t.parcela.total}x</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            {isTransfer ? (
+                              <span className="pill sky">Transferência</span>
+                            ) : cat ? (
+                              <span className="pill neutral">{cat.name}</span>
+                            ) : (
+                              <span className="pill mint">Receita</span>
+                            )}
+                          </td>
+                          <td>{origem}</td>
+                          <td>
+                            {t.shares.length ? (
+                              <div className="row">
+                                {t.shares.slice(0, 3).map((p, i) => (
+                                  <span key={p.personId} style={{ marginLeft: i ? -7 : 0 }}>
+                                    <Avatar name={p.name} color={p.color} size={26} />
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: "var(--text-faint)" }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ color: "var(--text-lo)" }}>{relativeDateLabel(t.date, today)}</td>
+                          <td className="r">
+                            {isTransfer ? (
+                              <span className="tnum" style={{ color: "var(--sky-500)", fontWeight: 700 }}>
+                                <Money cents={t.transferValueCents ?? 0} withSign={false} />
+                              </span>
+                            ) : (
+                              <span
+                                className="tnum t-strong"
+                                style={{ color: t.amountCents < 0 ? "var(--rose-500)" : "var(--mint-500)" }}
+                              >
+                                <Money cents={t.amountCents} />
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ color: "var(--text-lo)", padding: "24px 0", textAlign: "center" }}>
-                    Nenhuma transação.
-                  </td>
+                  <td colSpan={6}>{emptyState}</td>
                 </tr>
               )}
             </tbody>
