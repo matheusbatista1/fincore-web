@@ -1274,6 +1274,10 @@
 .input,
 .amount-input {
   width: 100%;
+  /* Let the field shrink to its container — native date/number controls otherwise keep an
+     intrinsic min-width that overflows a narrow modal (bottom-sheet) on mobile. */
+  min-width: 0;
+  max-width: 100%;
   height: 46px;
   padding: 0 14px;
   background: var(--surface-3);
@@ -1282,6 +1286,11 @@
   color: var(--text-hi);
   font-size: 15px;
   transition: border-color 0.15s;
+}
+/* Normalize the native date control so it respects the field width inside a mobile sheet. */
+.input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
 }
 .input:focus,
 .amount-input:focus {
@@ -3345,6 +3354,13 @@ html {
     padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
     position: sticky;
     bottom: 0;
+    /* Footer buttons wrap onto the next line instead of overflowing the sheet — e.g. the
+       transaction detail's Excluir / Pagar / Editar / Fechar on a narrow phone. */
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .modal-foot .row {
+    flex-wrap: wrap;
   }
   /* Action rows inside a modal wrap instead of overflowing the sheet (e.g. the person
      profile: Cobrar / Rolar dívida / Registrar pagamento). */
