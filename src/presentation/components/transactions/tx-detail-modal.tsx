@@ -36,6 +36,10 @@ export function TxDetailModal({ today }: { today: string }) {
   const peopleOn = useModuleEnabled("people");
   const [moving, setMoving] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  // Synthetic rows (settlement / fatura payment / projected occurrence) carry a `type:id` id and
+  // are NOT editable transactions — the statement/monthly views surface them for context only, so
+  // the detail is read-only (no Excluir / Editar / Pagar, which would act on a non-existent tx).
+  const synthetic = tx?.id.includes(":") ?? false;
 
   async function undoPay(id: string) {
     if (undoing) return;
@@ -185,7 +189,7 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
-            {tx.source === "card" && (
+            {tx.source === "card" && !synthetic && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
                   Fatura
@@ -216,7 +220,7 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
-            {tx.isPaid && (
+            {tx.isPaid && !synthetic && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
                   Pagamento
@@ -301,32 +305,40 @@ export function TxDetailModal({ today }: { today: string }) {
             )}
           </div>
 
-          <div className="modal-foot" style={{ justifyContent: "space-between" }}>
-            <button
-              type="button"
-              className="btn btn-quiet"
-              style={{ color: "var(--rose-500)" }}
-              onClick={() => (tx.parcela || tx.isFixed ? openDelete(tx) : removeDirect(tx))}
-            >
-              <Icon name="trash-2" size={16} />
-              Excluir
-            </button>
-            <div className="row gap-2">
-              {tx.isPayable && !tx.isPaid && !tx.rolled && !tx.id.startsWith("proj:") && (
-                <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
-                  <Icon name="wallet" size={16} />
-                  Pagar
-                </button>
-              )}
-              <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>
-                <Icon name="pencil" size={16} />
-                Editar
-              </button>
+          {synthetic ? (
+            <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
               <button type="button" className="btn btn-primary" onClick={closeDetail}>
                 Fechar
               </button>
             </div>
-          </div>
+          ) : (
+            <div className="modal-foot" style={{ justifyContent: "space-between" }}>
+              <button
+                type="button"
+                className="btn btn-quiet"
+                style={{ color: "var(--rose-500)" }}
+                onClick={() => (tx.parcela || tx.isFixed ? openDelete(tx) : removeDirect(tx))}
+              >
+                <Icon name="trash-2" size={16} />
+                Excluir
+              </button>
+              <div className="row gap-2">
+                {tx.isPayable && !tx.isPaid && !tx.rolled && !tx.id.startsWith("proj:") && (
+                  <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
+                    <Icon name="wallet" size={16} />
+                    Pagar
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>
+                  <Icon name="pencil" size={16} />
+                  Editar
+                </button>
+                <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
         </DialogModal>
       )}
     </Dialog>
