@@ -20,11 +20,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Principal",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: "layout-dashboard" },
+      { href: "/monthly", label: "Visão mensal", icon: "calendar-range" },
       { href: "/wallets", label: "Carteiras", icon: "wallet" },
       { href: "/transactions", label: "Transações", icon: "arrow-left-right" },
-      { href: "/pagamentos", label: "Pagamentos", icon: "hand-coins" },
       { href: "/categories", label: "Categorias", icon: "tag" },
-      { href: "/monthly", label: "Visão mensal", icon: "calendar-range" },
     ],
   },
   {
@@ -60,7 +59,6 @@ export const MOBILE_TABS: NavItem[] = [
 
 export const MOBILE_MORE: NavItem[] = [
   { href: "/transactions", label: "Transações", icon: "arrow-left-right" },
-  { href: "/pagamentos", label: "Pagamentos", icon: "hand-coins" },
   { href: "/categories", label: "Categorias", icon: "tag" },
   { href: "/budgets", label: "Orçamentos", icon: "target" },
   { href: "/goals", label: "Metas", icon: "piggy-bank" },
