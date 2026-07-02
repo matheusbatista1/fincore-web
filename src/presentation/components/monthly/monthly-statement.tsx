@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
+import {
+  type PayFaturaAccount,
+  PayFaturaModal,
+  type PayFaturaTarget,
+} from "@/presentation/components/cards/pay-fatura-modal";
 import { MonthExportButtons } from "@/presentation/components/monthly/month-export-buttons";
+import { applyLens, keepGroup } from "@/presentation/components/monthly/monthly-lens";
 import { StmtCard, type StmtGroup } from "@/presentation/components/monthly/stmt-card";
 import {
   MonthFade,
@@ -14,38 +21,6 @@ import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { Icon } from "@/presentation/components/ui/icon";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
-
-/**
- * Recast a group through the personal lens: expenses show only the user's share,
- * income drops reimbursements; settlements ("Acerto") are reimbursements of others'
- * shares, so they're dropped from both directions (mirrors balance.calculator's
- * personal lens, which ignores settlements). Transfers and the general lens pass through.
- */
-export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
-  if (!isPersonal || !group.lens || group.lens === "transfer") return group;
-  if (group.lens === "income") {
-    const items = group.items.filter((i) => !i.isReimbursement && !i.settlement);
-    return {
-      ...group,
-      items,
-      // People receivables are general-only — drop them from the personal lens.
-      receivables: undefined,
-      totalCents: items.reduce((s, i) => s + i.amountCents, 0),
-      countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
-    };
-  }
-  // expense: drop settlements, then display only the user's own share per row.
-  const items = group.items
-    .filter((i) => !i.settlement)
-    .map((i) => ({
-      ...i,
-      amountCents: -(i.myShareCents ?? Math.abs(i.amountCents)),
-    }));
-  return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
-}
-
-/** Keep a group if it has rows OR (income) people-receivables to show. */
-const keep = (g: StmtGroup): boolean => g.items.length > 0 || (g.receivables?.length ?? 0) > 0;
 
 export interface MonthlyStatementProps {
   month: string;
@@ -64,6 +39,10 @@ export interface MonthlyStatementProps {
   totInCents: number;
   totOutCents: number;
   itemCount: number;
+  /** Wallets available to pay a card fatura from (the modal's account picker). */
+  accounts: PayFaturaAccount[];
+  /** Card bill payments — a card group reads its own (cardId, competence) to show "Fatura paga". */
+  cardBillPayments: CardBillPayment[];
 }
 
 /** Monthly statement with month navigation, the immersive transition and a Geral/Apenas-meu lens. */
@@ -80,23 +59,27 @@ export function MonthlyStatement({
   totInCents,
   totOutCents,
   itemCount,
+  accounts,
+  cardBillPayments,
 }: MonthlyStatementProps) {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
   const peopleOn = useModuleEnabled("people");
   const isPersonal = peopleOn && view === "personal";
+  // "Pagar fatura" is triggered from inside a card group's modal; the modal itself lives here.
+  const [payingFatura, setPayingFatura] = useState<PayFaturaTarget | null>(null);
 
   const left = useMemo(
-    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [leftGroups, isPersonal],
   );
   const right = useMemo(
-    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [rightGroups, isPersonal],
   );
   // Lens-aware, export-ordered groups (carry receivables on the income group under general).
   const exportLensed = useMemo(
-    () => exportGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => exportGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [exportGroups, isPersonal],
   );
 
@@ -231,17 +214,41 @@ export function MonthlyStatement({
           <div className="month-cols">
             <div className="col gap-4">
               {left.map((g) => (
-                <StmtCard key={g.key} group={g} today={today} />
+                <StmtCard
+                  key={`${g.key}-${month}-${isPersonal ? "p" : "g"}`}
+                  group={g}
+                  today={today}
+                  month={month}
+                  competenceLabel={label}
+                  accounts={accounts}
+                  cardBillPayments={cardBillPayments}
+                  onOpenPayFatura={setPayingFatura}
+                />
               ))}
             </div>
             <div className="col gap-4">
               {right.map((g) => (
-                <StmtCard key={g.key} group={g} today={today} />
+                <StmtCard
+                  key={`${g.key}-${month}-${isPersonal ? "p" : "g"}`}
+                  group={g}
+                  today={today}
+                  month={month}
+                  competenceLabel={label}
+                  accounts={accounts}
+                  cardBillPayments={cardBillPayments}
+                  onOpenPayFatura={setPayingFatura}
+                />
               ))}
             </div>
           </div>
         </MonthFade>
       </div>
+      <PayFaturaModal
+        target={payingFatura}
+        accounts={accounts}
+        today={today}
+        onClose={() => setPayingFatura(null)}
+      />
     </MonthTransition>
   );
 }
