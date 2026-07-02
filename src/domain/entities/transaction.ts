@@ -152,3 +152,27 @@ export const isPayableObligation = (t: Transaction): t is ExpenseTransaction =>
  */
 export const isOverdue = (t: Transaction, today: IsoDate): boolean =>
   isPayableObligation(t) && !isPaid(t) && !isRolled(t) && t.date < today;
+
+/**
+ * The cash actually spent on an expense, in positive cents. Once a deferred obligation is PAID,
+ * this is the amount that truly left the account ({@link ExpenseTransaction.paidAmountCents}) —
+ * which can be LESS than the original when a loan/financing is settled early with a discount (or
+ * MORE if paid with interest). Otherwise it's the original `|amountCents|`. "Gasto" totals must
+ * use this so a R$500 loan settled for R$470 counts as R$470, not R$500.
+ */
+export function settledExpenseCents(t: ExpenseTransaction): number {
+  return isPaid(t) && t.paidAmountCents != null ? t.paidAmountCents : Math.abs(t.amountCents);
+}
+
+/**
+ * The user's own slice of what was actually spent on an expense, in positive cents. Scales
+ * {@link ExpenseTransaction.myShareCents} by the paid/original ratio when a paid obligation settled
+ * for a different amount (a discount reduces the user's share proportionally); otherwise it's the
+ * plain `myShareCents`. Mirrors {@link settledExpenseCents} for the personal lens.
+ */
+export function settledMyShareCents(t: ExpenseTransaction): number {
+  const original = Math.abs(t.amountCents);
+  const paid = settledExpenseCents(t);
+  if (paid === original || original === 0) return t.myShareCents;
+  return Math.round((t.myShareCents * paid) / original);
+}

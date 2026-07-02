@@ -7,7 +7,7 @@ import {
   computeCardBillsForMonth,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
-import { computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
+import { computePersonBalances, computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -16,6 +16,7 @@ import {
   type CompetenceMonth,
   compareMonths,
   dateInMonth,
+  monthOf,
 } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
@@ -92,6 +93,13 @@ export interface DashboardData {
   readonly aReceberCents: number;
   /** Sum of the month's negative person nets, as a positive figure (you owe this month). */
   readonly aPagarCents: number;
+  /**
+   * Net cash from account-backed settlements dated in the browsed month (a person paying you back
+   * is +, you paying them is −). The GENERAL "economia" counts other people's shares as expense, so
+   * it must also count the cash that settled them; the personal lens drops it (a reimbursement, not
+   * your money). Mirrors how the monthly view reflects settlements as entradas/saídas.
+   */
+  readonly settlementNetCents: number;
   readonly general: ViewTotalsDto;
   readonly personal: ViewTotalsDto;
   /** Trailing 6-month cumulative balance for the hero sparkline. */
@@ -196,6 +204,18 @@ export async function getDashboard(
   const aReceberCents = people.reduce((sum, p) => (p.balanceCents > 0 ? sum + p.balanceCents : sum), 0);
   const aPagarCents = people.reduce((sum, p) => (p.balanceCents < 0 ? sum - p.balanceCents : sum), 0);
 
+  // Account-backed settlements dated in the browsed month move real cash. Their direction follows
+  // the person's transaction-derived (gross) balance sign — a person who owed you paying back is an
+  // entrada (+), you paying someone you owed is a saída (−). Summed here so the general "economia"
+  // can credit the cash that reimbursed other people's shares (which it already counts as expense).
+  const grossPersonBalances = computePersonBalances([], ws.transactions, []);
+  let settlementNetCents = 0;
+  for (const s of ws.settlements) {
+    if (s.accountId === null || monthOf(s.date) !== month) continue;
+    const owedToYou = !(grossPersonBalances.get(s.personId) ?? Money.zero()).isNegative();
+    settlementNetCents += owedToYou ? s.amountCents : -s.amountCents;
+  }
+
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
   // Personal-lens total: only the user's own share of shared account/overdraft expenses.
   let totalBalancePersonalCents = 0;
@@ -286,6 +306,7 @@ export async function getDashboard(
     people,
     aReceberCents,
     aPagarCents,
+    settlementNetCents,
     trend,
     general: {
       incomeCents: general.income.cents,

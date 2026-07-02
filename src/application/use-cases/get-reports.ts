@@ -1,4 +1,11 @@
-import { isExpense, isIncome, isRolled, type Transaction } from "@/domain/entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isRolled,
+  settledExpenseCents,
+  settledMyShareCents,
+  type Transaction,
+} from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
@@ -155,10 +162,13 @@ export async function getReports(
     for (const tx of setForMonth(month)) {
       if (!isExpense(tx)) continue;
       const key = tx.categoryId ?? "__none__";
-      byCategory.set(key, (byCategory.get(key) ?? 0) + Math.abs(tx.amountCents));
+      // Paid obligations count at what actually left the account (settled amount), matching the
+      // trend bars' computeViewTotals — a discounted payoff shrinks its category slice too.
+      byCategory.set(key, (byCategory.get(key) ?? 0) + settledExpenseCents(tx));
       // A fully-shared expense (myShareCents === 0) leaves the personal donut.
-      if (tx.myShareCents > 0) {
-        byCategoryPersonal.set(key, (byCategoryPersonal.get(key) ?? 0) + tx.myShareCents);
+      const share = settledMyShareCents(tx);
+      if (share > 0) {
+        byCategoryPersonal.set(key, (byCategoryPersonal.get(key) ?? 0) + share);
       }
     }
   }

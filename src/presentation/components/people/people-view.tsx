@@ -401,8 +401,11 @@ function ProfileBody({
   const totalOwes = totalCents > 0;
   const canSettle = person.realBalanceCents !== 0;
   const realOwes = person.realBalanceCents > 0;
+  // Match by BILL competence (card charges bill in a later month than their purchase date), so this
+  // list agrees with the competence-based month balance — e.g. Arthur's Airpods/Cobasi/Mercado
+  // parcelas all show under the month their fatura is due, not their scattered purchase dates.
   const involved = transactions.filter(
-    (t) => t.shares.some((s) => s.personId === person.id) && t.date.slice(0, 7) === month,
+    (t) => t.shares.some((s) => s.personId === person.id) && (t.billMonth ?? t.date.slice(0, 7)) === month,
   );
   const first = firstName(person.name);
 
@@ -844,11 +847,16 @@ function SettleBody({
 }) {
   const toast = useUIStore((s) => s.toast);
   const router = useRouter();
-  // Settle against the REAL booked balance (projected occurrences aren't settleable yet).
+  // Settle against the REAL booked balance (projected occurrences aren't settleable yet) — that's
+  // the hard cap. But PREFILL with the amount shown on the browsed-month card (what the user
+  // clicked), so opening "acertar" from Agosto's R$235,93 offers exactly that, not the all-time
+  // total. A month with nothing pending (0) falls back to the full real balance.
   const owes = person.realBalanceCents > 0;
   const max = Math.abs(person.realBalanceCents);
+  const monthAmount = Math.abs(person.monthBalanceCents);
+  const owed = monthAmount > 0 ? Math.min(monthAmount, max) : max;
   const first = firstName(person.name);
-  const [cents, setCents] = useState(editing ? editing.amountCents : max);
+  const [cents, setCents] = useState(editing ? editing.amountCents : owed);
   // The account the money moved through. A NEW acerto starts unchosen ("" = placeholder) so
   // the user consciously picks where the cash landed (no silent default to the first wallet).
   // ACCOUNT_NONE = "sem conta" (baixa/perdão, no cash movement).
@@ -902,12 +910,12 @@ function SettleBody({
         <div style={{ textAlign: "center", marginBottom: 6, fontSize: 13.5, color: "var(--text-lo)" }}>
           {owes ? (
             <span>
-              <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(max)}. Quanto
+              <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(owed)}. Quanto
               recebeu?
             </span>
           ) : (
             <span>
-              Você deve {formatBRLAbsolute(max)} a <b style={{ color: "var(--text-hi)" }}>{first}</b>. Quanto
+              Você deve {formatBRLAbsolute(owed)} a <b style={{ color: "var(--text-hi)" }}>{first}</b>. Quanto
               pagou?
             </span>
           )}

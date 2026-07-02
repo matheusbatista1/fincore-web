@@ -5,7 +5,8 @@ import type {
   TransactionKind,
 } from "@/domain/entities/transaction";
 import { isExpense, isIncome, isPaid, isPayableObligation, isTransfer } from "@/domain/entities/transaction";
-import type { IsoDate } from "@/domain/value-objects/competence-month";
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
@@ -59,6 +60,12 @@ export interface TransactionListItem {
   readonly installmentGroupId: string | null;
   /** Manual bill (competence month) override for a card charge; null = automatic. */
   readonly billMonthOverride: string | null;
+  /**
+   * The competence month (`YYYY-MM`) this row is filed under: a card charge's BILL due month,
+   * everything else its date's calendar month. Lets month-scoped views (person breakdown, extrato)
+   * match the competence-based balances instead of the raw calendar date. Set by the mapper.
+   */
+  readonly billMonth?: CompetenceMonth;
   readonly isFixed: boolean;
   /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
   readonly rolled: boolean;
@@ -110,12 +117,15 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const personById = new Map(ws.people.map((p) => [p.id, p]));
   const firstName = (full: string): string => full.split(" ")[0] ?? full;
+  // Card charges are filed under their bill's due month; everything else under its calendar month.
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
 
   return (tx: Transaction): TransactionListItem => {
     const base = {
       id: tx.id,
       description: tx.description,
       date: tx.date,
+      billMonth: competenceOf(tx),
       note: tx.note ?? null,
       category: null,
       categoryId: null,

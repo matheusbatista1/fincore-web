@@ -478,13 +478,36 @@ describe("card fatura payments debit the paying account", () => {
     ).toBe(70_000);
   });
 
-  it("debits identically in the personal lens (a fatura is the user's own money)", () => {
+  it("falls back to the full amount in the personal lens when no competence resolver is given", () => {
     const accounts = [makeAccount("nu", 100_000)];
     expect(
       computeAccountBalances(accounts, [], undefined, "personal", [], [payment({ amountCents: 25_000 })]).get(
         "nu",
       )?.cents,
     ).toBe(75_000);
+  });
+
+  it("debits only the user's share in the personal lens when a fatura includes others' shares", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // Bill for c1/2026-07 = R$300: a shared R$200 charge (R$120 owed by someone else, myShare R$80)
+    // plus a solo R$100 charge → the user's slice is R$180 of R$300 (ratio 0.6).
+    const shared: ExpenseTransaction = {
+      ...expense(-20_000, { source: "card", cardId: "c1" }),
+      splits: [{ personId: "p1", shareCents: 12_000 }],
+      myShareCents: 8_000,
+    };
+    const solo = expense(-10_000, { source: "card", cardId: "c1" });
+    const charges: Transaction[] = [shared, solo];
+    const comp = () => "2026-07";
+    const p = payment({ amountCents: 30_000, competence: "2026-07" });
+    // General: the full R$300 leaves the account.
+    expect(
+      computeAccountBalances(accounts, charges, undefined, "general", [], [p], comp).get("nu")?.cents,
+    ).toBe(70_000);
+    // Personal: only the user's R$180 share (0.6 × R$300 paid).
+    expect(
+      computeAccountBalances(accounts, charges, undefined, "personal", [], [p], comp).get("nu")?.cents,
+    ).toBe(82_000);
   });
 
   it("lands on the pay date (excluded before it, included on/after)", () => {

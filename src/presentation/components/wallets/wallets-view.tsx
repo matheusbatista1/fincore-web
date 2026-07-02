@@ -48,16 +48,18 @@ export function WalletsView({
   const posTotal = accounts.reduce((s, a) => s + Math.max(0, a.balanceCents), 0) || 1;
   const sorted = [...accounts].sort((a, b) => b.balanceCents - a.balanceCents);
 
-  // Per-account in/out for the browsed month (getMonthly already scopes the items).
+  // Per-account in/out for the browsed month (getMonthly already scopes the items). Transfers are
+  // kept in their OWN channel (tIn/tOut), never folded into entradas/saídas — otherwise moving money
+  // between your own accounts (or a round-trip ida-e-volta) inflates both sides and reads as income.
   const flow = useMemo(() => {
-    const f = new Map<string, { in: number; out: number }>();
-    for (const a of accounts) f.set(a.id, { in: 0, out: 0 });
+    const f = new Map<string, { in: number; out: number; tIn: number; tOut: number }>();
+    for (const a of accounts) f.set(a.id, { in: 0, out: 0, tIn: 0, tOut: 0 });
     for (const t of items) {
       if (t.kind === "transfer") {
         const from = t.transferFromAccountId ? f.get(t.transferFromAccountId) : undefined;
         const to = t.transferToAccountId ? f.get(t.transferToAccountId) : undefined;
-        if (from) from.out += t.transferValueCents ?? 0;
-        if (to) to.in += t.transferValueCents ?? 0;
+        if (from) from.tOut += t.transferValueCents ?? 0;
+        if (to) to.tIn += t.transferValueCents ?? 0;
         continue;
       }
       if (!t.accountId) continue;
@@ -191,7 +193,8 @@ export function WalletsView({
           <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 10 }}>
             {sorted.map((a) => {
               const accent = themeAccent(a.themeKey, a.bank);
-              const fl = flow.get(a.id) ?? { in: 0, out: 0 };
+              const fl = flow.get(a.id) ?? { in: 0, out: 0, tIn: 0, tOut: 0 };
+              const netTransfer = fl.tIn - fl.tOut;
               return (
                 <AccountFormDialog
                   account={a}
@@ -227,6 +230,17 @@ export function WalletsView({
                           <Icon name="arrow-up-right" size={13} />
                           <AnimatedMoney cents={fl.out} withSign={false} />
                         </span>
+                        {netTransfer !== 0 && (
+                          <span
+                            className="af"
+                            style={{ color: "var(--text-lo)" }}
+                            title="Transferências (não contam como entrada/saída)"
+                          >
+                            <Icon name="arrow-left-right" size={13} />
+                            {netTransfer > 0 ? "+" : "−"}
+                            <AnimatedMoney cents={Math.abs(netTransfer)} withSign={false} />
+                          </span>
+                        )}
                       </div>
                       <div className="acct-bal">
                         <div
