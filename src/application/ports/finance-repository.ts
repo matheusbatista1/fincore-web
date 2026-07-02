@@ -31,6 +31,12 @@ export interface UserProfile {
   readonly avatarUrl: string | null;
   readonly enabledModules: ModuleKey[];
   readonly onboardedAt: Date | null;
+  /** When on, due obligations and faturas are auto-paid from {@link defaultPayAccountId}. */
+  readonly autoPaymentsEnabled: boolean;
+  /** The account auto-payments debit from; null when unset. */
+  readonly defaultPayAccountId: string | null;
+  /** The date auto-payments were turned on (`YYYY-MM-DD`); reconciliation only books from here on. */
+  readonly autoPaymentsSince: string | null;
 }
 
 /**
@@ -140,6 +146,15 @@ export interface FinanceRepository {
   /** The user's profile + settings (name, enabled modules, onboarding state). */
   getProfile(userId: string): Promise<UserProfile>;
   updateProfile(userId: string, input: { displayName: string }): Promise<void>;
+  /** Persist the auto-payments preference + the account they debit from + the "enabled since" date. */
+  updatePreferences(
+    userId: string,
+    input: {
+      autoPaymentsEnabled: boolean;
+      defaultPayAccountId: string | null;
+      autoPaymentsSince: string | null;
+    },
+  ): Promise<void>;
   /** Persist (or clear) the user's avatar URL. */
   updateAvatar(userId: string, avatarUrl: string | null): Promise<void>;
   /** Persist the set of optional modules the user has turned on. */

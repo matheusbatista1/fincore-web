@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSupabaseServerClient, getCurrentUser, verifyPassword } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { sanitizeModules } from "@/shared/modules";
 
 /** The request's public origin (works on localhost, Vercel preview and prod). */
@@ -100,6 +101,41 @@ export async function updateModulesAction(
   const parsed = modulesSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Dados inválidos." };
   await financeRepository.updateEnabledModules(user.id, sanitizeModules(parsed.data.modules));
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+const preferencesSchema = z
+  .object({
+    autoPaymentsEnabled: z.boolean(),
+    defaultPayAccountId: z.string().min(1).nullable().default(null),
+  })
+  .refine((v) => !v.autoPaymentsEnabled || v.defaultPayAccountId !== null, {
+    message: "Escolha a conta padrão para os pagamentos automáticos.",
+    path: ["defaultPayAccountId"],
+  });
+
+/** Persist the auto-payments toggle + the account they debit from (settings). */
+export async function updatePreferencesAction(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = preferencesSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  // Stamp "enabled since" = today on a fresh off→on so reconciliation only books items coming due
+  // from now on (never retroactively). Keep the existing date while it stays on.
+  const current = await financeRepository.getProfile(user.id);
+  const autoPaymentsSince = parsed.data.autoPaymentsEnabled
+    ? current.autoPaymentsEnabled
+      ? current.autoPaymentsSince
+      : todayInBrazil()
+    : current.autoPaymentsSince;
+  await financeRepository.updatePreferences(user.id, {
+    autoPaymentsEnabled: parsed.data.autoPaymentsEnabled,
+    defaultPayAccountId: parsed.data.defaultPayAccountId,
+    autoPaymentsSince,
+  });
   revalidatePath("/", "layout");
   return { ok: true };
 }

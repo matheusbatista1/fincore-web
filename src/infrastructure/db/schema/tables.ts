@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -50,6 +51,16 @@ export const users = pgTable(
     enabledModules: jsonb("enabled_modules").$type<ModuleKey[]>().notNull().default(sql`'[]'::jsonb`),
     /** Set when the first-run onboarding has been completed; null = not onboarded yet. */
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
+    /** When on, due obligations and faturas are auto-paid (booked) from `defaultPayAccountId`. */
+    autoPaymentsEnabled: boolean("auto_payments_enabled").notNull().default(false),
+    /** The single account auto-payments debit from; required while autoPaymentsEnabled is on. The
+     * return type is annotated to break the users↔accounts reference cycle for TS inference. */
+    defaultPayAccountId: uuid("default_pay_account_id").references((): AnyPgColumn => accounts.id, {
+      onDelete: "set null",
+    }),
+    /** The date auto-payments were turned on; reconciliation only books items due on/after it, so
+     * enabling never retroactively books arbitrary past-due history. */
+    autoPaymentsSince: date("auto_payments_since", { mode: "string" }),
     /** Set when the user requested deletion; a cron purges the account 30 days later. Login clears it. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     ...timestamps,

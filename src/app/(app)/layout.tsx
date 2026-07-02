@@ -8,6 +8,7 @@ import { financeRepository } from "@/infrastructure/composition";
 import { PullToRefresh } from "@/presentation/components/gestures/pull-to-refresh";
 import { OnboardingHost } from "@/presentation/components/onboarding/onboarding-host";
 import { AppHeader } from "@/presentation/components/shell/app-header";
+import { AutoPaymentsSync } from "@/presentation/components/shell/auto-payments-sync";
 import { MobileNav } from "@/presentation/components/shell/mobile-nav";
 import { PageHead } from "@/presentation/components/shell/page-head";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
@@ -132,6 +133,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </main>
         <MobileNav {...formData} pendingCount={pendingCount} />
         <TxModalsHost {...formData} transactions={transactions} today={today} />
+        <AutoPaymentsSync enabled={profile.autoPaymentsEnabled} />
         <OnboardingHost onboarded={profile.onboardedAt !== null} enabledModules={enabledModules} />
       </div>
     </ModulesProvider>
