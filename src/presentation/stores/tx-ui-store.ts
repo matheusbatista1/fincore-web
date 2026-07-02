@@ -55,6 +55,9 @@ export const useTxUIStore = create<TxUIState>((set) => ({
 /** Imperative helper for row components. */
 export const openTxDetail = (item: TransactionListItem): void => useTxUIStore.getState().openDetail(item);
 
+/** Imperative helper to open the Pay modal for a deferred obligation (boleto/loan/financing). */
+export const openPayObligation = (item: TransactionListItem): void => useTxUIStore.getState().openPay(item);
+
 /** Imperative helper to open the installment-group list from a collapsed row. */
 export const openInstallmentGroup = (groupId: string): void =>
   useTxUIStore.getState().openInstallmentGroup(groupId);
