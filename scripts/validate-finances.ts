@@ -19,7 +19,7 @@ try {
 // Don't fail on unrelated missing public vars — we only need DATABASE_URL.
 process.env.SKIP_ENV_VALIDATION = "1";
 
-import { isExpense, isIncome } from "@/domain/entities/transaction";
+import { isExpense, isIncome, isPaid, isTransfer } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
@@ -92,6 +92,72 @@ async function main() {
   }
   console.log(`  TOTAL saldo: ${brl(totalBalance)}`);
 
+  const acctName = new Map(ws.accounts.map((a) => [a.id, `${a.bank} · ${a.name}`]));
+
+  // ------------------------------------------------ auto-payments configuration
+  hr("AUTO-PAGAMENTO — configuração + o que foi debitado de cada conta");
+  const profile = await repo.getProfile(user.id);
+  console.log(
+    `  autoPaymentsEnabled=${profile.autoPaymentsEnabled} · defaultPayAccount=${profile.defaultPayAccountId ? (acctName.get(profile.defaultPayAccountId) ?? profile.defaultPayAccountId) : "—"} · since=${profile.autoPaymentsSince ?? "—"}`,
+  );
+  const paidByAcct = new Map<string, { n: number; cents: number }>();
+  for (const tx of ws.transactions) {
+    if (isExpense(tx) && isPaid(tx) && tx.paidAccountId) {
+      const cur = paidByAcct.get(tx.paidAccountId) ?? { n: 0, cents: 0 };
+      cur.n += 1;
+      cur.cents += tx.paidAmountCents ?? Math.abs(tx.amountCents);
+      paidByAcct.set(tx.paidAccountId, cur);
+    }
+  }
+  const faturaByAcct = new Map<string, { n: number; cents: number }>();
+  for (const p of ws.cardBillPayments) {
+    const cur = faturaByAcct.get(p.accountId) ?? { n: 0, cents: 0 };
+    cur.n += 1;
+    cur.cents += p.amountCents;
+    faturaByAcct.set(p.accountId, cur);
+  }
+  console.log("  Obrigações pagas por conta (paidAccountId):");
+  for (const [id, v] of paidByAcct) console.log(`    ${acctName.get(id) ?? id}: ${v.n}× = ${brl(v.cents)}`);
+  console.log("  Faturas pagas por conta (accountId):");
+  for (const [id, v] of faturaByAcct) console.log(`    ${acctName.get(id) ?? id}: ${v.n}× = ${brl(v.cents)}`);
+
+  // --------------------------------------- per-account "movimento" of the month
+  hr(`MOVIMENTO POR CONTA (${currentMonth}) — entradas / saídas / TRANSFERÊNCIAS separadas`);
+  console.log("  (mostra como transferências inflam o movimento hoje — devem ficar à parte)");
+  type Flow = { inc: number; exp: number; tIn: number; tOut: number };
+  const flow = new Map<string, Flow>();
+  const bump = (id: string | null, k: keyof Flow, cents: number) => {
+    if (!id) return;
+    const f = flow.get(id) ?? { inc: 0, exp: 0, tIn: 0, tOut: 0 };
+    f[k] += cents;
+    flow.set(id, f);
+  };
+  for (const tx of ws.transactions) {
+    if (isTransfer(tx)) {
+      if (tx.date.slice(0, 7) !== currentMonth) continue;
+      bump(tx.fromAccountId, "tOut", tx.valueCents);
+      bump(tx.toAccountId, "tIn", tx.valueCents);
+    } else if (isIncome(tx) && tx.accountId && tx.cardId === null && tx.date.slice(0, 7) === currentMonth) {
+      bump(tx.accountId, "inc", tx.amountCents);
+    } else if (isExpense(tx) && (tx.source === "account" || tx.source === "overdraft")) {
+      const id = tx.source === "account" ? tx.accountId : tx.linkedAccountId;
+      if (tx.date.slice(0, 7) === currentMonth) bump(id, "exp", Math.abs(tx.amountCents));
+    }
+  }
+  for (const tx of ws.transactions) {
+    if (isExpense(tx) && isPaid(tx) && tx.paidAt?.slice(0, 7) === currentMonth) {
+      bump(tx.paidAccountId ?? null, "exp", tx.paidAmountCents ?? Math.abs(tx.amountCents));
+    }
+  }
+  for (const p of ws.cardBillPayments)
+    if (p.date.slice(0, 7) === currentMonth) bump(p.accountId, "exp", p.amountCents);
+  for (const a of ws.accounts) {
+    const f = flow.get(a.id) ?? { inc: 0, exp: 0, tIn: 0, tOut: 0 };
+    console.log(
+      `  ${(acctName.get(a.id) ?? a.id).padEnd(22)} entradas ${brl(f.inc).padStart(12)} · saídas ${brl(f.exp).padStart(12)} · transf +${brl(f.tIn)}/−${brl(f.tOut)}`,
+    );
+  }
+
   // ------------------------------------------------------------------- cards
   hr("CARDS — fatura atual (hoje) vs. fatura do mês vs. total em aberto");
   for (const card of ws.creditCards) {
@@ -143,6 +209,8 @@ async function main() {
       competenceOf,
       currentMonth,
       lens,
+      ws.settlements,
+      ws.cardBillPayments,
     );
     let eomSum = 0;
     for (const v of eom.values()) eomSum += v.cents;
@@ -153,6 +221,7 @@ async function main() {
       competenceOf,
       lens,
       currentMonth,
+      ws.cardBillPayments,
     ).cents;
     let peopleNet = 0;
     if (lens === "general") {
@@ -209,6 +278,50 @@ async function main() {
     console.log(
       `  ${month} | ${brl(economiaGeneral).padStart(17)}  | ${brl(sobraPersonal).padStart(17)}${flag}`,
     );
+  }
+
+  // ------------------------------------------- discounts on paid obligations
+  hr("DESCONTOS — obrigações pagas por valor ≠ do original (paidAmountCents vs |amountCents|)");
+  console.log("  (o 'gasto/economia' agora conta o valor PAGO; aqui está a diferença nos seus dados)");
+  const discByMonth = new Map<string, { count: number; original: number; paid: number }>();
+  let discOriginal = 0;
+  let discPaid = 0;
+  let discCount = 0;
+  for (const tx of ws.transactions) {
+    if (!(isExpense(tx) && isPaid(tx))) continue;
+    const original = Math.abs(tx.amountCents);
+    const paid = tx.paidAmountCents ?? original;
+    if (paid === original) continue;
+    const comp = competenceOf(tx);
+    const cur = discByMonth.get(comp) ?? { count: 0, original: 0, paid: 0 };
+    cur.count += 1;
+    cur.original += original;
+    cur.paid += paid;
+    discByMonth.set(comp, cur);
+    discOriginal += original;
+    discPaid += paid;
+    discCount += 1;
+    const delta = original - paid;
+    console.log(
+      `    [${comp}] ${tx.description} · ${tx.source}: original ${brl(original)} → pago ${brl(paid)}` +
+        ` · ${delta >= 0 ? "desconto" : "acréscimo"} ${brl(Math.abs(delta))} (pago em ${tx.paidAt})`,
+    );
+  }
+  if (discCount === 0) {
+    console.log("    Nenhuma obrigação paga com valor diferente do original (sem descontos registrados).");
+  } else {
+    console.log(
+      `\n  Σ ${discCount} pagamento(s) com diferença · original ${brl(discOriginal)} → pago ${brl(discPaid)}` +
+        ` · desconto líquido ${brl(discOriginal - discPaid)}`,
+    );
+    console.log("  Por mês de competência (a economia daquele mês melhora nesse valor):");
+    for (const m of [...discByMonth.keys()].sort()) {
+      const d = discByMonth.get(m);
+      if (!d) continue;
+      console.log(
+        `    ${m}: ${d.count}× · gasto ${brl(d.original)} → ${brl(d.paid)} (Δ +${brl(d.original - d.paid)})`,
+      );
+    }
   }
 
   // Itemize the cumulative window [currentMonth..target] that feeds a future month's
@@ -402,6 +515,53 @@ async function main() {
     if (v.cents === 0) continue;
     const person = ws.people.find((p) => p.id === pid);
     console.log(`    ${person?.name ?? pid}: ${brl(v.cents)} ${v.cents > 0 ? "(te deve)" : "(você deve)"}`);
+  }
+
+  // ------------------------------------------- person month-net breakdown (bug)
+  hr("PESSOAS — de onde vem o saldo de cada mês (real vs projetado vs acerto)");
+  const horizon = addMonths(currentMonth, 2) as CompetenceMonth;
+  const nets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, horizon, competenceOf);
+  for (const person of ws.people) {
+    const perMonth = nets.get(person.id);
+    if (!perMonth) continue;
+    const active = [...perMonth.entries()].filter(([, c]) => c !== 0);
+    if (active.length === 0) continue;
+    console.log(`\n  ▸ ${person.name}`);
+    for (const m of [currentMonth, addMonths(currentMonth, 1) as CompetenceMonth, horizon]) {
+      const net = perMonth.get(m) ?? 0;
+      console.log(`    ${m}: net = ${brl(net)}`);
+      // Real split shares whose competence is this month.
+      for (const tx of ws.transactions) {
+        if (!isExpense(tx) || competenceOf(tx) !== m) continue;
+        const sh = tx.splits.find((s) => s.personId === person.id);
+        if (sh)
+          console.log(
+            `        REAL   ${tx.date} ${tx.description} (${tx.source}${tx.cardId ? " card" : ""}) → ${brl(sh.shareCents)}`,
+          );
+      }
+      // Projected recurring shares landing in this month.
+      for (let mm = currentMonth; compareMonths(mm, m) <= 0; mm = addMonths(mm, 1)) {
+        for (const occ of projectRecurring(ws.transactions, mm)) {
+          const s = occ.source;
+          if (!isExpense(s)) continue;
+          const redated = { ...s, date: occ.date };
+          if (competenceOf(redated) !== m) continue;
+          const sh = s.splits.find((x) => x.personId === person.id);
+          if (sh)
+            console.log(
+              `        PROJ   ${occ.date} ${s.description} → ${brl(sh.shareCents)}  <<< projetado (não é real do mês)`,
+            );
+        }
+      }
+      // Settlements dated in this month for this person.
+      for (const st of ws.settlements) {
+        if (st.personId === person.id && st.date.slice(0, 7) === m) {
+          console.log(
+            `        ACERTO ${st.date} → ${brl(st.amountCents)} (conta: ${st.accountId ? (acctName.get(st.accountId) ?? st.accountId) : "sem conta"})`,
+          );
+        }
+      }
+    }
   }
 }
 
