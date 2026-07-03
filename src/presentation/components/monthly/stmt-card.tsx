@@ -120,6 +120,14 @@ function StmtRow({
               previsto
             </span>
           )}
+          {item.isReceivable && !item.isReceived && !item.projected && (
+            <span
+              className="parc-badge"
+              style={{ marginLeft: 6, background: "var(--purple-soft)", color: "var(--purple-300)" }}
+            >
+              a receber
+            </span>
+          )}
           {item.parcela && (
             <span className="parc-badge" style={{ marginLeft: 6 }}>
               {item.parcela.number}/{item.parcela.total}

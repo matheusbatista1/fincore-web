@@ -78,6 +78,11 @@ export interface NewTransactionEntry {
   readonly parcelaStatus?: ParcelaStatus | null;
   readonly fromPersonId?: string | null;
   readonly isReimbursement?: boolean;
+  /** Income receipt state — set for a normal income received on booking (date ≤ today); a pending
+   * (future-dated) receivable leaves these null. Mirrors the paid-obligation fields. */
+  readonly receivedAt?: IsoDate | null;
+  readonly receivedAccountId?: string | null;
+  readonly receivedAmountCents?: number | null;
   readonly transferFromAccountId?: string | null;
   readonly transferToAccountId?: string | null;
   readonly transferValueCents?: number | null;
@@ -238,6 +243,18 @@ export interface FinanceRepository {
   ): Promise<void>;
   /** Revert a payment: clears the paid fields so the obligation is pending again. */
   undoPayment(userId: string, id: string): Promise<void>;
+  /**
+   * Mark a normal income as RECEIVED: it credits `receivedAccountId` by `receivedAmountCents` on
+   * `receivedAt`, while its original booked date and amount stay intact for history. When the income
+   * is a payment from a person, receiving abates that person's debt by the amount received.
+   */
+  receiveIncome(
+    userId: string,
+    id: string,
+    receipt: { receivedAt: IsoDate; receivedAccountId: string; receivedAmountCents: number },
+  ): Promise<void>;
+  /** Revert a receipt: clears the received fields so the income is a pending receivable again. */
+  undoReceive(userId: string, id: string): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
   /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */

@@ -191,6 +191,14 @@ export function TransactionsView({
           a vencer
         </span>
       )}
+      {view === "future" && t.isReceivable && !t.isReceived && !t.projected && (
+        <span
+          className="parc-badge"
+          style={{ marginLeft: 6, background: "var(--purple-soft)", color: "var(--purple-300)" }}
+        >
+          a receber
+        </span>
+      )}
     </>
   );
 

@@ -31,6 +31,7 @@ import {
   isIncome,
   isRolled,
   settledExpenseCents,
+  settledIncomeCents,
   settledMyShareCents,
 } from "../entities/transaction";
 import { Money } from "../money/money";
@@ -80,9 +81,11 @@ export function computeViewTotals(
       // A card credit (estorno/reembolso) only reduces a card bill — it is never
       // income in either lens.
       if (tx.cardId !== null) continue;
-      // General counts every income; personal drops reimbursements (refunds).
+      // General counts every income; personal drops reimbursements (refunds). Counts at the amount
+      // actually received once received (a person paying you back a different value), else its face
+      // value — mirroring how a paid obligation counts at what actually left the account.
       if (mode === "general" || !tx.isReimbursement) {
-        incomeParts.push(Money.fromCents(tx.amountCents));
+        incomeParts.push(Money.fromCents(settledIncomeCents(tx)));
       }
     } else if (isExpense(tx)) {
       // General uses the full (settled) amount; personal uses only the user's share. Both use the

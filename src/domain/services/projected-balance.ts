@@ -13,7 +13,10 @@ import {
   type ExpenseTransaction,
   isCardCredit,
   isExpense,
+  isIncome,
+  isPendingReceivable,
   isRolled,
+  settledIncomeCents,
   type Transaction,
 } from "../entities/transaction";
 import { Money } from "../money/money";
@@ -62,18 +65,42 @@ export function projectedMonthEndBalances(
   );
   for (let m = fromMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const occurrence of projectRecurring(transactions, m, competenceOf)) {
-      // A projected FUTURE occurrence is a fresh, not-yet-paid (nor rolled) instance — it must
-      // never inherit the anchor's paid state, or accountDeltas would re-debit the paying account
-      // every projected month. Stripped, a deferred obligation correctly debits no account.
+      // A projected FUTURE occurrence is a fresh instance — it must never inherit the anchor's
+      // paid/received state, or accountDeltas would re-apply the anchor's cash effect every month.
+      // For an expense, strip the paid state (a deferred obligation then debits no account). For an
+      // income, forecast it as RECEIVED on the occurrence date into its booked account for the rule's
+      // face amount — otherwise the new received-gate drops a not-yet-received recurring income and a
+      // future salary would silently vanish from the projection.
       const src = occurrence.source;
       const forProjection = isExpense(src)
         ? { ...src, paidAt: null, paidAccountId: null, paidAmountCents: null, rolledAt: null }
-        : src;
+        : isIncome(src)
+          ? {
+              ...src,
+              receivedAt: occurrence.date,
+              receivedAccountId: src.accountId,
+              receivedAmountCents: null,
+            }
+          : src;
       for (const [accountId, delta] of accountDeltas(forProjection, lens)) {
         const current = balances.get(accountId);
         if (current !== undefined) balances.set(accountId, current.add(delta));
       }
     }
+  }
+
+  // A pending receivable (a booked-but-not-yet-received income) is EXPECTED to land within the
+  // projection window — forecast it as an account credit on its booked date so the fim-do-mês figure
+  // still counts upcoming one-off income. The LIVE balance (computeAccountBalances above) correctly
+  // excludes it until actually received; this only augments the forward projection.
+  const monthEnd = dateInMonth(month, 31);
+  for (const tx of transactions) {
+    if (!isPendingReceivable(tx)) continue;
+    if (tx.accountId === null || tx.date > monthEnd) continue;
+    if (lens === "personal" && tx.isReimbursement) continue;
+    const current = balances.get(tx.accountId);
+    if (current !== undefined)
+      balances.set(tx.accountId, current.add(Money.fromCents(settledIncomeCents(tx))));
   }
   return balances;
 }

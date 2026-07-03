@@ -649,3 +649,35 @@ describe("balance invariants (property-based)", () => {
     );
   });
 });
+
+describe("income received-state", () => {
+  it("a legacy income (no received fields) credits its account on its date", () => {
+    const acc = makeAccount("acc-1", 0);
+    const tx = income("acc-1", 30000, "2026-06-01");
+    expect(computeAccountBalance(acc, [tx]).cents).toBe(30000);
+  });
+
+  it("a pending receivable (receivedAt null) does NOT credit any balance", () => {
+    const acc = makeAccount("acc-1", 0);
+    const pending: IncomeTransaction = { ...income("acc-1", 30000, "2026-09-10"), receivedAt: null };
+    expect(accountDeltas(pending).size).toBe(0);
+    expect(computeAccountBalances([acc], [pending]).get("acc-1")?.cents).toBe(0);
+  });
+
+  it("a received income credits the receiving account by the amount received, on the receipt date", () => {
+    const booked = makeAccount("acc-1", 0);
+    const landed = makeAccount("acc-2", 0);
+    const received: IncomeTransaction = {
+      ...income("acc-1", 30000, "2026-09-10"),
+      receivedAt: "2026-09-12",
+      receivedAccountId: "acc-2",
+      receivedAmountCents: 28000,
+    };
+    // Before the receipt date nothing has landed.
+    expect(computeAccountBalances([booked, landed], [received], "2026-09-11").get("acc-2")?.cents).toBe(0);
+    // On/after the receipt date the RECEIVING account gets the amount received (not the booked one).
+    const after = computeAccountBalances([booked, landed], [received], "2026-09-30");
+    expect(after.get("acc-1")?.cents).toBe(0);
+    expect(after.get("acc-2")?.cents).toBe(28000);
+  });
+});

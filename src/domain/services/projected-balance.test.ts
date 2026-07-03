@@ -124,6 +124,50 @@ describe("projectedMonthEndBalances", () => {
     expect(sum(projectedMonthEndBalances([account], [rec], "2026-09", calendar, "2026-07"))).toBe(80000);
   });
 
+  it("forecasts a one-off pending receivable (future income) in the month it is booked", () => {
+    const pending: IncomeTransaction = {
+      id: "freela",
+      kind: "income",
+      description: "Freela",
+      date: "2026-07-20",
+      amountCents: 50000,
+      accountId: "acc-1",
+      cardId: null,
+      fromPersonId: null,
+      isReimbursement: false,
+      recurrence: null,
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    };
+    // June (before its booked date): not yet expected → opening only.
+    expect(sum(projectedMonthEndBalances([account], [pending], "2026-06", calendar, "2026-06"))).toBe(100000);
+    // July: the expected R$500 is forecast even though it hasn't been received (a pending receivable).
+    expect(sum(projectedMonthEndBalances([account], [pending], "2026-07", calendar, "2026-07"))).toBe(150000);
+  });
+
+  it("forecasts a recurring income whose anchor is a future pending receivable, every month", () => {
+    const salary: IncomeTransaction = {
+      id: "sal",
+      kind: "income",
+      description: "Salário",
+      date: "2026-08-05",
+      amountCents: 80000,
+      accountId: "acc-1",
+      cardId: null,
+      fromPersonId: null,
+      isReimbursement: false,
+      recurrence: { dayOfMonth: 5 },
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    };
+    // Aug (anchor month): the real pending anchor is forecast (100000 + 80000).
+    expect(sum(projectedMonthEndBalances([account], [salary], "2026-08", calendar, "2026-08"))).toBe(180000);
+    // Sep: anchor (Aug) + the projected Sep occurrence → 100000 + 80000 + 80000.
+    expect(sum(projectedMonthEndBalances([account], [salary], "2026-09", calendar, "2026-08"))).toBe(260000);
+  });
+
   it("debits a paid card fatura from the projected month-end balance on the pay date", () => {
     // A card charge never debits; paying the fatura (07-05) debits acc-1 by the paid amount.
     const charge = cardExpense(-30000, "2026-06-10");

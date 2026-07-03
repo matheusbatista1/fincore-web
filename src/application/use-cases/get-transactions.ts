@@ -4,7 +4,15 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
-import { isExpense, isIncome, isPaid, isPayableObligation, isTransfer } from "@/domain/entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isPaid,
+  isPayableObligation,
+  isReceivableIncome,
+  isReceived,
+  isTransfer,
+} from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
@@ -84,6 +92,18 @@ export interface TransactionListItem {
   readonly paidAccountLabel: string | null;
   /** Amount actually paid, in cents; null when unpaid. */
   readonly paidAmountCents: number | null;
+  /** True when this is a normal income (not a card-credit estorno) — eligible for the Receber flow. */
+  readonly isReceivable: boolean;
+  /** True when a normal income's cash has been received (see receivedAt/receivedAccountId/amount). */
+  readonly isReceived: boolean;
+  /** Date the income was received (`YYYY-MM-DD`); null when a pending receivable. */
+  readonly receivedAt: IsoDate | null;
+  /** Account the money landed in; null when a pending receivable. */
+  readonly receivedAccountId: string | null;
+  /** Resolved label of the receiving account ("Itaú · Conta principal"); null when a pending receivable. */
+  readonly receivedAccountLabel: string | null;
+  /** Amount actually received, in cents; null when a pending receivable. */
+  readonly receivedAmountCents: number | null;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
@@ -148,6 +168,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       paidAccountId: null,
       paidAccountLabel: null,
       paidAmountCents: null,
+      isReceivable: false,
+      isReceived: false,
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAccountLabel: null,
+      receivedAmountCents: null,
       fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
@@ -227,6 +253,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         isReimbursement: tx.isReimbursement,
         fromPersonId: tx.fromPersonId,
         fromPersonName: person ? firstName(person.name) : null,
+        isReceivable: isReceivableIncome(tx),
+        isReceived: isReceived(tx),
+        receivedAt: tx.receivedAt ?? null,
+        receivedAccountId: tx.receivedAccountId ?? null,
+        receivedAccountLabel: tx.receivedAccountId ? (accountName.get(tx.receivedAccountId) ?? null) : null,
+        receivedAmountCents: tx.receivedAmountCents ?? null,
       };
     }
 

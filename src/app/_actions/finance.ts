@@ -7,6 +7,7 @@ import { importStatement } from "@/application/use-cases/import-statement";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
+import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -29,11 +30,13 @@ import {
   moveBillSchema,
   payCardBillSchema,
   payTransactionSchema,
+  receiveIncomeSchema,
   rollDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
   undoPaymentSchema,
+  undoReceiveSchema,
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
 
@@ -158,6 +161,37 @@ export async function payTransactionAction(raw: unknown): Promise<ActionState> {
 export async function undoPaymentAction(raw: unknown): Promise<ActionState> {
   return withParsed(undoPaymentSchema, raw, (userId, input) =>
     financeRepository.undoPayment(userId, input.id),
+  );
+}
+
+/**
+ * Receive a normal income: it credits the chosen account on the receipt date, keeping the original
+ * booked date and amount for history. `receivedAt` defaults to today and `receivedAmountCents` to the
+ * full amount (a custom value records a partial/different receipt). When the income is a payment from
+ * a person, receiving abates that person's debt by the amount received.
+ */
+export async function receiveIncomeAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = receiveIncomeSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await receiveIncome(financeRepository, userId, {
+    id: parsed.data.id,
+    receivedAccountId: parsed.data.receivedAccountId,
+    ...(parsed.data.receivedAt !== undefined ? { receivedAt: parsed.data.receivedAt } : {}),
+    ...(parsed.data.receivedAmountCents !== undefined
+      ? { receivedAmountCents: parsed.data.receivedAmountCents }
+      : {}),
+  });
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Revert a receipt: the income becomes a pending receivable again (money leaves the balance). */
+export async function undoReceiveAction(raw: unknown): Promise<ActionState> {
+  return withParsed(undoReceiveSchema, raw, (userId, input) =>
+    financeRepository.undoReceive(userId, input.id),
   );
 }
 

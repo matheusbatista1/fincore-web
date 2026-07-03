@@ -182,6 +182,11 @@ export function toTransaction(row: TransactionRow, splits: readonly SplitRow[] =
       fromPersonId: row.fromPersonId,
       isReimbursement: row.isReimbursement,
       recurrence,
+      // received_at is null for a pending receivable, a date once received. Always explicit here
+      // (never undefined) so the balance/ledger treat a real pending income as not-yet-received.
+      receivedAt: (row.receivedAt as IsoDate | null) ?? null,
+      receivedAccountId: row.receivedAccountId ?? null,
+      receivedAmountCents: row.receivedAmountCents ?? null,
     };
   }
 

@@ -69,6 +69,9 @@ function toTransactionValues(userId: string, entry: NewTransactionEntry, install
     parcelaStatus: entry.parcelaStatus ?? null,
     fromPersonId: entry.fromPersonId ?? null,
     isReimbursement: entry.isReimbursement ?? false,
+    receivedAt: entry.receivedAt ?? null,
+    receivedAccountId: entry.receivedAccountId ?? null,
+    receivedAmountCents: entry.receivedAmountCents ?? null,
     transferFromAccountId: entry.transferFromAccountId ?? null,
     transferToAccountId: entry.transferToAccountId ?? null,
     transferValueCents: entry.transferValueCents ?? null,
@@ -552,6 +555,36 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       await tx
         .update(schema.transactions)
         .set({ paidAt: null, paidAccountId: null, paidAmountCents: null, updatedAt: new Date() })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async receiveIncome(
+    userId: string,
+    id: string,
+    receipt: { receivedAt: IsoDate; receivedAccountId: string; receivedAmountCents: number },
+  ): Promise<void> {
+    // Record the receipt on a normal income: it credits the receiving account on `receivedAt` (the
+    // original occurred_on/amount stay intact for history). RLS scopes the row to the user.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({
+          receivedAt: receipt.receivedAt,
+          receivedAccountId: receipt.receivedAccountId,
+          receivedAmountCents: receipt.receivedAmountCents,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async undoReceive(userId: string, id: string): Promise<void> {
+    // Revert a receipt: clear the received fields so the income is a pending receivable again.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ receivedAt: null, receivedAccountId: null, receivedAmountCents: null, updatedAt: new Date() })
         .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
     });
   }

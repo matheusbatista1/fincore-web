@@ -17,7 +17,15 @@
 import type { Person } from "../entities/person";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
-import { isExpense, isIncome, isRolled } from "../entities/transaction";
+import {
+  incomeEffectiveDate,
+  isExpense,
+  isIncome,
+  isReceivableIncome,
+  isReceived,
+  isRolled,
+  settledIncomeCents,
+} from "../entities/transaction";
 import { Money } from "../money/money";
 import {
   addMonths,
@@ -139,11 +147,12 @@ function accumulateWithMovements(
           balanceAfterCents,
         });
       }
-    } else if (isIncome(tx) && tx.fromPersonId !== null) {
-      // A payment from a person abates their debt: balance -= amount.
+    } else if (isIncome(tx) && tx.fromPersonId !== null && isReceived(tx)) {
+      // A payment from a person abates their debt — but only once RECEIVED, and by the amount
+      // actually received (a pending receivable, or a partial receipt, abates only what landed).
       const { signedDeltaCents, balanceAfterCents } = adjust(
         tx.fromPersonId,
-        Money.fromCents(tx.amountCents).negate(),
+        Money.fromCents(settledIncomeCents(tx)).negate(),
       );
       movements.push({
         personId: tx.fromPersonId,
@@ -329,14 +338,24 @@ export function computePersonLedger(
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
 ): { balances: Map<string, Money>; movements: LedgerMovement[] } {
+  // A received income abates a person's debt on its RECEIPT date, which may differ from its booked
+  // date (you record an expected payment for next month, then receive it early). Bucket such a row by
+  // the receipt month so the per-month/dashboard "a receber" matches the account balance (which this
+  // module's siblings credit on the receipt date). Everything else keeps its own competence/date.
+  // Legacy/undefined income has receivedAt == its date, so this is a no-op for existing data.
+  const effCompetence = (t: (typeof transactions)[number]): CompetenceMonth =>
+    isReceivableIncome(t) && t.receivedAt != null ? monthOf(incomeEffectiveDate(t)) : competenceOf(t);
+  const effDate = (t: (typeof transactions)[number]): IsoDate =>
+    isReceivableIncome(t) && t.receivedAt != null ? incomeEffectiveDate(t) : t.date;
+
   const real: StampedTransaction[] = transactions
-    .filter((t) => compareMonths(competenceOf(t), throughMonth) <= 0)
+    .filter((t) => compareMonths(effCompetence(t), throughMonth) <= 0)
     // A real but not-yet-charged parcela ("futura") is a forecast for the statement,
     // so flag it projected for the "(previsto)" marker (it does not change the math).
     .map((t) => ({
       tx: t,
-      date: t.date,
-      competence: competenceOf(t),
+      date: effDate(t),
+      competence: effCompetence(t),
       projected: isExpense(t) && t.installment?.status === "futura",
     }));
 

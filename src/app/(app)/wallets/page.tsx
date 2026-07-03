@@ -62,6 +62,7 @@ export default async function WalletsPage({
         accounts={workspace.accounts}
         items={monthly.items}
         paidFlows={monthly.paidObligationFlows}
+        receivedFlows={monthly.receivedIncomeFlows}
         month={month}
         isCurrent={month === current}
         prevHref={`/wallets?m=${addMonths(month, -1)}`}

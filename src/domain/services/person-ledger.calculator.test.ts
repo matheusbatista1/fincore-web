@@ -189,6 +189,59 @@ describe("computePersonBalances", () => {
     expect(balances.get("p-joao")?.cents).toBe(5_200);
   });
 
+  it("does NOT abate a debt from a pending (not-yet-received) income", () => {
+    const people = [person("p-joao")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", splits: [{ personId: "p-joao", shareCents: 9_200 }] }),
+      income({ id: "i1", amountCents: 4_000, fromPersonId: "p-joao", receivedAt: null }),
+    ];
+    const balances = computePersonBalances(people, txs, []);
+    // The payment is still a pending receivable — the full debt stands.
+    expect(balances.get("p-joao")?.cents).toBe(9_200);
+  });
+
+  it("abates by the amount actually received once the payment is received", () => {
+    const people = [person("p-joao")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", splits: [{ personId: "p-joao", shareCents: 9_200 }] }),
+      income({
+        id: "i1",
+        amountCents: 4_000,
+        fromPersonId: "p-joao",
+        receivedAt: "2026-06-12",
+        receivedAccountId: "nu",
+        receivedAmountCents: 3_500,
+      }),
+    ];
+    const balances = computePersonBalances(people, txs, []);
+    // 9_200 owed - 3_500 actually received = 5_700 still owed.
+    expect(balances.get("p-joao")?.cents).toBe(5_700);
+  });
+
+  it("buckets a received payment in the RECEIPT month, not the booked month", () => {
+    const people = [person("p-joao")];
+    // Debt incurred in June; an expected payment BOOKED for August but RECEIVED early in June.
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-06-10", splits: [{ personId: "p-joao", shareCents: 10_000 }] }),
+      income({
+        id: "i1",
+        amountCents: 10_000,
+        fromPersonId: "p-joao",
+        date: "2026-08-10",
+        receivedAt: "2026-06-25",
+        receivedAccountId: "nu",
+        receivedAmountCents: 10_000,
+      }),
+    ];
+    // The abatement lands in June (the receipt month), so June nets to zero — not August (booked).
+    const june = computePersonBalancesForMonth(people, txs, [], "2026-06", calOf, "2026-06");
+    expect(june.get("p-joao")?.cents).toBe(0);
+    const nets = computePersonMonthNets(people, txs, [], "2026-08", calOf);
+    expect(nets.get("p-joao")?.get("2026-08") ?? 0).toBe(0);
+    // All-time it is fully settled.
+    expect(computePersonBalances(people, txs, []).get("p-joao")?.cents).toBe(0);
+  });
+
   it("ignores paid and future installments, counts only the current installment", () => {
     const people = [person("p-x")];
     const mk = (status: ParcelaStatus): ExpenseTransaction =>
