@@ -11,12 +11,10 @@ import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
-/** Loan/financing can be settled for a custom final amount (early payoff with a discount). */
-const CUSTOM_AMOUNT_SOURCES = new Set(["loan", "financing"]);
-
 /**
  * Pay a deferred obligation (boleto/loan/financing): choose the account the money leaves, the paid
- * date (defaults to today) and — for loans/financing — a custom final amount. The original due date
+ * date (defaults to today) and a custom final amount (any obligation can be settled for a different
+ * value — an early payoff with a discount, a boleto paid with interest, etc.). The original due date
  * and amount are kept intact for history; the payment debits the chosen account on the paid date.
  */
 export function PayModal({ accounts, today }: { accounts: TxFormAccount[]; today: string }) {
@@ -29,7 +27,8 @@ export function PayModal({ accounts, today }: { accounts: TxFormAccount[]; today
   const [saving, setSaving] = useState(false);
 
   const originalCents = tx ? Math.abs(tx.amountCents) : 0;
-  const editableAmount = tx ? CUSTOM_AMOUNT_SOURCES.has(tx.source ?? "") : false;
+  // Every payable obligation the modal opens for can take a custom paid amount.
+  const editableAmount = tx !== null;
 
   // Reset the form each time a different obligation opens the modal.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the target row changes.
