@@ -241,6 +241,40 @@ export function computeCardBillsForMonth(
 }
 
 /**
+ * The **open** bill of a card: the fatura currently accumulating — the one a charge made TODAY falls
+ * into, which comes due next cycle. This is what "Fatura atual" should show (not {@link computeCardBill},
+ * which sums every open/past/future non-installment charge across all cycles). Resolves the open
+ * competence via {@link cardBillMonth}(today) per the card's own closing/due days (+ overrides), then
+ * delegates to {@link computeCardBillForMonth}.
+ */
+export function computeCardOpenBill(
+  card: CreditCard,
+  transactions: readonly Transaction[],
+  today: IsoDate,
+  competenceOf: CompetenceResolver,
+  overrides?: CardBillOverrides,
+): Money {
+  const openMonth = cardBillMonth(today, card.closingDay, card.dueDay, overrides);
+  return computeCardBillForMonth(card.id, transactions, openMonth, competenceOf);
+}
+
+/** {@link computeCardOpenBill} for every supplied card, keyed by card id (every card present). */
+export function computeCardOpenBills(
+  cards: readonly CreditCard[],
+  transactions: readonly Transaction[],
+  today: IsoDate,
+  competenceOf: CompetenceResolver,
+  billDates: readonly CardBillDate[] = [],
+): Map<string, Money> {
+  const byCard = cardBillOverridesByCard(billDates);
+  const out = new Map<string, Money>();
+  for (const card of cards) {
+    out.set(card.id, computeCardOpenBill(card, transactions, today, competenceOf, byCard.get(card.id)));
+  }
+  return out;
+}
+
+/**
  * The total **outstanding** balance committed against a card's limit — every charge
  * whose bill is still open or in the future, i.e. competence ≥ `currentMonth`, minus
  * the estornos in that same window. This is the "limite utilizado" (used limit): a

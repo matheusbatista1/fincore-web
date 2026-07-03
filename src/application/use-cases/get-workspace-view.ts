@@ -10,7 +10,7 @@ import {
   billingCompetence,
   cardUtilization,
   computeCardBillForMonth,
-  computeCardBills,
+  computeCardOpenBills,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
 import {
@@ -24,7 +24,7 @@ import type { FinanceRepository } from "../ports/finance-repository";
 
 export type AccountView = Account & { readonly balanceCents: number };
 export type CardView = CreditCard & {
-  /** Current open-cycle bill (fatura atual). */
+  /** The OPEN bill (fatura atual): the cycle accumulating now, due next — not the all-cycles sum. */
   readonly billCents: number;
   /** Bill that comes DUE on the next due date (competence of the upcoming dueDay) — for the
    * "fatura vence" notification, which must show what you'll actually pay, not the open cycle. */
@@ -64,8 +64,10 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
     ws.settlements,
     ws.cardBillPayments,
   );
-  const bills = computeCardBills(ws.creditCards, ws.transactions);
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
+  // "Fatura atual" = the OPEN bill (the one accumulating now, due next cycle) — not the whole
+  // open-cycle sum across past/future charges.
+  const bills = computeCardOpenBills(ws.creditCards, ws.transactions, today, competenceOf, ws.cardBillDates);
   const currentMonth = today.slice(0, 7) as CompetenceMonth;
   const dayToday = Number(today.slice(8, 10));
   const outstandings = computeCardOutstandings(
