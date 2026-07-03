@@ -3,7 +3,7 @@ import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
 import { transactionsForMonth } from "@/domain/services/recurring.projection";
-import { type CompetenceMonth, monthOf } from "@/domain/value-objects/competence-month";
+import { type CompetenceMonth, type IsoDate, monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
 import { byDateDesc, createTransactionMapper, type TransactionListItem } from "./get-transactions";
@@ -31,12 +31,18 @@ export interface MonthlyTotals {
   readonly netCents: number;
 }
 
-/** A paid deferred obligation's cash movement, in the month it was PAID (may differ from its due
- * month). Used by the Carteiras per-account in/out flow, which buckets by cash-movement month —
- * a paid boleto's accountId is null (its bank is in paidAccountId), so it needs its own channel. */
+/** A paid deferred obligation / fatura's cash movement, in the month it was PAID (may differ from its
+ * due month). Used by the Carteiras per-account in/out flow (buckets by cash-movement month — a paid
+ * boleto's accountId is null, its bank is in paidAccountId, so it needs its own channel) AND by the
+ * account-detail modal to itemize "what was paid" (hence id/label/date, not just the total). */
 export interface PaidObligationFlow {
+  readonly id: string;
   readonly accountId: string;
   readonly outCents: number;
+  /** Human label of what was paid ("Empréstimo", "Fatura Nubank · Gold"). */
+  readonly label: string;
+  /** The date the payment left the account (`YYYY-MM-DD`). */
+  readonly date: IsoDate;
 }
 
 /** Serializable monthly statement: realized totals, projected totals and the rows. */
@@ -166,14 +172,29 @@ export async function getMonthly(
   const paidObligationFlows: PaidObligationFlow[] = ws.transactions.flatMap((tx) => {
     if (!isExpense(tx) || !isPayableObligation(tx) || !isPaid(tx) || isRolled(tx)) return [];
     if (tx.paidAccountId == null || tx.paidAt == null || monthOf(tx.paidAt) !== month) return [];
-    return [{ accountId: tx.paidAccountId, outCents: tx.paidAmountCents ?? Math.abs(tx.amountCents) }];
+    return [
+      {
+        id: tx.id,
+        accountId: tx.paidAccountId,
+        outCents: tx.paidAmountCents ?? Math.abs(tx.amountCents),
+        label: tx.description || "Pagamento",
+        date: tx.paidAt,
+      },
+    ];
   });
   // A card fatura payment is cash out of its account in the month it was PAID. The individual card
   // charges already show in the statement in their competence month, so the payment is NOT a
   // statement row (that would double-count the spend) — it only feeds the Carteiras per-account flow.
+  const cardName = new Map(ws.creditCards.map((c) => [c.id, `${c.bank} · ${c.product}`]));
   for (const p of ws.cardBillPayments) {
     if (monthOf(p.date) === month) {
-      paidObligationFlows.push({ accountId: p.accountId, outCents: p.amountCents });
+      paidObligationFlows.push({
+        id: `fatpay:${p.id}`,
+        accountId: p.accountId,
+        outCents: p.amountCents,
+        label: `Fatura ${cardName.get(p.cardId) ?? "cartão"}`,
+        date: p.date,
+      });
     }
   }
 

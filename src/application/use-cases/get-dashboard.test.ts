@@ -99,6 +99,39 @@ describe("getDashboard — projected end-of-month balance", () => {
     expect(data.projectedBalanceCents).toBe(110000);
   });
 
+  it("subtracts an overdue/pending obligation from BEFORE the current month", async () => {
+    // A boleto due in May (competence < current June), still unpaid: it never debits a balance and
+    // used to fall outside the projection window — silently inflating "fim do mês". Now subtracted.
+    const overdue = expense({
+      id: "overdue-boleto",
+      source: "boleto",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -8000,
+      recurrence: null,
+    });
+    const base = await getDashboard(stubRepo([]), "u", "2026-06");
+    const withOverdue = await getDashboard(stubRepo([overdue]), "u", "2026-06");
+    expect(withOverdue.projectedBalanceCents).toBe(base.projectedBalanceCents - 8000);
+  });
+
+  it("does NOT subtract an old card charge with no payment record (fatura presumed paid)", async () => {
+    // A pre-current card charge whose fatura has no CardBillPayment must stay presumed-paid — the
+    // overdue term is boleto/loan/financing only, never card charges (guards the reviewed regression).
+    const oldCardCharge = expense({
+      id: "old-card",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-04-10", // competence 2026-05 (closes 24 / due 2) — before current June
+      amountCents: -12345,
+      recurrence: null,
+    });
+    const base = await getDashboard(stubRepo([], [card]), "u", "2026-06");
+    const withOld = await getDashboard(stubRepo([oldCardCharge], [card]), "u", "2026-06");
+    expect(withOld.projectedBalanceCents).toBe(base.projectedBalanceCents);
+  });
+
   it("subtracts the card bill due in the month from the projected balance", async () => {
     // The card charge never moves an account balance, but its bill (due June, given
     // closes 24 / due 2) is subtracted from the projected end-of-month balance:

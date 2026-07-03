@@ -180,7 +180,7 @@ describe("getMonthly", () => {
       }),
     ]);
     const data = await getMonthly(repo, "u", "2026-06");
-    expect(data.paidObligationFlows).toEqual([{ accountId: "acc-1", outCents: 30000 }]);
+    expect(data.paidObligationFlows).toMatchObject([{ accountId: "acc-1", outCents: 30000 }]);
   });
 
   it("buckets the paid out-flow by the paid month, not the due month", async () => {
@@ -201,7 +201,7 @@ describe("getMonthly", () => {
     // June: the row is a due-month expense, but no cash moved in June → no flow.
     expect((await getMonthly(repo, "u", "2026-06")).paidObligationFlows).toEqual([]);
     // July: the payment landed → out-flow on acc-1.
-    expect((await getMonthly(repo, "u", "2026-07")).paidObligationFlows).toEqual([
+    expect((await getMonthly(repo, "u", "2026-07")).paidObligationFlows).toMatchObject([
       { accountId: "acc-1", outCents: 30000 },
     ]);
   });

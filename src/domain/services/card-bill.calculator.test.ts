@@ -17,6 +17,7 @@ import {
   computeCardBillForMonth,
   computeCardBills,
   computeCardBillsForMonth,
+  computeCardOpenBill,
   computeCardOutstanding,
   computeCardOutstandings,
 } from "./card-bill.calculator";
@@ -650,5 +651,20 @@ describe("card credits (estorno) reduce the bill", () => {
     const bills = computeCardBills(cards, txs);
     expect(bills.get("card-1")?.cents).toBe(19400);
     expect(bills.get("card-2")?.cents).toBe(5000);
+  });
+});
+
+describe("computeCardOpenBill — the OPEN (accumulating) fatura", () => {
+  it("sums only the cycle a charge made today falls into, not every open/closed charge", () => {
+    const c = card("c1", 500000); // closes 3, due 10 → dueOffset 0
+    const today = "2026-07-15"; // a charge today closes 2026-08 → open competence = 2026-08
+    const openCharge = { ...cardExpense(-10000, "c1"), date: "2026-07-15" }; // competence 2026-08 (open)
+    const closedCharge = { ...cardExpense(-25000, "c1"), date: "2026-06-15" }; // competence 2026-07 (closed)
+    const txs = [openCharge, closedCharge];
+    const competenceOf = billingCompetence([c]);
+    // Open bill = only the accumulating cycle.
+    expect(computeCardOpenBill(c, txs, today, competenceOf).cents).toBe(10000);
+    // computeCardBill (the old "fatura atual") piles BOTH cycles in — the over-count we fixed.
+    expect(computeCardBill("c1", txs).cents).toBe(35000);
   });
 });
