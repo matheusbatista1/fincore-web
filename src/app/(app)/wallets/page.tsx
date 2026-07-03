@@ -43,6 +43,7 @@ export default async function WalletsPage({
         items: monthly.items,
         paidFlows: monthly.paidObligationFlows,
         month,
+        today,
         isCurrent: month === current,
         prevHref: `/wallets?m=${addMonths(month, -1)}`,
         nextHref: `/wallets?m=${addMonths(month, 1)}`,
