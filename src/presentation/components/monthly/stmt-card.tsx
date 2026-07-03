@@ -8,7 +8,7 @@ import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/d
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
 import { PeopleStack } from "@/presentation/components/ui/people-stack";
-import { openTxDetail } from "@/presentation/stores/tx-ui-store";
+import { openSettlePerson, openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
@@ -275,20 +275,48 @@ export function StmtCard({
               {group.items.map((item) => (
                 <StmtRow key={item.id} item={item} today={today} />
               ))}
-              {receivables.map((r) => (
-                <div className="lrow" key={`recv-${r.id}`}>
-                  <span className="l-ic" style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}>
-                    <Icon name="users" size={18} />
-                  </span>
-                  <div className="l-main">
-                    <div className="l-title">{r.name}</div>
-                    <div className="l-sub">A receber no mês</div>
+              {receivables.map((r) => {
+                // Tapping a receivable opens the Acerto modal to register the person's payment (custom
+                // amount + which account it landed in) — the same flow as the People profile.
+                const settle = () =>
+                  openSettlePerson({
+                    id: r.id,
+                    name: r.name,
+                    prefillCents: r.amountCents,
+                    capCents: r.amountCents,
+                  });
+                return (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={settle}
+                    onKeyDown={(e: KeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        settle();
+                      }
+                    }}
+                    className="lrow"
+                    style={{ cursor: "pointer" }}
+                    key={`recv-${r.id}`}
+                  >
+                    <span
+                      className="l-ic"
+                      style={{ background: "var(--mint-soft)", color: "var(--mint-500)" }}
+                    >
+                      <Icon name="users" size={18} />
+                    </span>
+                    <div className="l-main">
+                      <div className="l-title">{r.name}</div>
+                      <div className="l-sub">A receber no mês · toque para receber</div>
+                    </div>
+                    <div className="l-amt pos">
+                      <Money cents={r.amountCents} withSign={false} />
+                    </div>
+                    <Icon name="chevron-right" size={18} style={{ color: "var(--text-lo)", flex: "none" }} />
                   </div>
-                  <div className="l-amt pos">
-                    <Money cents={r.amountCents} withSign={false} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {group.items.length === 0 && receivables.length === 0 && (
                 <div style={{ color: "var(--text-lo)", fontSize: 14, padding: "8px 0" }}>
                   Nenhum lançamento neste grupo.
