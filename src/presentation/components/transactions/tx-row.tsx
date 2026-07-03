@@ -2,9 +2,9 @@
 
 import type { CSSProperties } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
-import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { PeopleStack } from "@/presentation/components/ui/people-stack";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { openInstallmentGroup, openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { relativeDateLabel } from "@/shared/formatting/dates";
@@ -80,18 +80,7 @@ export function TxRow({
         </div>
       </div>
       <div className="row gap-3">
-        {peopleOn && item.shares.length > 0 && (
-          <div className="row" style={{ marginRight: 2 }}>
-            {item.shares.slice(0, 3).map((p, i) => (
-              <span
-                key={p.personId}
-                style={{ marginLeft: i ? -8 : 0, border: "2px solid var(--surface-1)", borderRadius: "50%" }}
-              >
-                <Avatar name={p.name} color={p.color} size={24} />
-              </span>
-            ))}
-          </div>
-        )}
+        {peopleOn && <PeopleStack item={item} />}
         {isTransfer ? (
           <div className="l-amt" style={{ color: "var(--sky-500)" }}>
             <Money cents={item.transferValueCents ?? 0} withSign={false} />

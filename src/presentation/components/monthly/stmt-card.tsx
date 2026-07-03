@@ -7,7 +7,8 @@ import type { PayFaturaAccount, PayFaturaTarget } from "@/presentation/component
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
-import { openPayObligation, openTxDetail } from "@/presentation/stores/tx-ui-store";
+import { PeopleStack } from "@/presentation/components/ui/people-stack";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { relativeDateLabel } from "@/shared/formatting/dates";
 
@@ -40,16 +41,7 @@ export interface StmtGroup {
   readonly faturaCents?: number;
 }
 
-function StmtRow({
-  item,
-  today,
-  showPay = false,
-}: {
-  item: MonthlyItem;
-  today: string;
-  /** In the group modal, render a "Pagar" action for a real, unpaid deferred obligation. */
-  showPay?: boolean;
-}) {
+function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
   const isTransfer = item.kind === "transfer";
   const cat = item.category;
   const icStyle: CSSProperties = isTransfer
@@ -64,18 +56,11 @@ function StmtRow({
       : ""
     : (item.sourceLabel ?? (cat ? cat.name : ""));
 
-  // A projected ("previsto") row opens its real anchor so the rule can be edited/deleted.
+  // A projected ("previsto") row opens its real anchor so the rule can be edited/deleted. Every row
+  // opens the detail modal — which offers Pagar (with a custom amount), Editar and Excluir — so any
+  // obligation is editable and payable directly (not only after it's paid).
   const target = item.anchor ?? item;
-  // In the compromissos modal a real, unpaid deferred obligation (boleto/loan/financing) is
-  // settled straight from the row tap (its primary action there); everything else opens detail.
-  // The row is the single interactive control — no nested button (keeps it accessible). The
-  // detail/pay modal opens STACKED on top of the group modal (which stays open), so there is no
-  // simultaneous close+open of two Radix dialogs (no focus-trap race); closing it returns here.
-  const canPay = showPay && item.isPayable && !item.isPaid && !item.projected;
-  const open = () => {
-    if (canPay) openPayObligation(target);
-    else openTxDetail(target);
-  };
+  const open = () => openTxDetail(target);
 
   return (
     <div
@@ -131,15 +116,7 @@ function StmtRow({
           {sub ? ` · ${sub}` : ""}
         </div>
       </div>
-      {canPay && (
-        <span
-          className="parc-badge"
-          style={{ marginRight: 8, background: "var(--purple-soft)", color: "var(--purple-300)" }}
-        >
-          <Icon name="hand-coins" size={11} />
-          Pagar
-        </span>
-      )}
+      <PeopleStack item={item} />
       {isTransfer ? (
         <div className="l-amt" style={{ color: "var(--sky-500)" }}>
           <Money cents={item.transferValueCents ?? 0} withSign={false} />
@@ -195,7 +172,6 @@ export function StmtCard({
   const faturaPayment = isCard
     ? (cardBillPayments.find((p) => p.cardId === group.cardId && p.competence === month) ?? null)
     : null;
-  const isCompromissos = group.key === "compromissos";
   const faturaCents = group.faturaCents ?? group.totalCents;
   const payFatura = () => {
     if (group.cardId == null) return;
@@ -289,7 +265,7 @@ export function StmtCard({
                 ))}
 
               {group.items.map((item) => (
-                <StmtRow key={item.id} item={item} today={today} showPay={isCompromissos} />
+                <StmtRow key={item.id} item={item} today={today} />
               ))}
               {receivables.map((r) => (
                 <div className="lrow" key={`recv-${r.id}`}>
