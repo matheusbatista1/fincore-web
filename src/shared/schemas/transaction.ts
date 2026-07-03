@@ -188,6 +188,22 @@ export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
 export const undoPaymentSchema = z.object({ id: idSchema });
 
 /**
+ * Receive a normal income (the income-side mirror of {@link payTransactionSchema}): choose the
+ * receiving account, optionally the receipt date (defaults to today) and a custom received amount
+ * (a person paying you back a different value). The original booked date and amount stay intact.
+ */
+export const receiveIncomeSchema = z.object({
+  id: idSchema,
+  receivedAccountId: idSchema,
+  receivedAt: isoDateSchema.optional(),
+  receivedAmountCents: centsSchema.positive("Informe um valor maior que zero.").optional(),
+});
+export type ReceiveIncomeInput = z.infer<typeof receiveIncomeSchema>;
+
+/** Revert a receipt (make the income a pending receivable again). */
+export const undoReceiveSchema = z.object({ id: idSchema });
+
+/**
  * Pay a whole card fatura: the server computes the bill total for (card, competence) and debits
  * the chosen account on the paid date (defaults to today). Card charges are settled via the bill,
  * never per-charge.

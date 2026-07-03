@@ -1,4 +1,13 @@
-import { isExpense, isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
+import {
+  incomeEffectiveDate,
+  isExpense,
+  isPaid,
+  isPayableObligation,
+  isReceivableIncome,
+  isReceived,
+  isRolled,
+  settledIncomeCents,
+} from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
@@ -45,6 +54,15 @@ export interface PaidObligationFlow {
   readonly date: IsoDate;
 }
 
+/** A received income's cash movement, in the month it was RECEIVED (may differ from its booked
+ * month). Mirrors {@link PaidObligationFlow} on the income side: a received income's row lives in its
+ * booked competence month, but the cash lands in the receiving account on the receipt month — so the
+ * Carteiras per-account in-flow needs its own channel keyed by receivedAccountId. */
+export interface ReceivedIncomeFlow {
+  readonly accountId: string;
+  readonly inCents: number;
+}
+
 /** Serializable monthly statement: realized totals, projected totals and the rows. */
 export interface MonthlyData {
   readonly month: CompetenceMonth;
@@ -55,6 +73,8 @@ export interface MonthlyData {
   readonly items: MonthlyItem[];
   /** Paid obligations whose payment landed in this month (for the Carteiras per-account flow). */
   readonly paidObligationFlows: PaidObligationFlow[];
+  /** Incomes whose receipt landed in this month (for the Carteiras per-account in-flow). */
+  readonly receivedIncomeFlows: ReceivedIncomeFlow[];
 }
 
 function sumTotals(items: readonly MonthlyItem[]): MonthlyTotals {
@@ -62,8 +82,11 @@ function sumTotals(items: readonly MonthlyItem[]): MonthlyTotals {
   let expenseCents = 0;
   for (const item of items) {
     // A card credit (estorno, income with a cardId) only reduces a card bill — it
-    // is shown on the Cards screen, not counted as monthly income.
-    if (item.kind === "income" && item.cardId === null) incomeCents += item.amountCents;
+    // is shown on the Cards screen, not counted as monthly income. A received income counts at what
+    // actually landed (a person paying you back a different value); a pending receivable at its face.
+    if (item.kind === "income" && item.cardId === null)
+      incomeCents +=
+        item.isReceived && item.receivedAmountCents != null ? item.receivedAmountCents : item.amountCents;
     // A paid obligation counts at what actually left the account (settled amount) — a loan paid
     // with a discount lowers the month's "gasto", matching settledExpenseCents/computeViewTotals.
     else if (item.kind === "expense")
@@ -131,6 +154,12 @@ export async function getMonthly(
         paidAccountId: null,
         paidAccountLabel: null,
         paidAmountCents: null,
+        isReceivable: false,
+        isReceived: false,
+        receivedAt: null,
+        receivedAccountId: null,
+        receivedAccountLabel: null,
+        receivedAmountCents: null,
         shares: [],
         myShareCents: owedToYou ? null : s.amountCents,
         isReimbursement: false,
@@ -157,6 +186,13 @@ export async function getMonthly(
         date: p.date,
         parcela: null,
         shares: [],
+        // A projection is a not-yet-realized forecast: never inherit the anchor's received state, or
+        // its total would count at the anchor's custom received amount instead of the rule's face.
+        isReceived: false,
+        receivedAt: null,
+        receivedAccountId: null,
+        receivedAccountLabel: null,
+        receivedAmountCents: null,
         projected: true,
         // The real, persisted source row — opening this lets the user edit/delete the rule.
         anchor,
@@ -198,11 +234,22 @@ export async function getMonthly(
     }
   }
 
+  // A received income credits its receiving account on the RECEIPT month — which may differ from the
+  // booked (competence) month its row is filed under. Surface it here, bucketed by the receipt month,
+  // so the Carteiras per-account in-flow reconciles with the account balance (mirrors paidObligationFlows).
+  const receivedIncomeFlows: ReceivedIncomeFlow[] = ws.transactions.flatMap((tx) => {
+    if (!isReceivableIncome(tx) || !isReceived(tx)) return [];
+    const accountId = tx.receivedAccountId ?? tx.accountId;
+    if (accountId == null || monthOf(incomeEffectiveDate(tx)) !== month) return [];
+    return [{ accountId, inCents: settledIncomeCents(tx) }];
+  });
+
   return {
     month,
     realized: sumTotals(realItems),
     projectedTotals: sumTotals(items),
     items,
     paidObligationFlows,
+    receivedIncomeFlows,
   };
 }

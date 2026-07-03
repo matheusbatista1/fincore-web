@@ -11,6 +11,7 @@ import {
 import { DeleteScopeModal } from "@/presentation/components/transactions/delete-scope-modal";
 import { InstallmentGroupModal } from "@/presentation/components/transactions/installment-group-modal";
 import { PayModal } from "@/presentation/components/transactions/pay-modal";
+import { ReceiveModal } from "@/presentation/components/transactions/receive-modal";
 import { TxDetailModal } from "@/presentation/components/transactions/tx-detail-modal";
 
 /**
@@ -39,6 +40,7 @@ export function TxModalsHost({
       <DeleteScopeModal transactions={transactions} />
       <InstallmentGroupModal transactions={transactions} today={today} />
       <PayModal accounts={accounts} today={today} />
+      <ReceiveModal accounts={accounts} today={today} />
       <EditTransactionModal accounts={accounts} cards={cards} people={people} categories={categories} />
     </>
   );

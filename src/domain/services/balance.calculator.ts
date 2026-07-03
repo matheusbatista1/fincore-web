@@ -30,12 +30,15 @@ import type { CardBillPayment } from "../entities/card-bill-payment";
 import type { Settlement } from "../entities/settlement";
 import type { Transaction } from "../entities/transaction";
 import {
+  incomeEffectiveDate,
   isExpense,
   isIncome,
   isPaid,
   isPayableObligation,
+  isReceived,
   isRolled,
   isTransfer,
+  settledIncomeCents,
 } from "../entities/transaction";
 import { Money } from "../money/money";
 import type { CompetenceMonth, IsoDate } from "../value-objects/competence-month";
@@ -97,12 +100,18 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
   }
 
   if (isIncome(tx)) {
-    // Income lands in its account (amountCents is positive). A card credit
-    // (estorno) has no account — it only reduces a card bill, never a balance.
-    if (tx.accountId !== null) {
-      // Personal lens drops reimbursements: money others pay you back is not "yours".
-      if (lens === "personal" && tx.isReimbursement) return deltas;
-      credit(tx.accountId, Money.fromCents(tx.amountCents));
+    // A card credit (estorno) has no account — it only reduces a card bill, never a balance.
+    if (tx.cardId !== null) return deltas;
+    // A pending receivable (booked with a future date, not yet received) moves no cash until you
+    // receive it — mirroring how an unpaid obligation never debits a balance.
+    if (!isReceived(tx)) return deltas;
+    // Personal lens drops reimbursements: money others pay you back is not "yours".
+    if (lens === "personal" && tx.isReimbursement) return deltas;
+    // Credit the account the cash actually landed in, by the amount actually received (a person may
+    // pay you back a different value than expected). Both default to the booked account/amount.
+    const landingAccount = tx.receivedAccountId ?? tx.accountId;
+    if (landingAccount !== null) {
+      credit(landingAccount, Money.fromCents(settledIncomeCents(tx)));
     }
     return deltas;
   }
@@ -146,7 +155,11 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
  * own date. Used to gate the balance cutoff in {@link computeAccountBalances}.
  */
 function balanceEffectiveDate(tx: Transaction): IsoDate {
-  return isExpense(tx) && tx.paidAt != null ? tx.paidAt : tx.date;
+  if (isExpense(tx) && tx.paidAt != null) return tx.paidAt;
+  // A received income lands on its receipt date (which may differ from its booked date); a pending
+  // receivable never credits, so its effective date is moot (accountDeltas returns empty for it).
+  if (isIncome(tx)) return incomeEffectiveDate(tx);
+  return tx.date;
 }
 
 /**

@@ -245,6 +245,13 @@ export const transactions = pgTable(
     // income-only
     fromPersonId: uuid("from_person_id").references(() => people.id, { onDelete: "set null" }),
     isReimbursement: boolean("is_reimbursement").notNull().default(false),
+    /** When a normal income was RECEIVED: the date the cash landed. A future-dated income is a
+     * pending receivable (received_at NULL) until received. The mirror of paid_at. */
+    receivedAt: date("received_at", { mode: "string" }),
+    /** Account the money landed in (credited on received_at). Set together with received_at. */
+    receivedAccountId: uuid("received_account_id").references(() => accounts.id, { onDelete: "set null" }),
+    /** Amount actually received, in cents (may differ from amount_cents — a partial/custom receipt). */
+    receivedAmountCents: bigint("received_amount_cents", { mode: "number" }),
 
     // transfer-only
     transferFromAccountId: uuid("transfer_from_account_id").references(() => accounts.id, {
@@ -283,6 +290,8 @@ export const transactions = pgTable(
     check("chk_parcela_pair", sql`(installment_group_id IS NULL) = (parcela_no IS NULL)`),
     // A payment records its date and paying account together (both or neither).
     check("chk_paid_pair", sql`(paid_at IS NULL) = (paid_account_id IS NULL)`),
+    // A receipt records its date and receiving account together (both or neither).
+    check("chk_received_pair", sql`(received_at IS NULL) = (received_account_id IS NULL)`),
     ownerPolicy("transactions_owner"),
   ],
 );

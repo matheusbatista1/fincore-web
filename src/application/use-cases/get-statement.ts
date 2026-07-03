@@ -1,4 +1,12 @@
-import { isExpense, isIncome, isPaid, isRolled, isTransfer } from "@/domain/entities/transaction";
+import {
+  incomeEffectiveDate,
+  isExpense,
+  isIncome,
+  isPaid,
+  isRolled,
+  isTransfer,
+  settledIncomeCents,
+} from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
@@ -57,6 +65,12 @@ function syntheticRow(
     paidAccountId: null,
     paidAccountLabel: null,
     paidAmountCents: null,
+    isReceivable: false,
+    isReceived: false,
+    receivedAt: null,
+    receivedAccountId: null,
+    receivedAccountLabel: null,
+    receivedAmountCents: null,
     shares: [],
     myShareCents: null,
     isReimbursement: false,
@@ -90,7 +104,27 @@ export async function getStatement(repo: FinanceRepository, userId: string): Pro
 
     if (isIncome(tx)) {
       if (tx.cardId !== null) continue; // card credit (estorno) — only reduces a bill, not cash
-      (tx.date <= today ? executed : future).push(map(tx));
+      if (tx.receivedAt === null) {
+        future.push(map(tx)); // pending receivable — appears in the future view by its booked date
+        continue;
+      }
+      // Received (or legacy/immediate) income: cash lands on its receipt date, for the amount
+      // actually received (a person paying you back a different value), in the RECEIVING account
+      // (which may differ from the booked one — show where the money truly landed).
+      const eff = incomeEffectiveDate(tx);
+      const mapped = map(tx);
+      const recvRow: TransactionListItem = {
+        ...mapped,
+        date: eff,
+        amountCents: settledIncomeCents(tx),
+        ...(tx.receivedAccountId != null
+          ? {
+              accountId: tx.receivedAccountId,
+              sourceLabel: mapped.receivedAccountLabel ?? mapped.sourceLabel,
+            }
+          : {}),
+      };
+      (eff <= today ? executed : future).push(recvRow);
       continue;
     }
 

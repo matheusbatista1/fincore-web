@@ -5,6 +5,7 @@ import {
   deleteTransactionAction,
   moveTransactionBillAction,
   undoPaymentAction,
+  undoReceiveAction,
 } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
@@ -33,6 +34,7 @@ export function TxDetailModal({ today }: { today: string }) {
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
   const openPay = useTxUIStore((s) => s.openPay);
+  const openReceive = useTxUIStore((s) => s.openReceive);
   const peopleOn = useModuleEnabled("people");
   const [moving, setMoving] = useState(false);
   const [undoing, setUndoing] = useState(false);
@@ -51,6 +53,19 @@ export function TxDetailModal({ today }: { today: string }) {
       return;
     }
     toast("Pagamento desfeito.");
+    closeDetail();
+  }
+
+  async function undoReceipt(id: string) {
+    if (undoing) return;
+    setUndoing(true);
+    const result = await undoReceiveAction({ id });
+    setUndoing(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast("Recebimento desfeito.");
     closeDetail();
   }
 
@@ -256,6 +271,42 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
+            {tx.isReceived && !synthetic && (
+              <div style={{ marginTop: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>
+                  Recebimento
+                </div>
+                <div className="summary-box" style={{ margin: 0 }}>
+                  <div className="sb-row">
+                    <span className="k">Recebido em</span>
+                    <span className="v">{relativeDateLabel(tx.receivedAt ?? today, today)}</span>
+                  </div>
+                  <div className="sb-row">
+                    <span className="k">Valor recebido</span>
+                    <span className="v">
+                      <Money cents={tx.receivedAmountCents ?? tx.amountCents} withSign={false} />
+                    </span>
+                  </div>
+                  {tx.receivedAccountLabel && (
+                    <div className="sb-row">
+                      <span className="k">Conta</span>
+                      <span className="v">{tx.receivedAccountLabel}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ marginTop: 10 }}
+                  onClick={() => undoReceipt(tx.id)}
+                  disabled={undoing}
+                >
+                  <Icon name="rotate-ccw" size={14} />
+                  Desfazer recebimento
+                </button>
+              </div>
+            )}
+
             {peopleOn && tx.shares.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
@@ -327,6 +378,12 @@ export function TxDetailModal({ today }: { today: string }) {
                   <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
                     <Icon name="wallet" size={16} />
                     Pagar
+                  </button>
+                )}
+                {tx.isReceivable && !tx.isReceived && !tx.id.startsWith("proj:") && (
+                  <button type="button" className="btn btn-ghost" onClick={() => openReceive(tx)}>
+                    <Icon name="hand-coins" size={16} />
+                    Receber
                   </button>
                 )}
                 <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>

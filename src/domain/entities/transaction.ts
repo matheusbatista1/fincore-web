@@ -102,6 +102,24 @@ export interface IncomeTransaction extends BaseTransaction {
   /** Reimbursements don't count as "your" income in the Personal view. */
   readonly isReimbursement: boolean;
   readonly recurrence: RecurrenceInfo | null;
+  /**
+   * When a normal income has been RECEIVED (the cash landed): the date it actually hit an account.
+   * The mirror of {@link ExpenseTransaction.paidAt}. Set alongside {@link receivedAccountId} and
+   * {@link receivedAmountCents}. A normal income booked with a FUTURE date is a pending receivable
+   * (`receivedAt === null`) that only credits the balance / abates a person's debt once received;
+   * an income dated today or earlier is received on booking. `undefined` (income not created through
+   * the received flow) counts as received-on-date, so legacy/immediate income behaves unchanged.
+   * Card credits (estornos) are never "received" — they only reduce a card bill. The original
+   * {@link BaseTransaction.date} and {@link amountCents} stay intact for history.
+   */
+  readonly receivedAt?: IsoDate | null;
+  /** The account the money landed in (credited on {@link receivedAt}). Set iff received. */
+  readonly receivedAccountId?: string | null;
+  /**
+   * The amount actually received, in cents (> 0). May differ from `amountCents` when a person pays
+   * you back a different value than expected. Defaults to `amountCents` when unspecified.
+   */
+  readonly receivedAmountCents?: number | null;
 }
 
 /** Transfer between two of the user's own accounts (transferência). No net effect on wealth. */
@@ -175,4 +193,48 @@ export function settledMyShareCents(t: ExpenseTransaction): number {
   const paid = settledExpenseCents(t);
   if (paid === original || original === 0) return t.myShareCents;
   return Math.round((t.myShareCents * paid) / original);
+}
+
+/**
+ * A "receivable" income — a normal income (lands in an account, not a card credit) that flows through
+ * the Receber (receipt) mechanism. Card credits (estornos) only reduce a card bill and are never
+ * received. The income analogue of {@link isPayableObligation}.
+ */
+export const isReceivableIncome = (t: Transaction): t is IncomeTransaction =>
+  isIncome(t) && t.cardId === null;
+
+/**
+ * Whether an income's cash has been RECEIVED (landed in an account). The mirror of {@link isPaid}.
+ * A normal income is received unless it was booked as a pending receivable (`receivedAt === null` —
+ * e.g. a future-dated income not yet received). `receivedAt === undefined` (income not created
+ * through the received flow) counts as received-on-date, so existing/immediate income is unaffected.
+ * Card credits are never "received".
+ */
+export const isReceived = (t: Transaction): boolean => isReceivableIncome(t) && t.receivedAt !== null;
+
+/**
+ * A pending receivable: a normal income whose cash has NOT been received yet (`receivedAt === null`).
+ * It does not credit the balance nor abate a person's debt until received. Card credits and
+ * legacy/immediate income (undefined) are never pending.
+ */
+export const isPendingReceivable = (t: Transaction): t is IncomeTransaction =>
+  isReceivableIncome(t) && t.receivedAt === null;
+
+/**
+ * The cash actually received from an income, in positive cents. When received for a custom amount
+ * (a person paid you back a different value than expected), this is the amount that truly landed
+ * ({@link IncomeTransaction.receivedAmountCents}); otherwise the original `amountCents`. Mirrors
+ * {@link settledExpenseCents}. A pending receivable reports its face `amountCents` (its expected
+ * value) — callers gate the cash effect on {@link isReceived} separately.
+ */
+export function settledIncomeCents(t: IncomeTransaction): number {
+  return t.receivedAt != null && t.receivedAmountCents != null ? t.receivedAmountCents : t.amountCents;
+}
+
+/**
+ * The date an income's cash lands: its receipt date when received on a specific day, else its own
+ * date. Mirrors the paid-obligation effective date used by the balance calculator.
+ */
+export function incomeEffectiveDate(t: IncomeTransaction): IsoDate {
+  return t.receivedAt ?? t.date;
 }

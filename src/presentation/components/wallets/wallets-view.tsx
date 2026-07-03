@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { MonthlyItem, PaidObligationFlow } from "@/application/use-cases/get-monthly";
+import type {
+  MonthlyItem,
+  PaidObligationFlow,
+  ReceivedIncomeFlow,
+} from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import {
@@ -26,6 +30,7 @@ export function WalletsView({
   accounts,
   items,
   paidFlows,
+  receivedFlows,
   month,
   today,
   isCurrent,
@@ -37,6 +42,8 @@ export function WalletsView({
   items: MonthlyItem[];
   /** Paid obligations whose payment landed this month (bucketed by paid date, not due date). */
   paidFlows: PaidObligationFlow[];
+  /** Incomes whose receipt landed this month (bucketed by receipt date, not booked date). */
+  receivedFlows: ReceivedIncomeFlow[];
   month: string;
   today: string;
   isCurrent: boolean;
@@ -68,6 +75,10 @@ export function WalletsView({
         continue;
       }
       if (!t.accountId) continue;
+      // A normal income moves cash on its RECEIPT (a different month/account/amount is possible), so
+      // it's attributed via receivedFlows below — and a pending receivable moves no cash yet. Skip
+      // both here (settlements and other synthetic in-rows are not `isReceivable`, so they stay).
+      if (t.kind === "income" && t.isReceivable) continue;
       const acc = f.get(t.accountId);
       if (!acc) continue;
       if (t.amountCents > 0) acc.in += t.amountCents;
@@ -80,8 +91,15 @@ export function WalletsView({
       const acc = f.get(pf.accountId);
       if (acc) acc.out += pf.outCents;
     }
+    // Received incomes credit their receiving account on the receipt date (their row lives in the
+    // booked month, possibly a different account/amount), so attribute the in-flow here — mirrors
+    // paidFlows on the income side, keeping per-account "entradas" consistent with the balance.
+    for (const rf of receivedFlows) {
+      const acc = f.get(rf.accountId);
+      if (acc) acc.in += rf.inCents;
+    }
     return f;
-  }, [items, paidFlows, accounts]);
+  }, [items, paidFlows, receivedFlows, accounts]);
 
   const cash = (cents: number): string => (privacy ? "•••" : formatBRLAbsolute(cents));
 
