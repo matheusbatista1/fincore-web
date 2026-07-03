@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { MonthlyItem, PaidObligationFlow } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
@@ -13,6 +13,7 @@ import {
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
+import { AccountDetailModal } from "@/presentation/components/wallets/account-detail-modal";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel } from "@/shared/formatting/dates";
@@ -26,6 +27,7 @@ export function WalletsView({
   items,
   paidFlows,
   month,
+  today,
   isCurrent,
   prevHref,
   nextHref,
@@ -36,12 +38,15 @@ export function WalletsView({
   /** Paid obligations whose payment landed this month (bucketed by paid date, not due date). */
   paidFlows: PaidObligationFlow[];
   month: string;
+  today: string;
   isCurrent: boolean;
   prevHref: string;
   nextHref: string;
 }) {
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
+  // Tapping an account opens its detail (movements + Editar), not the edit form directly.
+  const [detail, setDetail] = useState<AccountView | null>(null);
 
   // Balances are "live" (as of today), independent of the browsed month.
   const total = accounts.reduce((s, a) => s + a.balanceCents, 0);
@@ -196,66 +201,57 @@ export function WalletsView({
               const fl = flow.get(a.id) ?? { in: 0, out: 0, tIn: 0, tOut: 0 };
               const netTransfer = fl.tIn - fl.tOut;
               return (
-                <AccountFormDialog
-                  account={a}
-                  key={a.id}
-                  trigger={
-                    <button type="button" className="acct-row">
-                      <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
-                        {a.bank.slice(0, 2).toUpperCase()}
-                      </span>
-                      <div className="acct-info">
-                        <div className="acct-name">
-                          {a.bank}
-                          <span className="type-badge">{a.type}</span>
-                          {a.balanceCents < 0 && (
-                            <span
-                              className="type-badge"
-                              style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
-                            >
-                              Cheque especial
-                            </span>
-                          )}
-                        </div>
-                        <div className="acct-meta">
-                          {a.name} · {a.maskedNumber}
-                        </div>
-                      </div>
-                      <div className="acct-flow">
-                        <span className="af up">
-                          <Icon name="arrow-down-left" size={13} />
-                          <AnimatedMoney cents={fl.in} withSign={false} />
-                        </span>
-                        <span className="af down">
-                          <Icon name="arrow-up-right" size={13} />
-                          <AnimatedMoney cents={fl.out} withSign={false} />
-                        </span>
-                        {netTransfer !== 0 && (
-                          <span
-                            className="af"
-                            style={{ color: "var(--text-lo)" }}
-                            title="Transferências (não contam como entrada/saída)"
-                          >
-                            <Icon name="arrow-left-right" size={13} />
-                            {netTransfer > 0 ? "+" : "−"}
-                            <AnimatedMoney cents={Math.abs(netTransfer)} withSign={false} />
-                          </span>
-                        )}
-                      </div>
-                      <div className="acct-bal">
-                        <div
-                          className="ab-val"
-                          style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}
+                <button type="button" className="acct-row" key={a.id} onClick={() => setDetail(a)}>
+                  <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
+                    {a.bank.slice(0, 2).toUpperCase()}
+                  </span>
+                  <div className="acct-info">
+                    <div className="acct-name">
+                      {a.bank}
+                      <span className="type-badge">{a.type}</span>
+                      {a.balanceCents < 0 && (
+                        <span
+                          className="type-badge"
+                          style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
                         >
-                          <AnimatedMoney cents={a.balanceCents} />
-                        </div>
-                      </div>
-                      <span className="acct-edit">
-                        <Icon name="pencil" size={16} />
+                          Cheque especial
+                        </span>
+                      )}
+                    </div>
+                    <div className="acct-meta">
+                      {a.name} · {a.maskedNumber}
+                    </div>
+                  </div>
+                  <div className="acct-flow">
+                    <span className="af up">
+                      <Icon name="arrow-down-left" size={13} />
+                      <AnimatedMoney cents={fl.in} withSign={false} />
+                    </span>
+                    <span className="af down">
+                      <Icon name="arrow-up-right" size={13} />
+                      <AnimatedMoney cents={fl.out} withSign={false} />
+                    </span>
+                    {netTransfer !== 0 && (
+                      <span
+                        className="af"
+                        style={{ color: "var(--text-lo)" }}
+                        title="Transferências (não contam como entrada/saída)"
+                      >
+                        <Icon name="arrow-left-right" size={13} />
+                        {netTransfer > 0 ? "+" : "−"}
+                        <AnimatedMoney cents={Math.abs(netTransfer)} withSign={false} />
                       </span>
-                    </button>
-                  }
-                />
+                    )}
+                  </div>
+                  <div className="acct-bal">
+                    <div className="ab-val" style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}>
+                      <AnimatedMoney cents={a.balanceCents} />
+                    </div>
+                  </div>
+                  <span className="acct-edit">
+                    <Icon name="chevron-right" size={16} />
+                  </span>
+                </button>
               );
             })}
             <AccountFormDialog
@@ -269,6 +265,14 @@ export function WalletsView({
           </div>
         </div>
       </div>
+      <AccountDetailModal
+        account={detail}
+        items={items}
+        paidFlows={paidFlows}
+        month={month}
+        today={today}
+        onClose={() => setDetail(null)}
+      />
     </MonthTransition>
   );
 }
