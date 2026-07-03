@@ -110,6 +110,27 @@ export function byDateDesc(a: TransactionListItem, b: TransactionListItem): numb
 }
 
 /**
+ * The "gasto" of a display row (positive cents): the amount actually PAID once a deferred obligation
+ * is settled (a discounted payoff counts at what left the account), else the face value. DTO-level
+ * mirror of `settledExpenseCents` for views that work on {@link TransactionListItem} rather than the
+ * domain entity (monthly totals, per-account movements).
+ */
+export function settledItemCents(item: TransactionListItem): number {
+  return item.kind === "expense" && item.isPaid && item.paidAmountCents != null
+    ? item.paidAmountCents
+    : Math.abs(item.amountCents);
+}
+
+/** The user's own slice of a row's "gasto", scaled to the settled amount (mirror of settledMyShareCents). */
+export function settledItemShareCents(item: TransactionListItem): number {
+  const original = Math.abs(item.amountCents);
+  const share = item.myShareCents ?? original;
+  if (item.kind !== "expense" || !item.isPaid || item.paidAmountCents == null || original === 0) return share;
+  if (item.paidAmountCents === original) return share;
+  return Math.round((share * item.paidAmountCents) / original);
+}
+
+/**
  * Build a pure mapper from a loaded workspace: `(transaction) => TransactionListItem`.
  * Resolves account/card/category/person names once, so callers (history, monthly
  * view, projections) share the exact same display logic.
