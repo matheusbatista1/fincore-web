@@ -1,10 +1,11 @@
+import { isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   cardUtilization,
-  computeCardBills,
   computeCardBillsForMonth,
+  computeCardOpenBills,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances, computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
@@ -142,7 +143,7 @@ export async function getDashboard(
   // utilizado" is the all-open total (today onward), independent of the browsed month.
   const isCurrentView = compareMonths(month, currentMonth) === 0;
   const bills = isCurrentView
-    ? computeCardBills(ws.creditCards, ws.transactions)
+    ? computeCardOpenBills(ws.creditCards, ws.transactions, today, competenceOf, ws.cardBillDates)
     : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
   const outstandings = computeCardOutstandings(
     ws.creditCards,
@@ -221,6 +222,23 @@ export async function getDashboard(
   let totalBalancePersonalCents = 0;
   for (const value of balancesPersonal.values()) totalBalancePersonalCents += value.cents;
 
+  // Overdue payable obligations (boleto/empréstimo/financiamento) still UNPAID with competence BEFORE
+  // the current month never debited a balance and fall outside the [currentMonth…] projection window,
+  // silently inflating "fim do mês". Subtract them explicitly. Card faturas are NOT included: a fatura
+  // before the current month is PRESUMED PAID (the same assumption computeCardOutstanding relies on —
+  // paid faturas often have no CardBillPayment record), and only boleto/loan/financing carry an
+  // explicit unpaid state (isPaid). Applied only when browsing the current month or later.
+  let overdueGeneralCents = 0;
+  let overduePersonalCents = 0;
+  if (compareMonths(month, currentMonth) >= 0) {
+    for (const tx of ws.transactions) {
+      if (!isPayableObligation(tx) || isPaid(tx) || isRolled(tx)) continue;
+      if (compareMonths(competenceOf(tx), currentMonth) >= 0) continue;
+      overdueGeneralCents += Math.abs(tx.amountCents);
+      overduePersonalCents += tx.myShareCents;
+    }
+  }
+
   // Projected balance at the end of the browsed month: real movements up to month-end
   // plus the recurring occurrences (accumulated from the current month onward), MINUS
   // the credit-card bills that fall due along the way (assumed paid from an account).
@@ -245,10 +263,11 @@ export async function getDashboard(
     currentMonth,
     ws.cardBillPayments,
   ).cents;
-  // General "fim do mês" also reflects the receivables/payables with people. Obligations
-  // above are summed cumulatively (currentMonth → browsed month), so the people net must
-  // be cumulative over the same window too — otherwise a past month's obligation gets
-  // subtracted without crediting that month's receivable.
+  projectedBalanceCents -= overdueGeneralCents; // overdue boleto/loan/financing before this month
+  // General "fim do mês" also reflects the receivables/payables with people. Obligations above are
+  // summed cumulatively (currentMonth → browsed month), so the people net must be cumulative over the
+  // same window too — otherwise a past month's obligation gets subtracted without crediting that
+  // month's receivable.
   for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
     for (const person of ws.people) projectedBalanceCents += personNetFor(person.id, m);
   }
@@ -276,6 +295,7 @@ export async function getDashboard(
     currentMonth,
     ws.cardBillPayments,
   ).cents;
+  projectedBalancePersonalCents -= overduePersonalCents; // overdue obligations' own-share before this month
 
   // Trailing 6-month cumulative balance: re-run the balance calculator with the
   // cutoff at each month-end (small in-memory volumes).

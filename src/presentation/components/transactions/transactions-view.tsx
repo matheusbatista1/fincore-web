@@ -7,9 +7,9 @@ import { deleteTransactionAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { byDateDesc } from "@/application/use-cases/get-transactions";
 import { SwipeRow } from "@/presentation/components/gestures/swipe-row";
-import { Avatar } from "@/presentation/components/ui/avatar";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { PeopleStack } from "@/presentation/components/ui/people-stack";
 import {
   csvMoney,
   exportCSV,
@@ -513,6 +513,7 @@ export function TransactionsView({
                             {t.note ? ` · ${t.note}` : cat ? ` · ${cat.name}` : ""}
                           </div>
                         </div>
+                        <PeopleStack item={t} size={22} />
                         {isTransfer ? (
                           <div className="l-amt" style={{ color: "var(--sky-500)" }}>
                             <Money cents={t.transferValueCents ?? 0} withSign={false} />
@@ -627,14 +628,8 @@ export function TransactionsView({
                           </td>
                           <td>{origem}</td>
                           <td>
-                            {t.shares.length ? (
-                              <div className="row">
-                                {t.shares.slice(0, 3).map((p, i) => (
-                                  <span key={p.personId} style={{ marginLeft: i ? -7 : 0 }}>
-                                    <Avatar name={p.name} color={p.color} size={26} />
-                                  </span>
-                                ))}
-                              </div>
+                            {t.shares.length > 0 || (t.fromPersonId && t.fromPersonName) ? (
+                              <PeopleStack item={t} size={26} />
                             ) : (
                               <span style={{ color: "var(--text-faint)" }}>—</span>
                             )}

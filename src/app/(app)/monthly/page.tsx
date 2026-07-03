@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getMonthly, type MonthlyItem } from "@/application/use-cases/get-monthly";
+import { settledItemCents } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -11,11 +12,10 @@ import { monthLabel } from "@/shared/formatting/dates";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
 import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
+// Expense rows count at what was actually PAID (settled amount) — a paid obligation with a discount
+// weighs its paid value, matching the dashboard "Economia do mês". Transfers use their moved value.
 const sumAbs = (items: MonthlyItem[]): number =>
-  items.reduce(
-    (s, e) => s + (e.kind === "transfer" ? (e.transferValueCents ?? 0) : Math.abs(e.amountCents)),
-    0,
-  );
+  items.reduce((s, e) => s + (e.kind === "transfer" ? (e.transferValueCents ?? 0) : settledItemCents(e)), 0);
 
 export default async function MonthlyPage({
   searchParams,
@@ -45,7 +45,7 @@ export default async function MonthlyPage({
   const expenses = data.items.filter((e) => e.kind === "expense");
   const transfers = data.items.filter((e) => e.kind === "transfer");
   const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);
-  const totOut = expenses.reduce((s, e) => s + Math.abs(e.amountCents), 0);
+  const totOut = expenses.reduce((s, e) => s + settledItemCents(e), 0);
 
   // People who owe you this month ("a receber") — shown inside the income group under
   // the general lens (the same month-scoped, projection-aware value the dashboard uses).
