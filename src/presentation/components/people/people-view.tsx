@@ -3,12 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import {
-  deleteSettlementAction,
-  rollPersonDebtAction,
-  settlePersonAction,
-  updateSettlementAction,
-} from "@/app/_actions/finance";
+import { deleteSettlementAction, rollPersonDebtAction } from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
@@ -27,13 +22,7 @@ import { Money } from "@/presentation/components/ui/money";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
-import { settlementInputSchema } from "@/shared/schemas/transaction";
-
-/** A wallet/account option for the settle account picker. */
-interface AccountOption {
-  readonly id: string;
-  readonly label: string;
-}
+import { type AccountOption, SettleBody } from "./settle-person-modal";
 
 /** One open debt of a person (a shared expense not yet rolled) — the target of "Rolar dívida". */
 interface DebtOption {
@@ -43,9 +32,6 @@ interface DebtOption {
 }
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
-
-/** Settle account picker sentinel for "no account" (a baixa/perdão with no cash movement). */
-const ACCOUNT_NONE = "__none__";
 
 function todayIso(): string {
   const d = new Date();
@@ -332,7 +318,14 @@ export function PeopleView({
         <Dialog open={settleTarget !== null} onOpenChange={(v) => !v && closeSettle()}>
           {settleTarget && (
             <SettleBody
-              person={settleTarget}
+              target={{
+                id: settleTarget.id,
+                name: settleTarget.name,
+                // Prefill the browsed-month net; cap at the displayed through-month total (so a
+                // future/"futura" loan parcela is settleable, matching the visible "no total").
+                prefillCents: settleTarget.monthBalanceCents,
+                capCents: settleTarget.totalBalanceCents,
+              }}
               accounts={accounts}
               editing={editSettlement}
               onDone={closeSettle}
@@ -395,12 +388,15 @@ function ProfileBody({
   const monthBalanceCents = person.monthBalanceCents;
   const monthOwes = monthBalanceCents > 0;
   const monthOwed = monthBalanceCents < 0;
-  // Accumulated total (incl. projected) is the displayed "no total"; settling acts on the
-  // REAL booked debt only.
+  // The accumulated total THROUGH the browsed month (the displayed "no total") drives both the
+  // visible balance and the action buttons, so they never disagree. Gating on `realBalanceCents`
+  // (booked, "atual"-only, no future installments) used to hide the buttons for a person whose only
+  // outstanding is a future/"futura" loan parcela — the balance showed the debt but Cobrar/Rolar/
+  // Registrar pagamento vanished. `settleTarget` below caps the acerto at this same total.
   const totalCents = person.totalBalanceCents;
   const totalOwes = totalCents > 0;
-  const canSettle = person.realBalanceCents !== 0;
-  const realOwes = person.realBalanceCents > 0;
+  const canSettle = totalCents !== 0;
+  const realOwes = totalCents > 0;
   // Match by BILL competence (card charges bill in a later month than their purchase date), so this
   // list agrees with the competence-based month balance — e.g. Arthur's Airpods/Cobasi/Mercado
   // parcelas all show under the month their fatura is due, not their scattered purchase dates.
@@ -828,197 +824,6 @@ function RollDebtBody({
         >
           <Icon name="repeat" size={17} />
           Rolar dívida
-        </button>
-      </div>
-    </DialogModal>
-  );
-}
-
-function SettleBody({
-  person,
-  accounts,
-  editing,
-  onDone,
-}: {
-  person: PersonMonthView;
-  accounts: AccountOption[];
-  editing: SettlementView | null;
-  onDone: () => void;
-}) {
-  const toast = useUIStore((s) => s.toast);
-  const router = useRouter();
-  // Settle against the REAL booked balance (projected occurrences aren't settleable yet) — that's
-  // the hard cap. But PREFILL with the amount shown on the browsed-month card (what the user
-  // clicked), so opening "acertar" from Agosto's R$235,93 offers exactly that, not the all-time
-  // total. A month with nothing pending (0) falls back to the full real balance.
-  const owes = person.realBalanceCents > 0;
-  const max = Math.abs(person.realBalanceCents);
-  const monthAmount = Math.abs(person.monthBalanceCents);
-  const owed = monthAmount > 0 ? Math.min(monthAmount, max) : max;
-  const first = firstName(person.name);
-  const [cents, setCents] = useState(editing ? editing.amountCents : owed);
-  // The account the money moved through. A NEW acerto starts unchosen ("" = placeholder) so
-  // the user consciously picks where the cash landed (no silent default to the first wallet).
-  // ACCOUNT_NONE = "sem conta" (baixa/perdão, no cash movement).
-  const [accountSel, setAccountSel] = useState<string>(editing ? (editing.accountId ?? ACCOUNT_NONE) : "");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  // When editing, the amount is free (the booked balance already reflects this acerto).
-  const applied = editing ? cents : Math.min(cents, max);
-  const restante = Math.max(0, max - applied);
-  const valid = cents > 0;
-
-  async function confirm() {
-    if (!valid || submitting) return;
-    if (accountSel === "") {
-      setError(owes ? "Escolha a conta que recebeu o pagamento." : "Escolha a conta de onde saiu.");
-      return;
-    }
-    setError(null);
-    const accountId = accountSel === ACCOUNT_NONE ? null : accountSel;
-    const parsed = settlementInputSchema.safeParse({
-      personId: person.id,
-      amountCents: applied,
-      date: editing ? editing.date : todayIso(),
-      accountId,
-    });
-    if (!parsed.success) {
-      setError("Revise o valor do acerto.");
-      return;
-    }
-    setSubmitting(true);
-    const res = editing
-      ? await updateSettlementAction(editing.id, parsed.data)
-      : await settlePersonAction(parsed.data);
-    setSubmitting(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    toast(editing ? "Acerto atualizado." : "Acerto registrado.");
-    router.refresh();
-    onDone();
-  }
-
-  return (
-    <DialogModal
-      title={editing ? "Editar acerto" : owes ? "Registrar pagamento" : "Marcar como pago"}
-      maxWidth={440}
-    >
-      <div className="modal-body">
-        <div style={{ textAlign: "center", marginBottom: 6, fontSize: 13.5, color: "var(--text-lo)" }}>
-          {owes ? (
-            <span>
-              <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(owed)}. Quanto
-              recebeu?
-            </span>
-          ) : (
-            <span>
-              Você deve {formatBRLAbsolute(owed)} a <b style={{ color: "var(--text-hi)" }}>{first}</b>. Quanto
-              pagou?
-            </span>
-          )}
-        </div>
-        <input
-          className="amount-input"
-          value={formatBRLAbsolute(cents)}
-          onChange={(e) => {
-            const digits = e.target.value.replace(/\D/g, "");
-            setCents(digits ? Number.parseInt(digits, 10) : 0);
-          }}
-          inputMode="numeric"
-          // biome-ignore lint/a11y/noAutofocus: amount is the primary field of the settle modal.
-          autoFocus
-          aria-label="Valor do acerto"
-          style={{ marginBottom: 14, color: owes ? "var(--mint-500)" : "var(--rose-500)" }}
-        />
-        {!editing && (
-          <div className="chip-select" style={{ justifyContent: "center", marginBottom: 16 }}>
-            <button type="button" className="person-chip" onClick={() => setCents(Math.round(max / 2))}>
-              Metade
-            </button>
-            <button type="button" className="person-chip" onClick={() => setCents(max)}>
-              Tudo ({formatBRLAbsolute(max)})
-            </button>
-          </div>
-        )}
-        <label
-          htmlFor="settle-account"
-          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
-        >
-          {owes ? "Entrou em qual conta?" : "Saiu de qual conta?"}
-        </label>
-        <select
-          id="settle-account"
-          className="input"
-          value={accountSel}
-          onChange={(e) => setAccountSel(e.target.value)}
-          style={{ width: "100%", marginBottom: 16 }}
-        >
-          <option value="" disabled>
-            Selecione a conta…
-          </option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}
-            </option>
-          ))}
-          <option value={ACCOUNT_NONE}>Sem conta (só baixa / perdão)</option>
-        </select>
-        <div className="summary-box">
-          <div className="sb-row">
-            <span className="k">{owes ? "Recebendo agora" : "Pagando agora"}</span>
-            <span className="v" style={{ color: owes ? "var(--mint-500)" : "var(--rose-500)" }}>
-              {formatBRLAbsolute(applied)}
-            </span>
-          </div>
-          <div className="sb-row total">
-            <span className="k">Continua pendente</span>
-            <span className="v">{formatBRLAbsolute(restante)}</span>
-          </div>
-          {restante === 0 && cents > 0 && (
-            <div
-              style={{
-                fontSize: 12.5,
-                color: "var(--mint-500)",
-                fontWeight: 600,
-                marginTop: 8,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <Icon name="check-circle" size={14} />
-              Quita tudo com {first}.
-            </div>
-          )}
-          {error && (
-            <div className="warn-text">
-              <Icon name="alert-triangle" size={14} />
-              {error}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="modal-foot">
-        <DialogClose asChild>
-          <button type="button" className="btn btn-ghost">
-            Cancelar
-          </button>
-        </DialogClose>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!valid || submitting}
-          style={{
-            opacity: valid && !submitting ? 1 : 0.45,
-            pointerEvents: valid && !submitting ? "auto" : "none",
-          }}
-          onClick={confirm}
-        >
-          <Icon name="check" size={17} />
-          Confirmar
         </button>
       </div>
     </DialogModal>
