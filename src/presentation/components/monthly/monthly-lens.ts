@@ -1,3 +1,4 @@
+import { settledItemShareCents } from "@/application/use-cases/get-transactions";
 import type { StmtGroup } from "@/presentation/components/monthly/stmt-card";
 
 /**
@@ -23,12 +24,13 @@ export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
       countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
     };
   }
-  // expense: drop settlements, then display only the user's own share per row.
+  // expense: drop settlements, then display only the user's own share per row — scaled to the
+  // amount actually PAID when the obligation was settled with a discount (mirrors the dashboard).
   const items = group.items
     .filter((i) => !i.settlement)
     .map((i) => ({
       ...i,
-      amountCents: -(i.myShareCents ?? Math.abs(i.amountCents)),
+      amountCents: -settledItemShareCents(i),
     }));
   return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
 }

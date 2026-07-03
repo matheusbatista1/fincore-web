@@ -11,30 +11,35 @@ import { useEffect, useRef, useState } from "react";
  */
 export function useCountUp(target: number, animate = true, dur = 1100): number {
   const [value, setValue] = useState(target);
-  const settled = useRef(target);
+  // Track the value CURRENTLY on screen (not just the last completed target). This is the tween's
+  // origin, so an interrupted animation (e.g. a fast Geral↔Apenas-meu toggle) resumes from where it
+  // visually froze instead of a stale "settled" point — and always reconciles to the latest target.
+  const shown = useRef(target);
 
   useEffect(() => {
     if (!animate) {
+      shown.current = target;
       setValue(target);
-      settled.current = target;
       return;
     }
-    const from = settled.current;
+    const from = shown.current;
     const to = target;
-    if (from === to) return;
+    if (from === to) return; // already there (nothing to animate)
     const t0 = performance.now();
     let raf = 0;
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / dur);
       const e = 1 - (1 - p) ** 4;
-      setValue(from + (to - from) * e);
+      const v = from + (to - from) * e;
+      shown.current = v;
+      setValue(v);
       if (p < 1) raf = requestAnimationFrame(tick);
-      else settled.current = to;
     };
     raf = requestAnimationFrame(tick);
+    // Safety: if rAF is throttled/interrupted, still land exactly on the target.
     const safety = setTimeout(() => {
+      shown.current = to;
       setValue(to);
-      settled.current = to;
     }, dur + 120);
     return () => {
       cancelAnimationFrame(raf);
