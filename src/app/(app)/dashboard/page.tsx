@@ -126,7 +126,6 @@ export default async function DashboardPage({
     projectedBalancePersonalCents: dash.projectedBalancePersonalCents,
     isPast: month < current,
     aReceberCents,
-    aPagarCents: dash.aPagarCents,
     settlementNetCents: dash.settlementNetCents,
     heldForOthersCents: dash.heldForOthersCents,
     investedCents: 0,

@@ -72,8 +72,6 @@ export interface DashboardData {
   /** Whether the browsed month is already in the past (no projection to show). */
   readonly isPast: boolean;
   readonly aReceberCents: number;
-  /** Sum of the month's negative person nets, as a positive figure (you owe this month). */
-  readonly aPagarCents: number;
   /** Settlement cash attributed to the month of the debts it covered (received +, paid −). */
   readonly settlementNetCents: number;
   /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
@@ -208,12 +206,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const receitaMes = isPersonal
     ? personalInc
     : data.general.incomeCents + data.aReceberCents + Math.max(0, data.settlementNetCents);
-  // General gasto also counts the month's negative person nets ("a pagar"): an advance parked with
-  // you (recorded as reimbursement income) inflates receita in its cash month, and aPagar is its
-  // counterweight — without it the advance reads as phantom surplus.
+  // NOTE: aPagar (negative person nets) is deliberately NOT added to the general gasto — it can
+  // contain PROJECTED recurring person-payments while income here is real-only, which would book a
+  // phantom expense. The advance-as-reimbursement-income wart stays a known, documented limitation.
   const gastoMes = isPersonal
     ? personalExp
-    : data.general.expenseCents + data.aPagarCents + Math.max(0, -data.settlementNetCents);
+    : data.general.expenseCents + Math.max(0, -data.settlementNetCents);
   const economia = receitaMes - gastoMes;
   // Savings rate against the real income — null when there's no income to measure against
   // (avoids the bogus huge % from dividing by ~zero).
@@ -377,19 +375,25 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     )}
                   </span>
                 )}
-                {!data.isPast && projectedEom !== saldoTotal && (
-                  <span
-                    className="row gap-1"
-                    style={{ color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)", fontSize: 13.5 }}
-                    title={
-                      isPersonal
-                        ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
-                        : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
-                    }
-                  >
-                    · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
-                  </span>
-                )}
+                {/* Hide only when the projection adds nothing over ITS OWN lens's live base — the
+                    hero number is general in both lenses, so comparing against it would misread. */}
+                {!data.isPast &&
+                  projectedEom !== (isPersonal ? data.saldoTotalPersonalCents : saldoTotal) && (
+                    <span
+                      className="row gap-1"
+                      style={{
+                        color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)",
+                        fontSize: 13.5,
+                      }}
+                      title={
+                        isPersonal
+                          ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
+                          : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
+                      }
+                    >
+                      · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
+                    </span>
+                  )}
               </div>
               <div
                 style={{
