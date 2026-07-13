@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Account } from "@/domain/entities/account";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
@@ -72,6 +73,7 @@ function stubRepo(
   cards: CreditCard[] = [],
   people: Person[] = [],
   settlements: Settlement[] = [],
+  cardBillPayments: CardBillPayment[] = [],
 ): FinanceRepository {
   const ws: Workspace = {
     accounts: [account],
@@ -83,7 +85,7 @@ function stubRepo(
     budgets: [],
     goals: [],
     cardBillDates: [],
-    cardBillPayments: [],
+    cardBillPayments,
   };
   return { loadWorkspace: async () => ws } as unknown as FinanceRepository;
 }
@@ -317,5 +319,39 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     expect(data.projectedBalanceCents).toBe(80000);
     // Personal counts only my share each month: 100000 − 10000 − 10000 = 80000.
     expect(data.projectedBalancePersonalCents).toBe(80000);
+  });
+});
+
+describe("getDashboard — saldo pessoal com fatura paga compartilhada", () => {
+  it("debits only the user's slice of a paid fatura in the personal total", async () => {
+    // A June-competence card charge (dated 2026-05-10, closes 05-24, due 06-02) of R$300 where
+    // another person owes R$180 (my share R$120). The whole fatura was paid from acc-1 on 06-10.
+    // GENERAL: real cash out = the full R$300. PERSONAL: only the user's slice (R$120) leaves —
+    // faturaPersonalDebit reconstructs the share ratio, which REQUIRES competenceOf to be passed.
+    // Regression: without it the personal total wrongly debited the full amount (−300).
+    const charge = expense({
+      id: "shared-card-charge",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 12000,
+      splits: [{ personId: "p1", shareCents: 18000 }],
+      recurrence: null,
+    });
+    const payment: CardBillPayment = {
+      id: "pay-1",
+      cardId: "card-1",
+      competence: "2026-06",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-06-10",
+    };
+    const data = await getDashboard(stubRepo([charge], [card], [], [], [payment]), "u", "2026-06");
+    // General: opening 100000 − 30000 (full fatura) = 70000.
+    expect(data.totalBalanceCents).toBe(70000);
+    // Personal: opening 100000 − 12000 (only my slice of the paid fatura) = 88000.
+    expect(data.totalBalancePersonalCents).toBe(88000);
   });
 });
