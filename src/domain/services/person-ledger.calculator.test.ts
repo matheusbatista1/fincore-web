@@ -18,6 +18,7 @@ import {
   computePersonBalancesThrough,
   computePersonLedger,
   computePersonMonthNets,
+  computePersonMonthNetsAndSettledCash,
   type LedgerMovement,
 } from "./person-ledger.calculator";
 
@@ -895,5 +896,80 @@ describe("computePersonLedger", () => {
         },
       ),
     );
+  });
+});
+
+describe("computePersonMonthNetsAndSettledCash — settlement cash by covered competence", () => {
+  const bankSettle = (over: Partial<Settlement>): Settlement => ({
+    id: "sb",
+    personId: "p-a",
+    amountCents: 0,
+    date: "2026-06-10",
+    accountId: "nu",
+    ...over,
+  });
+
+  it("re-buckets a pre-payment's cash onto the covered debt's month (none before the debt exists)", () => {
+    const people = [person("p-a")];
+    // Debt lands in JULY; the person pays in JUNE (advance).
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-07-05", splits: [{ personId: "p-a", shareCents: 1200 }] }),
+    ];
+    const setts = [bankSettle({ amountCents: 1200, date: "2026-06-12" })];
+    // Horizon June: the July debt is outside the ledger, the settlement clamps to zero → no cash.
+    const june = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-06", calOf);
+    expect(june.settledCashByMonth.size).toBe(0);
+    // Horizon July: the cash covers the July bucket — not June, where the money arrived.
+    const july = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-07", calOf);
+    expect(july.settledCashByMonth.get("2026-07")).toBe(1200);
+    expect(july.settledCashByMonth.get("2026-06")).toBeUndefined();
+    expect(july.nets.get("p-a")?.get("2026-07") ?? 0).toBe(0);
+  });
+
+  it("splits coverage oldest-first across the covered months", () => {
+    const people = [person("p-a")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-06-05", splits: [{ personId: "p-a", shareCents: 1000 }] }),
+      expense({ id: "e2", date: "2026-07-05", splits: [{ personId: "p-a", shareCents: 800 }] }),
+    ];
+    const setts = [bankSettle({ amountCents: 1500, date: "2026-06-20" })];
+    const r = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-07", calOf);
+    expect(r.settledCashByMonth.get("2026-06")).toBe(1000);
+    expect(r.settledCashByMonth.get("2026-07")).toBe(500);
+    expect(r.nets.get("p-a")?.get("2026-07") ?? 0).toBe(300);
+  });
+
+  it("an excess advance beyond the covered debts emits no cash (parked, not earned)", () => {
+    const people = [person("p-a")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-06-05", splits: [{ personId: "p-a", shareCents: 1000 }] }),
+    ];
+    const setts = [bankSettle({ amountCents: 1500, date: "2026-06-20" })];
+    const r = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-07", calOf);
+    expect(r.settledCashByMonth.get("2026-06")).toBe(1000);
+    let total = 0;
+    for (const v of r.settledCashByMonth.values()) total += v;
+    expect(total).toBe(1000); // the extra R$5 stays held — never counted as month cash
+  });
+
+  it("paying a person YOU owe emits negative cash in the covered month", () => {
+    const people = [person("p-a")];
+    // A received payment from the person with no debt → you owe them (negative June bucket).
+    const txs: Transaction[] = [income({ id: "i1", amountCents: 1200, fromPersonId: "p-a" })];
+    const setts = [bankSettle({ amountCents: 1200, date: "2026-06-20" })];
+    const r = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-06", calOf);
+    expect(r.settledCashByMonth.get("2026-06")).toBe(-1200);
+    expect(r.nets.get("p-a")?.get("2026-06") ?? 0).toBe(0);
+  });
+
+  it("a 'sem conta' settlement (perdão) covers buckets but emits NO cash", () => {
+    const people = [person("p-a")];
+    const txs: Transaction[] = [
+      expense({ id: "e1", date: "2026-06-05", splits: [{ personId: "p-a", shareCents: 1000 }] }),
+    ];
+    const setts = [bankSettle({ amountCents: 1000, date: "2026-06-20", accountId: null })];
+    const r = computePersonMonthNetsAndSettledCash(people, txs, setts, "2026-06", calOf);
+    expect(r.settledCashByMonth.size).toBe(0);
+    expect(r.nets.get("p-a")?.get("2026-06") ?? 0).toBe(0); // the debt is still forgiven
   });
 });

@@ -72,8 +72,12 @@ export interface DashboardData {
   /** Whether the browsed month is already in the past (no projection to show). */
   readonly isPast: boolean;
   readonly aReceberCents: number;
-  /** Net cash from account-backed settlements this month (received +, paid −); general economia only. */
+  /** Sum of the month's negative person nets, as a positive figure (you owe this month). */
+  readonly aPagarCents: number;
+  /** Settlement cash attributed to the month of the debts it covered (received +, paid −). */
   readonly settlementNetCents: number;
+  /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
+  readonly heldForOthersCents: number;
   readonly investedCents: number;
   readonly general: Totals;
   readonly personal: Totals;
@@ -204,9 +208,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const receitaMes = isPersonal
     ? personalInc
     : data.general.incomeCents + data.aReceberCents + Math.max(0, data.settlementNetCents);
+  // General gasto also counts the month's negative person nets ("a pagar"): an advance parked with
+  // you (recorded as reimbursement income) inflates receita in its cash month, and aPagar is its
+  // counterweight — without it the advance reads as phantom surplus.
   const gastoMes = isPersonal
     ? personalExp
-    : data.general.expenseCents + Math.max(0, -data.settlementNetCents);
+    : data.general.expenseCents + data.aPagarCents + Math.max(0, -data.settlementNetCents);
   const economia = receitaMes - gastoMes;
   // Savings rate against the real income — null when there's no income to measure against
   // (avoids the bogus huge % from dividing by ~zero).
@@ -215,9 +222,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const isFuture = !data.isPast && !data.isCurrent;
   // The "fim do mês" follows the active lens (general adds people; personal is only mine).
   const projectedEom = isPersonal ? data.projectedBalancePersonalCents : data.projectedBalanceCents;
-  // The hero balance also follows the lens: "apenas meu" counts only the user's own share
-  // of shared account/overdraft debits.
-  const saldoTotal = isPersonal ? data.saldoTotalPersonalCents : data.saldoTotalCents;
+  // The hero balance is REAL cash in both lenses — money is fungible (the user spends advances
+  // received from others on his own bills), so a lens-dependent "available" is misleading. The
+  // lens changes the ANNOTATION under it: how much of that cash is other people's advances, and
+  // how much of their money the user has already consumed (own slice negative).
+  const saldoTotal = data.saldoTotalCents;
+  const ownCents = data.saldoTotalPersonalCents;
+  const heldCents = data.heldForOthersCents;
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -295,7 +306,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
             >
               <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
               {isPersonal
-                ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
+                ? "Mostrando só o que é seu — partes de outras pessoas e adiantamentos recebidos foram descontados dos indicadores do mês."
                 : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
             </span>
           </div>
@@ -338,6 +349,34 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
                 </span>
+                {peopleOn && heldCents > 0 && (
+                  <span
+                    style={{
+                      color: ownCents < 0 && isPersonal ? "var(--rose-500)" : "var(--text-lo)",
+                      fontSize: 13.5,
+                    }}
+                    title={
+                      ownCents < 0
+                        ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
+                        : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."
+                    }
+                  >
+                    {isPersonal && ownCents < 0 ? (
+                      <>
+                        · usando <Money cents={-ownCents} withSign={false} /> dos adiantamentos
+                      </>
+                    ) : isPersonal ? (
+                      <>
+                        · seu: <Money cents={ownCents} withSign={false} /> · de terceiros:{" "}
+                        <Money cents={heldCents} withSign={false} />
+                      </>
+                    ) : (
+                      <>
+                        · <Money cents={heldCents} withSign={false} /> de terceiros
+                      </>
+                    )}
+                  </span>
+                )}
                 {!data.isPast && projectedEom !== saldoTotal && (
                   <span
                     className="row gap-1"
@@ -387,7 +426,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     </div>
                   </div>
                 )}
-                <div>
+                <div
+                  title={
+                    heldCents > 0
+                      ? "Saldo em contas + investimentos. Inclui os adiantamentos de terceiros ainda não descontados nas faturas."
+                      : "Saldo em contas + investimentos."
+                  }
+                >
                   <div
                     className="row gap-2"
                     style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
@@ -396,7 +441,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     Patrimônio
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
-                    {/* Follows the active lens and shows the sign (negative when in overdraft). */}
+                    {/* Real cash + invested (negative when in overdraft); lens changes only the annotation. */}
                     <Money cents={saldoTotal + data.investedCents} />
                   </div>
                 </div>
