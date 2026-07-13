@@ -118,6 +118,8 @@ export async function getDashboard(
   const currentMonth = today.slice(0, 7);
 
   // Headline balances are "live" (as of today), independent of the browsed month.
+  // Card charges count in their bill's due month; everything else by its date's month.
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   // Settlements that name an account move real cash (a person paying you, or you paying
   // them); overdraft (cheque especial) debits its account — both reflected here.
   const balances = computeAccountBalances(
@@ -127,7 +129,11 @@ export async function getDashboard(
     "general",
     ws.settlements,
     ws.cardBillPayments,
+    competenceOf,
   );
+  // The personal lens NEEDS competenceOf: without it a paid card fatura debits its FULL amount
+  // (fallback), charging the user with other people's shares of the bill — instead of only the
+  // user's own slice via faturaPersonalDebit.
   const balancesPersonal = computeAccountBalances(
     ws.accounts,
     ws.transactions,
@@ -135,9 +141,8 @@ export async function getDashboard(
     "personal",
     ws.settlements,
     ws.cardBillPayments,
+    competenceOf,
   );
-  // Card charges count in their bill's due month; everything else by its date's month.
-  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   // "Fatura" follows the view: on the current month show each card's open bill (the next
   // one to pay); when browsing another month show that month's own fatura. The "limite
   // utilizado" is the all-open total (today onward), independent of the browsed month.
