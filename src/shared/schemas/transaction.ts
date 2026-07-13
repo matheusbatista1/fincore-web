@@ -261,10 +261,16 @@ export type RollDebtInput = z.infer<typeof rollDebtSchema>;
  */
 export const rollMonthDebtSchema = z.object({
   personId: idSchema,
+  /** The browsed month whose remainder is being rolled — the server validates the outstanding
+   * through it and requires the new debt to land in a LATER month (so the rollover settlement
+   * covers the old debts, never the new one). */
+  month: competenceMonthSchema,
   principalCents: centsSchema.positive("Informe o valor da dívida."),
   jurosCents: centsSchema.nonnegative().default(0),
   date: isoDateSchema,
-  source: z.enum(["card", "loan", "overdraft", "account"]),
+  /** Pool rolls move the debt to a DEBT instrument only — `account`/`overdraft` would debit real
+   * cash at roll time, but a pool roll moves no money ("sem dinheiro trocando de mãos"). */
+  source: z.enum(["card", "loan"]),
   cardId: idSchema.nullable().default(null),
   accountId: idSchema.nullable().default(null),
   linkedAccountId: idSchema.nullable().default(null),

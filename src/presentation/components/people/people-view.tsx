@@ -12,6 +12,7 @@ import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { addMonths, dateInMonth, dayOf } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import {
@@ -342,6 +343,7 @@ export function PeopleView({
           {roll && (
             <RollDebtBody
               person={roll}
+              month={month}
               accounts={accounts}
               cards={cards}
               debts={rollDebts}
@@ -569,15 +571,22 @@ const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
   { id: "account", label: "Meu próprio dinheiro" },
 ];
 
+/** Instruments a POOL roll can target: debt instruments only — `account`/`overdraft` would debit
+ * real cash at roll time, but a pool roll moves no money (the debt just changes shape). */
+const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan");
+
 /** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
 function RollDebtBody({
   person,
+  month,
   accounts,
   cards,
   debts,
   onDone,
 }: {
   person: PersonMonthView;
+  /** The browsed competence month (`YYYY-MM`) — the pool being rolled. */
+  month: string;
   accounts: AccountOption[];
   cards: AccountOption[];
   debts: DebtOption[];
@@ -590,15 +599,20 @@ function RollDebtBody({
   // roll the 400") — so the pool mode is the default; rolling one specific lançamento remains
   // available for the itemized case.
   const [mode, setMode] = useState<"month" | "item">("month");
-  const monthOwed = Math.max(0, person.monthBalanceCents) || Math.max(0, person.totalBalanceCents);
+  const monthOwed = Math.max(0, person.monthBalanceCents);
+  // The pool's new debt must land in a month AFTER the rolled one (the server enforces it — the
+  // rollover settlement covers the oldest buckets first, so an earlier due date would intercept it).
+  const nextMonthDue = dateInMonth(addMonths(month, 1), dayOf(todayIso()));
+  // A pool roll moves the debt to a DEBT instrument (no cash moves): card if there is one, else loan.
+  const poolDefaultInstrument: Instrument = cards.length > 0 ? "card" : "loan";
   const [debtId, setDebtId] = useState<string | null>(debts[0]?.id ?? null);
   const [principal, setPrincipal] = useState(monthOwed);
   const [juros, setJuros] = useState(0);
-  const [instrument, setInstrument] = useState<Instrument>("account");
+  const [instrument, setInstrument] = useState<Instrument>(poolDefaultInstrument);
   const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
   const [installments, setInstallments] = useState(1);
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(nextMonthDue);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -613,9 +627,17 @@ function RollDebtBody({
 
   const pickMode = (next: "month" | "item") => {
     setMode(next);
-    // Each mode prefills its own principal: the month's remainder, or the picked debt's share.
-    if (next === "month") setPrincipal(monthOwed);
-    else setPrincipal(debts.find((d) => d.id === debtId)?.shareCents ?? 0);
+    // Each mode prefills its own principal/instrument/due date: the pool rolls the month's
+    // remainder onto a debt instrument due next month; item mode fronts a picked debt today.
+    if (next === "month") {
+      setPrincipal(monthOwed);
+      setInstrument(poolDefaultInstrument);
+      setDate(nextMonthDue);
+    } else {
+      setPrincipal(debts.find((d) => d.id === debtId)?.shareCents ?? 0);
+      setInstrument("account");
+      setDate(todayIso());
+    }
   };
 
   // Picking a different debt prefills the principal with that debt's share.
@@ -643,7 +665,7 @@ function RollDebtBody({
     };
     const res =
       mode === "month"
-        ? await rollPersonMonthDebtAction(shared)
+        ? await rollPersonMonthDebtAction({ ...shared, month })
         : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
@@ -761,7 +783,7 @@ function RollDebtBody({
           onChange={(e) => setInstrument(e.target.value as Instrument)}
           style={{ width: "100%", marginBottom: 12 }}
         >
-          {INSTRUMENTS.map((i) => (
+          {(mode === "month" ? POOL_INSTRUMENTS : INSTRUMENTS).map((i) => (
             <option key={i.id} value={i.id}>
               {i.label}
             </option>
