@@ -19,7 +19,14 @@ try {
 // Don't fail on unrelated missing public vars — we only need DATABASE_URL.
 process.env.SKIP_ENV_VALIDATION = "1";
 
-import { isExpense, isIncome, isPaid, isTransfer } from "@/domain/entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isPaid,
+  isPayableObligation,
+  isRolled,
+  isTransfer,
+} from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
@@ -94,6 +101,244 @@ async function main() {
   console.log(`  TOTAL saldo: ${brl(totalBalance)}`);
 
   const acctName = new Map(ws.accounts.map((a) => [a.id, `${a.bank} · ${a.name}`]));
+  const personName = new Map(ws.people.map((p) => [p.id, p.name] as const));
+  const cardLabel = new Map(ws.creditCards.map((c) => [c.id, `${c.bank} · ${c.product}`] as const));
+
+  // -------------------------------- dashboard-faithful balances (both lenses)
+  hr("SALDOS COMO NO DASHBOARD (com acertos + faturas pagas) — geral × pessoal");
+  const generalFull = computeAccountBalances(
+    ws.accounts,
+    ws.transactions,
+    today,
+    "general",
+    ws.settlements,
+    ws.cardBillPayments,
+    competenceOf,
+  );
+  const personalFull = computeAccountBalances(
+    ws.accounts,
+    ws.transactions,
+    today,
+    "personal",
+    ws.settlements,
+    ws.cardBillPayments,
+    competenceOf,
+  );
+  let genTot = 0;
+  let perTot = 0;
+  for (const a of ws.accounts) {
+    const g = (generalFull.get(a.id) ?? Money.zero()).cents;
+    const p = (personalFull.get(a.id) ?? Money.zero()).cents;
+    genTot += g;
+    perTot += p;
+    console.log(
+      `  ${(acctName.get(a.id) ?? a.id).padEnd(26)} geral ${brl(g).padStart(13)} · pessoal ${brl(p).padStart(13)}`,
+    );
+  }
+  console.log(
+    `  ${"TOTAL".padEnd(26)} geral ${brl(genTot).padStart(13)} · pessoal ${brl(perTot).padStart(13)}`,
+  );
+  console.log(`  Dinheiro de terceiros em caixa (geral − pessoal) = ${brl(genTot - perTot)}`);
+
+  // ----------------------------------------------------- full settlements list
+  hr("ACERTOS (settlements) — lista completa");
+  for (const s of ws.settlements) {
+    console.log(
+      `  ${s.date} · ${personName.get(s.personId) ?? s.personId}: ${brl(s.amountCents)} · conta: ${
+        s.accountId ? (acctName.get(s.accountId) ?? s.accountId) : "SEM CONTA (baixa/perdão)"
+      }${s.note ? ` · "${s.note}"` : ""}`,
+    );
+  }
+  if (ws.settlements.length === 0) console.log("  (nenhum)");
+
+  // ------------------------------------------- itemized per-account statement
+  hr("EXTRATO POR CONTA — toda movimentação de caixa até hoje (compare com o app do banco)");
+  interface CashMove {
+    readonly date: string;
+    readonly label: string;
+    readonly cents: number;
+  }
+  const movesByAccount = new Map<string, CashMove[]>();
+  const pushMove = (accountId: string | null | undefined, move: CashMove): void => {
+    if (!accountId) return;
+    const list = movesByAccount.get(accountId) ?? [];
+    list.push(move);
+    movesByAccount.set(accountId, list);
+  };
+  for (const tx of ws.transactions) {
+    if (isTransfer(tx)) {
+      if (tx.date > today) continue;
+      pushMove(tx.fromAccountId, {
+        date: tx.date,
+        label: `transf → ${acctName.get(tx.toAccountId) ?? "?"}${tx.description ? ` (${tx.description})` : ""}`,
+        cents: -tx.valueCents,
+      });
+      pushMove(tx.toAccountId, {
+        date: tx.date,
+        label: `transf ← ${acctName.get(tx.fromAccountId) ?? "?"}${tx.description ? ` (${tx.description})` : ""}`,
+        cents: tx.valueCents,
+      });
+      continue;
+    }
+    if (isIncome(tx)) {
+      if (tx.cardId !== null) continue; // estorno de cartão — não é caixa
+      const receivedAt = tx.receivedAt === undefined ? tx.date : tx.receivedAt;
+      if (receivedAt === null) continue; // a receber — ainda não moveu caixa
+      if (receivedAt > today) continue;
+      const cents = tx.receivedAmountCents ?? tx.amountCents;
+      pushMove(tx.receivedAccountId ?? tx.accountId, {
+        date: receivedAt,
+        label: `receita: ${tx.description || "Receita"}`,
+        cents,
+      });
+      continue;
+    }
+    if (isExpense(tx)) {
+      if (isRolled(tx)) continue; // abatida (rolada) — sem efeito de caixa
+      if (isPaid(tx) && isPayableObligation(tx) && tx.paidAccountId) {
+        const paidAt = tx.paidAt ?? tx.date;
+        if (paidAt > today) continue;
+        pushMove(tx.paidAccountId, {
+          date: paidAt,
+          label: `pagamento: ${tx.description || "Obrigação"} (${tx.source})`,
+          cents: -(tx.paidAmountCents ?? Math.abs(tx.amountCents)),
+        });
+        continue;
+      }
+      // Mirrors affectsBalance: only "atual" parcelas (or non-installment rows) move cash.
+      if (tx.installment && tx.installment.status !== "atual") continue;
+      if (tx.date > today) continue;
+      if (tx.source === "account" && tx.accountId) {
+        pushMove(tx.accountId, {
+          date: tx.date,
+          label: `despesa: ${tx.description || "Despesa"}`,
+          cents: tx.amountCents,
+        });
+      } else if (tx.source === "overdraft" && tx.linkedAccountId) {
+        pushMove(tx.linkedAccountId, {
+          date: tx.date,
+          label: `cheque especial: ${tx.description || "Despesa"}`,
+          cents: tx.amountCents,
+        });
+      }
+    }
+  }
+  // Settlements: direction follows the person's gross (transaction-derived) balance — same rule
+  // as computeAccountBalances.
+  const grossBalances = computePersonBalances([], ws.transactions, []);
+  for (const s of ws.settlements) {
+    if (s.accountId === null || s.date > today) continue;
+    const owedToYou = !(grossBalances.get(s.personId) ?? Money.zero()).isNegative();
+    pushMove(s.accountId, {
+      date: s.date,
+      label: `acerto ${owedToYou ? "recebido de" : "pago a"} ${personName.get(s.personId) ?? "?"}`,
+      cents: owedToYou ? s.amountCents : -s.amountCents,
+    });
+  }
+  for (const p of ws.cardBillPayments) {
+    if (p.date > today) continue;
+    pushMove(p.accountId, {
+      date: p.date,
+      label: `fatura ${cardLabel.get(p.cardId) ?? "cartão"} [${p.competence}]`,
+      cents: -p.amountCents,
+    });
+  }
+  for (const a of ws.accounts) {
+    const moves = (movesByAccount.get(a.id) ?? []).sort((x, y) =>
+      x.date < y.date ? -1 : x.date > y.date ? 1 : x.label < y.label ? -1 : 1,
+    );
+    if (moves.length === 0 && a.openingBalanceCents === 0) continue;
+    console.log(`\n  ▸ ${acctName.get(a.id) ?? a.id}`);
+    let running = a.openingBalanceCents;
+    console.log(`    ${"(saldo inicial)".padEnd(58)} ${brl(running).padStart(13)}`);
+    for (const m of moves) {
+      running += m.cents;
+      const sign = m.cents >= 0 ? "+" : "−";
+      console.log(
+        `    ${m.date} ${m.label.slice(0, 46).padEnd(47)} ${sign}${brl(Math.abs(m.cents)).padStart(11)} → ${brl(running).padStart(12)}`,
+      );
+    }
+    const expected = (generalFull.get(a.id) ?? Money.zero()).cents;
+    const ok =
+      running === expected
+        ? "≡ confere com o saldo do app"
+        : `≠ SALDO DO APP ${brl(expected)} (diferença ${brl(expected - running)})`;
+    console.log(`    ${"(saldo final)".padEnd(58)} ${brl(running).padStart(13)}  ${ok}`);
+  }
+
+  // ------------------------------------ held-for-others decomposition (audit)
+  hr("DINHEIRO DE TERCEIROS — adiantamentos recebidos × partes já pagas nas faturas");
+  let advancesIn = 0;
+  for (const s of ws.settlements) {
+    if (s.accountId === null) continue;
+    const owedToYou = !(grossBalances.get(s.personId) ?? Money.zero()).isNegative();
+    if (owedToYou) advancesIn += s.amountCents;
+    else advancesIn -= s.amountCents;
+  }
+  let reimbIn = 0;
+  for (const tx of ws.transactions) {
+    if (!isIncome(tx) || tx.cardId !== null || !tx.isReimbursement) continue;
+    const receivedAt = tx.receivedAt === undefined ? tx.date : tx.receivedAt;
+    if (receivedAt === null || receivedAt > today) continue;
+    reimbIn += tx.receivedAmountCents ?? tx.amountCents;
+  }
+  let othersPaidOut = 0;
+  for (const p of ws.cardBillPayments) {
+    if (p.date > today) continue;
+    let full = 0;
+    let mine = 0;
+    for (const tx of ws.transactions) {
+      if (
+        isExpense(tx) &&
+        !isRolled(tx) &&
+        tx.source === "card" &&
+        tx.cardId === p.cardId &&
+        competenceOf(tx) === p.competence
+      ) {
+        full += Math.abs(tx.amountCents);
+        mine += tx.myShareCents;
+      }
+    }
+    const mineOfPaid = full > 0 ? Math.round((p.amountCents * mine) / full) : p.amountCents;
+    const others = p.amountCents - mineOfPaid;
+    othersPaidOut += others;
+    console.log(
+      `  ${cardLabel.get(p.cardId) ?? p.cardId} [${p.competence}] pago ${brl(p.amountCents)} em ${p.date} → sua parte ${brl(mineOfPaid)} · de terceiros ${brl(others)}`,
+    );
+  }
+  // Others' shares the user fronted with CASH outside faturas: shared account/overdraft expenses
+  // and paid obligations with splits (personal debits only myShare — mirrors accountDeltas).
+  let othersViaCash = 0;
+  for (const tx of ws.transactions) {
+    if (!isExpense(tx) || isRolled(tx)) continue;
+    if (isPaid(tx) && isPayableObligation(tx) && tx.paidAccountId) {
+      if ((tx.paidAt ?? tx.date) > today) continue;
+      if (tx.splits.length === 0) continue;
+      othersViaCash += (tx.paidAmountCents ?? Math.abs(tx.amountCents)) - tx.myShareCents;
+      continue;
+    }
+    if (tx.installment && tx.installment.status !== "atual") continue;
+    if (tx.date > today) continue;
+    if (tx.source === "account" || tx.source === "overdraft") {
+      const others = Math.abs(tx.amountCents) - tx.myShareCents;
+      if (others > 0) {
+        othersViaCash += others;
+        console.log(
+          `  ${tx.date} despesa em conta/cheque compartilhada: ${tx.description} → de terceiros ${brl(others)}`,
+        );
+      }
+    }
+  }
+  console.log(`\n  Acertos líquidos recebidos:                     +${brl(advancesIn)}`);
+  console.log(`  Reembolsos (receitas de pessoa) recebidos:      +${brl(reimbIn)}`);
+  console.log(`  Partes de terceiros já pagas em faturas:        −${brl(othersPaidOut)}`);
+  console.log(`  Partes de terceiros pagas via conta/cheque/obr: −${brl(othersViaCash)}`);
+  const held = advancesIn + reimbIn - othersPaidOut - othersViaCash;
+  console.log(`  = retido de terceiros:                           ${brl(held)}`);
+  const lensDiff = genTot - perTot;
+  console.log(
+    `  (geral − pessoal do dashboard: ${brl(lensDiff)} → ${held === lensDiff ? "≡ confere" : "≠ DIVERGE — investigar"})`,
+  );
 
   // ------------------------------------------------ auto-payments configuration
   hr("AUTO-PAGAMENTO — configuração + o que foi debitado de cada conta");
