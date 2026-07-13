@@ -529,6 +529,26 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     });
   }
 
+  async rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    // Pool roll: zero the person's outstanding via a cash-less rollover settlement (no account →
+    // no cash moved) and create the new rolled-into debt, atomically. RLS scopes rows to the user.
+    await this.run(userId, async (tx) => {
+      await tx.insert(schema.settlements).values({
+        userId,
+        personId: settlement.personId,
+        amountCents: settlement.amountCents,
+        settledOn: settlement.date,
+        accountId: settlement.accountId ?? null,
+        note: settlement.note ?? null,
+      });
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
   async payTransaction(
     userId: string,
     id: string,

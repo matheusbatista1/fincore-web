@@ -12,6 +12,7 @@ import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-pa
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { todayInBrazil } from "@/shared/formatting/now";
 import {
   accountInputSchema,
   budgetInputSchema,
@@ -32,6 +33,7 @@ import {
   payTransactionSchema,
   receiveIncomeSchema,
   rollDebtSchema,
+  rollMonthDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
@@ -315,6 +317,64 @@ export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   if (!command.ok) return { ok: false, error: command.error.message };
 
   await financeRepository.rollPersonDebt(userId, r.originalTransactionId, command.value);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * "Rolar o saldo do mês" (pool roll): no specific transaction is abated. The person's outstanding
+ * is zeroed by `principalCents` via a cash-less rollover settlement (clamped — it never overshoots,
+ * covering the oldest open debts first) and the new debt (principal + juros) is created on the
+ * chosen instrument, fully owed by the person. Both happen atomically.
+ */
+export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = rollMonthDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const r = parsed.data;
+
+  const newAmount = r.principalCents + r.jurosCents;
+  // Only card and loan can be installmented (cheque especial / own money are paid at once).
+  const canInstallment = r.source === "card" || r.source === "loan";
+  const installments = canInstallment && r.installments > 1 ? r.installments : 1;
+
+  // The new expense is fully owed by the person (you fronted it): equal split, you excluded.
+  const txInput = createTransactionSchema.safeParse({
+    kind: "expense",
+    description: r.description || "Dívida rolada",
+    date: r.date,
+    totalAmountCents: newAmount,
+    categoryId: null,
+    source: r.source,
+    cardId: r.cardId,
+    accountId: r.accountId,
+    linkedAccountId: r.linkedAccountId,
+    fixed: false,
+    split: { method: "equal", meIn: false, selected: [r.personId], custom: {} },
+    installment:
+      installments > 1
+        ? { total: installments, current: 1, includePrevious: false, includeNext: true }
+        : null,
+  });
+  if (!txInput.success) return INVALID;
+
+  const command = buildCommand(txInput.data);
+  if (!command.ok) return { ok: false, error: command.error.message };
+
+  await financeRepository.rollPersonMonthDebt(
+    userId,
+    {
+      personId: r.personId,
+      amountCents: r.principalCents,
+      // The roll happens TODAY: the relief must land now (the new debt's `date` is its future due
+      // date). The coverage walk re-buckets it onto the covered debts' competence months anyway.
+      date: todayInBrazil(),
+      accountId: null, // cash-less: nothing was received — the debt just moved
+      note: `Rolagem — ${r.description || "Dívida rolada"}`,
+    },
+    command.value,
+  );
   revalidatePath("/", "layout");
   return { ok: true };
 }

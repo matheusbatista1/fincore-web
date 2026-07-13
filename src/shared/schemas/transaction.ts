@@ -251,3 +251,24 @@ export const rollDebtSchema = z.object({
   description: z.string().trim().max(120).default(""),
 });
 export type RollDebtInput = z.infer<typeof rollDebtSchema>;
+
+/**
+ * "Rolar o saldo do mês": roll what the person still owes as a POOL — no specific transaction is
+ * abated. The server zeroes the outstanding via a cash-less rollover settlement (clamped, so it can
+ * never overshoot) and creates the new debt (principal + juros) on the chosen instrument, fully owed
+ * by the person. Matches how pooled debts are managed in practice ("she owed 3.000, paid 2.600, I
+ * roll the 400"), where no single lançamento corresponds to the remainder.
+ */
+export const rollMonthDebtSchema = z.object({
+  personId: idSchema,
+  principalCents: centsSchema.positive("Informe o valor da dívida."),
+  jurosCents: centsSchema.nonnegative().default(0),
+  date: isoDateSchema,
+  source: z.enum(["card", "loan", "overdraft", "account"]),
+  cardId: idSchema.nullable().default(null),
+  accountId: idSchema.nullable().default(null),
+  linkedAccountId: idSchema.nullable().default(null),
+  installments: z.number().int().min(1).max(420).default(1),
+  description: z.string().trim().max(120).default(""),
+});
+export type RollMonthDebtInput = z.infer<typeof rollMonthDebtSchema>;
