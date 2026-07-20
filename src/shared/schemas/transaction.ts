@@ -271,6 +271,10 @@ export const rollMonthDebtSchema = z.object({
   /** Pool rolls move the debt to a DEBT instrument only — `account`/`overdraft` would debit real
    * cash at roll time, but a pool roll moves no money ("sem dinheiro trocando de mãos"). */
   source: z.enum(["card", "loan"]),
+  /** When the roll DID move real money — a Pix no crédito whose cash landed in an account (and was
+   * used to cover the person's share) — the rollover settlement is account-backed: it credits this
+   * account and counts as third-party money (dropped from the personal lens). Null = paper-only. */
+  cashAccountId: idSchema.nullable().default(null),
   cardId: idSchema.nullable().default(null),
   accountId: idSchema.nullable().default(null),
   linkedAccountId: idSchema.nullable().default(null),

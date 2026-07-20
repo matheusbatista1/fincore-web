@@ -17,8 +17,11 @@ export interface RollMonthDebtError {
 
 /**
  * "Rolar o saldo do mês" (pool roll): zero what the person still owes through `month` via a
- * CASH-LESS rollover settlement and create the new debt (principal + juros) on a debt instrument,
- * fully owed by the person — atomically. Guards (never trust the client):
+ * rollover settlement and create the new debt (principal + juros) on a debt instrument, fully owed
+ * by the person — atomically. The settlement is CASH-LESS by default (a paper-only roll); when the
+ * roll DID move real money — a Pix no crédito whose cash landed in `cashAccountId` and covered the
+ * person's share — it is account-backed instead, crediting that account as third-party money.
+ * Guards (never trust the client):
  *  - The person must have a positive BOOKED outstanding through `month` (projections are not debts,
  *    and a negative balance means YOU owe them — rolling would erase your own debt with no cash).
  *  - `principal` is capped at that outstanding (the settlement clamp would silently under-apply and
@@ -64,6 +67,9 @@ export async function rollPersonMonthDebt(
       message: "O vencimento da nova dívida deve ficar num mês depois do mês rolado.",
     });
   }
+  if (input.cashAccountId !== null && !ws.accounts.some((a) => a.id === input.cashAccountId)) {
+    return err({ code: "invalid", message: "Conta de entrada do dinheiro inválida." });
+  }
 
   const newAmount = input.principalCents + input.jurosCents;
   const installments = input.installments > 1 ? input.installments : 1;
@@ -98,7 +104,9 @@ export async function rollPersonMonthDebt(
       // The roll happens TODAY: the relief lands now, and the coverage walk re-buckets it onto the
       // covered debts' competence months (all ≤ `month` < the new debt's month, by the guard above).
       date: todayInBrazil(),
-      accountId: null, // cash-less: nothing was received — the debt just moved
+      // Cash-less (paper-only) unless the Pix-no-crédito money really landed in an account — then
+      // the settlement credits it, counting as third-party cash (dropped from the personal lens).
+      accountId: input.cashAccountId,
       note: `Rolagem — ${input.description || "Dívida rolada"}`,
     },
     command.value,

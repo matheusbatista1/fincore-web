@@ -611,6 +611,10 @@ function RollDebtBody({
   const [instrument, setInstrument] = useState<Instrument>(poolDefaultInstrument);
   const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
+  // Pool roll: when the Pix no crédito's money really landed in an account (and covered the
+  // person's share), the rollover settlement is account-backed — it credits that account and
+  // counts as third-party money. "" = paper-only roll (no cash moved).
+  const [cashAcctId, setCashAcctId] = useState<string>("");
   const [installments, setInstallments] = useState(1);
   const [date, setDate] = useState(nextMonthDue);
   const [error, setError] = useState<string | null>(null);
@@ -665,7 +669,7 @@ function RollDebtBody({
     };
     const res =
       mode === "month"
-        ? await rollPersonMonthDebtAction({ ...shared, month })
+        ? await rollPersonMonthDebtAction({ ...shared, month, cashAccountId: cashAcctId || null })
         : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
@@ -822,6 +826,31 @@ function RollDebtBody({
               ))}
             </select>
           )
+        )}
+
+        {mode === "month" && (
+          <>
+            <label
+              htmlFor="roll-cash"
+              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+            >
+              O dinheiro da rolagem entrou em alguma conta? (ex.: Pix no crédito que caiu na conta)
+            </label>
+            <select
+              id="roll-cash"
+              className="input"
+              value={cashAcctId}
+              onChange={(e) => setCashAcctId(e.target.value)}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              <option value="">Não — rolagem só no papel</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  Sim, entrou em {a.label}
+                </option>
+              ))}
+            </select>
+          </>
         )}
 
         <div className="row gap-3" style={{ marginBottom: 12 }}>

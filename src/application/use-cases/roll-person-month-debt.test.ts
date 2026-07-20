@@ -57,6 +57,7 @@ const input = (over: Partial<RollMonthDebtInput> = {}): RollMonthDebtInput => ({
   jurosCents: 3000,
   date: "2026-08-10" as IsoDate,
   source: "loan",
+  cashAccountId: null,
   cardId: null,
   accountId: null,
   linkedAccountId: null,
@@ -144,5 +145,26 @@ describe("rollPersonMonthDebt — pool roll guards", () => {
     const result = await rollPersonMonthDebt(repo, "u", input({ personId: "ghost" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("not_found");
+  });
+});
+
+describe("rollPersonMonthDebt — cash-backed rollover (Pix no crédito money landed)", () => {
+  it("passes cashAccountId through so the settlement credits the account", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    // The stub workspace has no accounts, so register one for the validation.
+    const ws = await (repo.loadWorkspace as () => Promise<Workspace>)();
+    (ws.accounts as unknown as Array<{ id: string }>).push({ id: "acc-1" });
+    const result = await rollPersonMonthDebt(repo, "u", input({ cashAccountId: "acc-1" }));
+    expect(result.ok).toBe(true);
+    const [, settlement] = rollFn.mock.calls[0] as unknown as [string, { accountId: string | null }];
+    expect(settlement.accountId).toBe("acc-1");
+  });
+
+  it("rejects an unknown cash account", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", input({ cashAccountId: "ghost" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid");
+    expect(rollFn).not.toHaveBeenCalled();
   });
 });
