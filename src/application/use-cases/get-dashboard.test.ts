@@ -255,9 +255,10 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     expect(data.projectedBalanceCents).toBe(96900);
   });
 
-  it("exposes the month's account-backed settlement cash as settlementNetCents (received = +)", async () => {
+  it("attributes settlement cash to the covered debt's competence month, not the payment month", async () => {
     const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
-    // Ana owes R$200 of a shared expense → a debtor (gross balance positive), so paying back is +.
+    // Ana owes R$200 of a MAY shared expense and pays it back in JUNE. The cash credit belongs to
+    // MAY (where the expense counted in the general economia) — June must show no phantom credit.
     const shared = expense({
       id: "shared",
       source: "account",
@@ -272,8 +273,66 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     const setts: Settlement[] = [
       { id: "s", personId: "p1", amountCents: 20000, date: "2026-06-12", accountId: "acc-1" },
     ];
-    const data = await getDashboard(stubRepo([shared], [], [ana], setts), "u", "2026-06");
-    expect(data.settlementNetCents).toBe(20000);
+    // Browsing MAY (horizon May): the June payment is beyond the horizon, so May's credit shows as
+    // the still-open receivable — the economia is whole either way, with no double count.
+    const may = await getDashboard(stubRepo([shared], [], [ana], setts), "u", "2026-05");
+    expect(may.settlementNetCents).toBe(0);
+    expect(may.aReceberCents).toBe(20000);
+    // Browsing JUNE: the payment cleared MAY's bucket (through-ledger), so June gets neither a
+    // receivable nor phantom settlement cash — the old date-month bucketing showed +200 here.
+    const june = await getDashboard(stubRepo([shared], [], [ana], setts), "u", "2026-06");
+    expect(june.settlementNetCents).toBe(0);
+    expect(june.aReceberCents).toBe(0);
+  });
+
+  it("credits a PRE-payment in the future fatura's month (no phantom surplus in the cash month)", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    // Ana's R$120 share of a card charge whose fatura is JULY (charge 2026-06-20, closes 06-24 →
+    // due 07-02). She pays in JUNE (advance). June economia must NOT gain +120; July gets the credit.
+    const charge = expense({
+      id: "pastel",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-06-20",
+      amountCents: -4300,
+      myShareCents: 3100,
+      splits: [{ personId: "p1", shareCents: 1200 }],
+      recurrence: null,
+    });
+    const setts: Settlement[] = [
+      { id: "s", personId: "p1", amountCents: 1200, date: "2026-06-12", accountId: "acc-1" },
+    ];
+    const june = await getDashboard(stubRepo([charge], [card], [ana], setts), "u", "2026-06");
+    expect(june.settlementNetCents).toBe(0);
+    expect(june.aReceberCents).toBe(0); // the advance is parked, not phantom June income
+    const july = await getDashboard(stubRepo([charge], [card], [ana], setts), "u", "2026-07");
+    expect(july.settlementNetCents).toBe(1200);
+    expect(july.aReceberCents).toBe(0); // the advance already covered her July share
+  });
+
+  it("exposes heldForOthersCents = advances held minus others' shares already fronted", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    // Ana pre-pays R$120 for her share of a JULY fatura the user hasn't paid yet: the cash sits in
+    // the account but is hers → held = 120. (General 100000+1200; personal drops the settlement.)
+    const charge = expense({
+      id: "pastel",
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-06-25",
+      amountCents: -4300,
+      myShareCents: 3100,
+      splits: [{ personId: "p1", shareCents: 1200 }],
+      recurrence: null,
+    });
+    const setts: Settlement[] = [
+      { id: "s", personId: "p1", amountCents: 1200, date: "2026-06-12", accountId: "acc-1" },
+    ];
+    const data = await getDashboard(stubRepo([charge], [card], [ana], setts), "u", "2026-06");
+    expect(data.totalBalanceCents).toBe(101200);
+    expect(data.totalBalancePersonalCents).toBe(100000);
+    expect(data.heldForOthersCents).toBe(1200);
   });
 
   it("settlementNetCents ignores other months and account-less (perdão) settlements", async () => {
