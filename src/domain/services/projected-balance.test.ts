@@ -283,6 +283,27 @@ describe("obligationsDueThrough", () => {
     ).toBe(8000);
   });
 
+  it("still projects future occurrences of a recurring obligation whose anchor was PAID", () => {
+    // Recurring rent boleto day 10 anchored July, PAID July 10. The July debit already landed in
+    // the balance (debitLanded → excluded here), but Aug/Sep's projected occurrences are fresh,
+    // unpaid instances — paying THIS month's aluguel must not erase NEXT months' bills from the
+    // projection (they vanished before, overstating "fim do mês" by the whole recurring total).
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-20000, "2026-07-10"),
+      source: "boleto",
+      cardId: null,
+      recurrence: { dayOfMonth: 10 },
+      paidAt: "2026-07-10",
+      paidAccountId: "acc-1",
+    };
+    expect(obligationsDueThrough([rec], "2026-07", "2026-08", calendar, "general", "2026-07").cents).toBe(
+      20000,
+    );
+    expect(obligationsDueThrough([rec], "2026-07", "2026-09", calendar, "general", "2026-07").cents).toBe(
+      40000,
+    );
+  });
+
   it("does not project a non-recurring card charge", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July, not recurring
     expect(obligationsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
