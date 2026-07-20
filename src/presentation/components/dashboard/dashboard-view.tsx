@@ -227,6 +227,14 @@ export function DashboardView({ data }: { data: DashboardData }) {
   const saldoTotal = data.saldoTotalCents;
   const ownCents = data.saldoTotalPersonalCents;
   const heldCents = data.heldForOthersCents;
+  // WATERFALL reading of the split (the user's rule: spending consumes YOUR money first, then the
+  // advances; "yours" only reads negative once the whole cash is gone): how much of the held float
+  // was already consumed, how much is still sitting in the accounts, and the own slice floored at
+  // the general balance (money is fungible — you can't be more negative than the cash itself
+  // while third-party float remains).
+  const usedAdvancesCents = Math.min(Math.max(-ownCents, 0), heldCents);
+  const advancesLeftCents = heldCents - usedAdvancesCents;
+  const ownWaterfallCents = Math.max(ownCents, Math.min(saldoTotal, 0));
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -354,24 +362,36 @@ export function DashboardView({ data }: { data: DashboardData }) {
                       fontSize: 13.5,
                     }}
                     title={
-                      ownCents < 0
-                        ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
-                        : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."
+                      advancesLeftCents === 0 && usedAdvancesCents > 0
+                        ? "Você já usou todos os adiantamentos que as pessoas te mandaram para as faturas que ainda vão vencer — quando elas chegarem, o valor sai do seu bolso (e volta quando as dívidas registradas forem pagas)."
+                        : ownCents < 0
+                          ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
+                          : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."
                     }
                   >
-                    {isPersonal && ownCents < 0 ? (
+                    {isPersonal && ownCents < 0 && advancesLeftCents === 0 ? (
+                      // Waterfall floor: the advances are fully consumed, so "yours" reads as the
+                      // (negative) cash itself — you can't owe less than the hole in the accounts.
                       <>
-                        · usando <Money cents={-ownCents} withSign={false} /> dos adiantamentos
+                        · seu: <Money cents={ownWaterfallCents} withSign /> · adiantamentos (
+                        <Money cents={heldCents} withSign={false} />) já usados
+                      </>
+                    ) : isPersonal && ownCents < 0 ? (
+                      <>
+                        · usando <Money cents={usedAdvancesCents} withSign={false} /> dos adiantamentos
+                        (restam <Money cents={advancesLeftCents} withSign={false} />)
                       </>
                     ) : isPersonal ? (
                       <>
                         · seu: <Money cents={ownCents} withSign={false} /> · de terceiros:{" "}
                         <Money cents={heldCents} withSign={false} />
                       </>
-                    ) : (
+                    ) : advancesLeftCents > 0 ? (
                       <>
-                        · <Money cents={heldCents} withSign={false} /> de terceiros
+                        · <Money cents={advancesLeftCents} withSign={false} /> de terceiros
                       </>
+                    ) : (
+                      <>· adiantamentos de terceiros já usados</>
                     )}
                   </span>
                 )}
