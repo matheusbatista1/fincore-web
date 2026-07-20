@@ -436,6 +436,32 @@ export function computePersonBalancesThrough(
 }
 
 /**
+ * BOOKED per-person balance through `throughMonth`: real transactions with competence within the
+ * horizon (incl. "futura" parcelas that belong to those months) and settlements dated within it —
+ * but NO projected ("previsto") recurring occurrences. This is the settleable/rollable outstanding:
+ * a forecast is not a debt yet, so operations that create real ledger entries (like rolling the
+ * month's remainder) must validate against this figure, not the projection-aware through-balance.
+ */
+export function computePersonBookedBalancesThrough(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Map<string, Money> {
+  // A received income-payment counts in its RECEIPT month (mirrors computePersonLedger).
+  const effCompetence = (t: Transaction): CompetenceMonth =>
+    isReceivableIncome(t) && t.receivedAt != null ? monthOf(incomeEffectiveDate(t)) : competenceOf(t);
+  const real: StampedTransaction[] = transactions
+    .filter((t) => compareMonths(effCompetence(t), throughMonth) <= 0)
+    .map((t) => ({ tx: t, date: t.date, competence: effCompetence(t), projected: false }));
+  const settsThrough = settlements
+    .filter((s) => compareMonths(monthOf(s.date), throughMonth) <= 0)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1));
+  return accumulateWithMovements(people, real, settsThrough, true).balances;
+}
+
+/**
  * Apply a settle of `amountCents` against `currentBalance`, ported EXACTLY from
  * the prototype's `applySettle`:
  *

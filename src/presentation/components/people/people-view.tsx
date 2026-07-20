@@ -3,11 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteSettlementAction, rollPersonDebtAction } from "@/app/_actions/finance";
+import {
+  deleteSettlementAction,
+  rollPersonDebtAction,
+  rollPersonMonthDebtAction,
+} from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { addMonths, dateInMonth, dayOf } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import {
@@ -338,6 +343,7 @@ export function PeopleView({
           {roll && (
             <RollDebtBody
               person={roll}
+              month={month}
               accounts={accounts}
               cards={cards}
               debts={rollDebts}
@@ -565,15 +571,22 @@ const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
   { id: "account", label: "Meu próprio dinheiro" },
 ];
 
+/** Instruments a POOL roll can target: debt instruments only — `account`/`overdraft` would debit
+ * real cash at roll time, but a pool roll moves no money (the debt just changes shape). */
+const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan");
+
 /** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
 function RollDebtBody({
   person,
+  month,
   accounts,
   cards,
   debts,
   onDone,
 }: {
   person: PersonMonthView;
+  /** The browsed competence month (`YYYY-MM`) — the pool being rolled. */
+  month: string;
   accounts: AccountOption[];
   cards: AccountOption[];
   debts: DebtOption[];
@@ -582,14 +595,28 @@ function RollDebtBody({
   const toast = useUIStore((s) => s.toast);
   const router = useRouter();
   const first = firstName(person.name);
+  // How the user manages debts in practice: by the MONTH'S POOL ("she owed 3.000, paid 2.600, I
+  // roll the 400") — so the pool mode is the default; rolling one specific lançamento remains
+  // available for the itemized case.
+  const [mode, setMode] = useState<"month" | "item">("month");
+  const monthOwed = Math.max(0, person.monthBalanceCents);
+  // The pool's new debt must land in a month AFTER the rolled one (the server enforces it — the
+  // rollover settlement covers the oldest buckets first, so an earlier due date would intercept it).
+  const nextMonthDue = dateInMonth(addMonths(month, 1), dayOf(todayIso()));
+  // A pool roll moves the debt to a DEBT instrument (no cash moves): card if there is one, else loan.
+  const poolDefaultInstrument: Instrument = cards.length > 0 ? "card" : "loan";
   const [debtId, setDebtId] = useState<string | null>(debts[0]?.id ?? null);
-  const [principal, setPrincipal] = useState(debts[0]?.shareCents ?? 0);
+  const [principal, setPrincipal] = useState(monthOwed);
   const [juros, setJuros] = useState(0);
-  const [instrument, setInstrument] = useState<Instrument>("account");
+  const [instrument, setInstrument] = useState<Instrument>(poolDefaultInstrument);
   const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
+  // Pool roll: when the Pix no crédito's money really landed in an account (and covered the
+  // person's share), the rollover settlement is account-backed — it credits that account and
+  // counts as third-party money. "" = paper-only roll (no cash moved).
+  const [cashAcctId, setCashAcctId] = useState<string>("");
   const [installments, setInstallments] = useState(1);
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(nextMonthDue);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -598,9 +625,24 @@ function RollDebtBody({
   const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
   const total = principal + juros;
   const valid =
-    debtId !== null &&
+    (mode === "month" || debtId !== null) &&
     principal > 0 &&
     (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+
+  const pickMode = (next: "month" | "item") => {
+    setMode(next);
+    // Each mode prefills its own principal/instrument/due date: the pool rolls the month's
+    // remainder onto a debt instrument due next month; item mode fronts a picked debt today.
+    if (next === "month") {
+      setPrincipal(monthOwed);
+      setInstrument(poolDefaultInstrument);
+      setDate(nextMonthDue);
+    } else {
+      setPrincipal(debts.find((d) => d.id === debtId)?.shareCents ?? 0);
+      setInstrument("account");
+      setDate(todayIso());
+    }
+  };
 
   // Picking a different debt prefills the principal with that debt's share.
   const pickDebt = (id: string) => {
@@ -610,12 +652,11 @@ function RollDebtBody({
   };
 
   async function confirm() {
-    if (!valid || submitting || debtId === null) return;
+    if (!valid || submitting) return;
     setError(null);
     setSubmitting(true);
-    const res = await rollPersonDebtAction({
+    const shared = {
       personId: person.id,
-      originalTransactionId: debtId,
       principalCents: principal,
       jurosCents: juros,
       date,
@@ -625,7 +666,11 @@ function RollDebtBody({
       linkedAccountId: instrument === "overdraft" || instrument === "loan" ? acctId : null,
       installments: canInstallment ? installments : 1,
       description: `Dívida de ${first}`,
-    });
+    };
+    const res =
+      mode === "month"
+        ? await rollPersonMonthDebtAction({ ...shared, month, cashAccountId: cashAcctId || null })
+        : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
       setError(res.error);
@@ -662,39 +707,71 @@ function RollDebtBody({
     <DialogModal title="Rolar dívida" maxWidth={460}>
       <div className="modal-body">
         <div style={{ textAlign: "center", marginBottom: 14, fontSize: 13.5, color: "var(--text-lo)" }}>
-          Você quita uma dívida de <b style={{ color: "var(--text-hi)" }}>{first}</b> e ela passa a te dever o
-          novo valor — a original fica marcada como rolada (mantida no histórico).
+          {mode === "month" ? (
+            <>
+              O que <b style={{ color: "var(--text-hi)" }}>{first}</b> ainda te deve vira uma nova dívida (com
+              juros, se houver) — o saldo antigo fica quitado, sem dinheiro trocando de mãos.
+            </>
+          ) : (
+            <>
+              Você quita uma dívida de <b style={{ color: "var(--text-hi)" }}>{first}</b> e ela passa a te
+              dever o novo valor — a original fica marcada como rolada (mantida no histórico).
+            </>
+          )}
         </div>
 
-        {debts.length === 0 ? (
-          <div style={{ color: "var(--text-lo)", fontSize: 13.5, padding: "8px 0 12px" }}>
-            {first} não tem dívidas em aberto para rolar.
-          </div>
-        ) : (
-          <>
-            <label
-              htmlFor="roll-debt"
-              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
-            >
-              Qual dívida você quitou?
-            </label>
-            <select
-              id="roll-debt"
-              className="input"
-              value={debtId ?? ""}
-              onChange={(e) => pickDebt(e.target.value)}
-              style={{ width: "100%", marginBottom: 12 }}
-            >
-              {debts.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+        <div className="chip-select" style={{ justifyContent: "center", marginBottom: 14 }}>
+          <button
+            type="button"
+            className={`person-chip${mode === "month" ? " on" : ""}`}
+            onClick={() => pickMode("month")}
+          >
+            O que falta do mês
+          </button>
+          <button
+            type="button"
+            className={`person-chip${mode === "item" ? " on" : ""}`}
+            onClick={() => pickMode("item")}
+          >
+            Um lançamento específico
+          </button>
+        </div>
 
-        {moneyField(principal, setPrincipal, "Valor abatido (dívida original)", "roll-principal")}
+        {mode === "item" &&
+          (debts.length === 0 ? (
+            <div style={{ color: "var(--text-lo)", fontSize: 13.5, padding: "8px 0 12px" }}>
+              {first} não tem dívidas em aberto para rolar.
+            </div>
+          ) : (
+            <>
+              <label
+                htmlFor="roll-debt"
+                style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+              >
+                Qual dívida você quitou?
+              </label>
+              <select
+                id="roll-debt"
+                className="input"
+                value={debtId ?? ""}
+                onChange={(e) => pickDebt(e.target.value)}
+                style={{ width: "100%", marginBottom: 12 }}
+              >
+                {debts.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          ))}
+
+        {moneyField(
+          principal,
+          setPrincipal,
+          mode === "month" ? "Valor rolado (o que falta do mês)" : "Valor abatido (dívida original)",
+          "roll-principal",
+        )}
         {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
 
         <label
@@ -710,7 +787,7 @@ function RollDebtBody({
           onChange={(e) => setInstrument(e.target.value as Instrument)}
           style={{ width: "100%", marginBottom: 12 }}
         >
-          {INSTRUMENTS.map((i) => (
+          {(mode === "month" ? POOL_INSTRUMENTS : INSTRUMENTS).map((i) => (
             <option key={i.id} value={i.id}>
               {i.label}
             </option>
@@ -749,6 +826,31 @@ function RollDebtBody({
               ))}
             </select>
           )
+        )}
+
+        {mode === "month" && (
+          <>
+            <label
+              htmlFor="roll-cash"
+              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+            >
+              O dinheiro da rolagem entrou em alguma conta? (ex.: Pix no crédito que caiu na conta)
+            </label>
+            <select
+              id="roll-cash"
+              className="input"
+              value={cashAcctId}
+              onChange={(e) => setCashAcctId(e.target.value)}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              <option value="">Não — rolagem só no papel</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  Sim, entrou em {a.label}
+                </option>
+              ))}
+            </select>
+          </>
         )}
 
         <div className="row gap-3" style={{ marginBottom: 12 }}>

@@ -233,6 +233,16 @@ export interface FinanceRepository {
    */
   rollPersonDebt(userId: string, originalId: string, command: CreateTransactionCommand): Promise<void>;
   /**
+   * "Rolar o saldo do mês" (pool roll): zero the person's outstanding via a cash-less rollover
+   * settlement and persist `command` (the new debt on the chosen instrument), atomically. No
+   * transaction is abated — the settlement's zero-clamp covers the oldest open debts first.
+   */
+  rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
+  /**
    * Mark a deferred obligation (boleto/loan/financing) as PAID: it debits `paidAccountId` by
    * `paidAmountCents` on `paidAt`, while its original due date and amount stay intact for history.
    */

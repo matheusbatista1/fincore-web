@@ -9,6 +9,7 @@ import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
+import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -32,6 +33,7 @@ import {
   payTransactionSchema,
   receiveIncomeSchema,
   rollDebtSchema,
+  rollMonthDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
@@ -315,6 +317,22 @@ export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   if (!command.ok) return { ok: false, error: command.error.message };
 
   await financeRepository.rollPersonDebt(userId, r.originalTransactionId, command.value);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * "Rolar o saldo do mês" (pool roll): no specific transaction is abated. The use-case validates the
+ * person's BOOKED outstanding (never trust the client), zeroes it via a cash-less rollover
+ * settlement and creates the new debt (principal + juros) on a debt instrument, atomically.
+ */
+export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = rollMonthDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await rollPersonMonthDebt(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
 }
