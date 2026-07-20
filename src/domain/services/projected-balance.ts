@@ -192,7 +192,13 @@ export function obligationsDueThrough(
     const seen = new Set<string>();
     for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m)) {
-        const source = occ.source;
+        const src = occ.source;
+        if (!isExpense(src)) continue;
+        // A projected occurrence is a fresh, not-yet-paid instance — it must never inherit the
+        // anchor's paid/rolled state (same strip as projectedMonthEndBalances). Otherwise paying
+        // THIS month's aluguel marks the anchor debitLanded and every FUTURE month's projected
+        // aluguel silently vanishes from the obligations, overstating "fim do mês".
+        const source = { ...src, paidAt: null, paidAccountId: null, paidAmountCents: null, rolledAt: null };
         if (!isObligation(source)) continue;
         const due = competenceOf({ ...source, date: occ.date });
         if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
