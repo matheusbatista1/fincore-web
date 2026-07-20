@@ -342,7 +342,10 @@ export function DashboardView({ data }: { data: DashboardData }) {
               >
                 <CountMoney cents={saldoTotal} />
               </div>
-              <div className="row gap-3" style={{ marginTop: 12 }}>
+              {/* The meta line can outgrow the column (waterfall annotation + fim-do-mês on a
+                  narrow window/phone): wrap by whole chips instead of squeezing the spans until
+                  their text breaks mid-value. */}
+              <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap", rowGap: 4 }}>
                 {data.deltaPct !== null && (
                   <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
                     <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
