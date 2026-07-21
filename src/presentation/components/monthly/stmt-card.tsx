@@ -100,6 +100,18 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
               fixo
             </span>
           )}
+          {item.source === "overdraft" && (
+            // Overdraft debits its account the moment it happens — there is nothing to "pay"
+            // later, unlike the boletos/parcelas sharing this group. The badge says why.
+            <span
+              className="parc-badge"
+              style={{ marginLeft: 8, background: "var(--amber-soft)", color: "var(--amber-500)" }}
+              title="Cheque especial: o valor já saiu direto da conta — não há nada a pagar."
+            >
+              <Icon name="landmark" size={11} />
+              cheque especial
+            </span>
+          )}
           {item.projected && (
             <span className="parc-badge futura" style={{ marginLeft: 6 }}>
               previsto
