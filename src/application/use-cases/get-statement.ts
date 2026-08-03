@@ -10,7 +10,7 @@ import {
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import { addMonths, type CompetenceMonth, compareMonths } from "@/domain/value-objects/competence-month";
 import { currentMonthInBrazil, todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
@@ -215,8 +215,13 @@ export async function getStatement(repo: FinanceRepository, userId: string): Pro
       if (isExpense(occ.source) && isRolled(occ.source)) continue;
       if (isIncome(occ.source) && occ.source.cardId !== null) continue;
       if (occ.date <= today) continue;
-      const anchor = map(occ.source);
-      future.push({ ...anchor, id: `proj:${occ.source.id}:${month}`, date: occ.date, projected: true });
+      // Fresh instance at the occurrence date: the anchor's paid/received state must not leak
+      // into a forecast row (a paid July boleto would render its August occurrence as settled).
+      future.push({
+        ...map(freshOccurrence(occ.source, occ.date)),
+        id: `proj:${occ.source.id}:${month}`,
+        projected: true,
+      });
     }
   }
 

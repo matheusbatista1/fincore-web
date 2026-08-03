@@ -11,7 +11,7 @@ import {
 import { computePersonMonthNetsAndSettledCash } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
   type CompetenceMonth,
@@ -180,8 +180,12 @@ export async function getDashboard(
   // occurrences for FUTURE months — so browsing months ahead shows expected income and
   // spending. Past/current stay real-only (history/actuals unchanged).
   const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
+  // Each projection counts as a fresh instance at its occurrence date: taking the anchor row
+  // instead would total it at the anchor's settled amount and on the anchor's own date.
   const monthSet =
-    compareMonths(month, currentMonth) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+    compareMonths(month, currentMonth) <= 0
+      ? real
+      : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
   const general = computeViewTotals(monthSet, "general");
   const personal = computeViewTotals(monthSet, "personal");
 

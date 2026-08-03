@@ -56,11 +56,12 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
       : ""
     : (item.sourceLabel ?? (cat ? cat.name : ""));
 
-  // A projected ("previsto") row opens its real anchor so the rule can be edited/deleted. Every row
-  // opens the detail modal — which offers Pagar (with a custom amount), Editar and Excluir — so any
-  // obligation is editable and payable directly (not only after it's paid).
-  const target = item.anchor ?? item;
-  const open = () => openTxDetail(target);
+  // Every row opens the detail modal — which offers Pagar (with a custom amount), Editar and
+  // Excluir — so any obligation is editable and payable directly (not only after it's paid).
+  // A projected ("previsto") row opens ITSELF (a `proj:` id → read-only detail) and carries its
+  // rule's anchor: opening the anchor instead would let Pagar/Desfazer settle the anchor's OWN
+  // month (paying August's projected aluguel would rewrite July's payment).
+  const open = () => openTxDetail(item, item.anchor ?? undefined);
 
   return (
     <div

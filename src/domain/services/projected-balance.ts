@@ -28,7 +28,7 @@ import {
 } from "../value-objects/competence-month";
 import { accountDeltas, computeAccountBalances } from "./balance.calculator";
 import type { ViewMode } from "./personal-vs-general";
-import { projectRecurring, recurrenceIdentity } from "./recurring.projection";
+import { freshOccurrence, projectRecurring, recurrenceIdentity } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
 type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
@@ -72,16 +72,10 @@ export function projectedMonthEndBalances(
       // face amount — otherwise the new received-gate drops a not-yet-received recurring income and a
       // future salary would silently vanish from the projection.
       const src = occurrence.source;
-      const forProjection = isExpense(src)
-        ? { ...src, paidAt: null, paidAccountId: null, paidAmountCents: null, rolledAt: null }
-        : isIncome(src)
-          ? {
-              ...src,
-              receivedAt: occurrence.date,
-              receivedAccountId: src.accountId,
-              receivedAmountCents: null,
-            }
-          : src;
+      const fresh = freshOccurrence(src, occurrence.date);
+      const forProjection = isIncome(fresh)
+        ? { ...fresh, receivedAt: occurrence.date, receivedAccountId: fresh.accountId }
+        : fresh;
       for (const [accountId, delta] of accountDeltas(forProjection, lens)) {
         const current = balances.get(accountId);
         if (current !== undefined) balances.set(accountId, current.add(delta));
@@ -192,15 +186,13 @@ export function obligationsDueThrough(
     const seen = new Set<string>();
     for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m)) {
-        const src = occ.source;
-        if (!isExpense(src)) continue;
         // A projected occurrence is a fresh, not-yet-paid instance — it must never inherit the
-        // anchor's paid/rolled state (same strip as projectedMonthEndBalances). Otherwise paying
-        // THIS month's aluguel marks the anchor debitLanded and every FUTURE month's projected
-        // aluguel silently vanishes from the obligations, overstating "fim do mês".
-        const source = { ...src, paidAt: null, paidAccountId: null, paidAmountCents: null, rolledAt: null };
+        // anchor's paid/rolled state. Otherwise paying THIS month's aluguel marks the anchor
+        // debitLanded and every FUTURE month's projected aluguel silently vanishes from the
+        // obligations, overstating "fim do mês".
+        const source = freshOccurrence(occ.source, occ.date);
         if (!isObligation(source)) continue;
-        const due = competenceOf({ ...source, date: occ.date });
+        const due = competenceOf(source);
         if (compareMonths(due, fromMonth) < 0 || compareMonths(due, toMonth) > 0) continue;
         if (isPaidCardBill(source, due)) continue; // a recurring charge on an already-paid fatura
         const key = `${due}|${recurrenceIdentity(source)}`;

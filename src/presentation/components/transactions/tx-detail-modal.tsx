@@ -30,6 +30,9 @@ const SHARE_PA: CSSProperties = {
 /** Detalhe da transação — ported 1:1 from the prototype (extras.jsx TxDetailModal). */
 export function TxDetailModal({ today }: { today: string }) {
   const tx = useTxUIStore((s) => s.detail);
+  // Set when the open row is a projected occurrence: the rule's real anchor row, so the read-only
+  // detail can still offer "Editar regra" / "Excluir regra" without ever paying the wrong month.
+  const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
@@ -357,10 +360,34 @@ export function TxDetailModal({ today }: { today: string }) {
           </div>
 
           {synthetic ? (
-            <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-primary" onClick={closeDetail}>
-                Fechar
-              </button>
+            <div className="modal-foot" style={{ justifyContent: ruleAnchor ? "space-between" : "flex-end" }}>
+              {ruleAnchor && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-quiet"
+                    style={{ color: "var(--rose-500)" }}
+                    onClick={() => openDelete(ruleAnchor)}
+                  >
+                    <Icon name="trash-2" size={16} />
+                    Excluir regra
+                  </button>
+                  <div className="row gap-2">
+                    <button type="button" className="btn btn-ghost" onClick={() => openEdit(ruleAnchor)}>
+                      <Icon name="pencil" size={16} />
+                      Editar regra
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                      Fechar
+                    </button>
+                  </div>
+                </>
+              )}
+              {!ruleAnchor && (
+                <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                  Fechar
+                </button>
+              )}
             </div>
           ) : (
             <div className="modal-foot" style={{ justifyContent: "space-between" }}>

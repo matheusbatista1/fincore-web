@@ -8,7 +8,7 @@ import {
 } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
   type CompetenceMonth,
@@ -109,7 +109,12 @@ export async function getReports(
   // fixed lançamentos. Past/current months stay real-only (actuals/history unchanged).
   const setForMonth = (month: CompetenceMonth): Transaction[] => {
     const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
-    const base = compareMonths(month, current) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+    // A projected occurrence counts as a fresh instance at its own date — never as the anchor row
+    // (which would total at the anchor's settled amount and sit on the anchor's date).
+    const base =
+      compareMonths(month, current) <= 0
+        ? real
+        : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
     // A rolled (abated) debt is history-only — exclude it from the bars, the category donut
     // and the per-card spend (the bars' computeViewTotals already skips it; this aligns the rest).
     return base.filter((tx) => !isRolled(tx));

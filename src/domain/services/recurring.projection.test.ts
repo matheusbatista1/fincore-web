@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 import type { ExpenseTransaction, IncomeTransaction, Transaction } from "../entities/transaction";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { dateInMonth, monthOf } from "../value-objects/competence-month";
-import { type ProjectedTransaction, projectRecurring, transactionsForMonth } from "./recurring.projection";
+import {
+  freshOccurrence,
+  type ProjectedTransaction,
+  projectRecurring,
+  transactionsForMonth,
+} from "./recurring.projection";
 
 // ---------------------------------------------------------------------------
 // Builders — minimal, fully-typed factories so tests read like the prototype.
@@ -344,5 +349,55 @@ describe("projectRecurring — invariants", () => {
         },
       ),
     );
+  });
+});
+
+describe("freshOccurrence", () => {
+  it("drops the anchor's paid/rolled state and moves the expense to the occurrence date", () => {
+    const anchor = expense({
+      id: "aluguel",
+      description: "Aluguel",
+      date: "2026-06-03",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 3 },
+      paidAt: "2026-06-01",
+      paidAccountId: "acc-1",
+      paidAmountCents: 40000,
+      rolledAt: "2026-06-05",
+    });
+    const occ = freshOccurrence(anchor, "2026-07-03");
+
+    expect(occ).toMatchObject({
+      id: "aluguel",
+      date: "2026-07-03",
+      paidAt: null,
+      paidAccountId: null,
+      paidAmountCents: null,
+      rolledAt: null,
+      // The rule itself and the money/split shape are preserved.
+      amountCents: -1000,
+      myShareCents: 1000,
+      recurrence: { dayOfMonth: 3 },
+    });
+  });
+
+  it("drops the anchor's received state on an income occurrence", () => {
+    const anchor = income({
+      id: "salario",
+      description: "Salário",
+      date: "2026-07-01",
+      accountId: "acc-1",
+      recurrence: { dayOfMonth: 1 },
+      receivedAt: "2026-07-01",
+      receivedAccountId: "acc-1",
+      receivedAmountCents: 100000,
+    });
+    expect(freshOccurrence(anchor, "2026-08-01")).toMatchObject({
+      date: "2026-08-01",
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    });
   });
 });
