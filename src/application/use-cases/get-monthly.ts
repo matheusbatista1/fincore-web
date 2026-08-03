@@ -11,7 +11,7 @@ import {
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBalances } from "@/domain/services/person-ledger.calculator";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import { type CompetenceMonth, type IsoDate, monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
@@ -180,19 +180,14 @@ export async function getMonthly(
     .filter((p) => !isRolled(p.source))
     .map((p) => {
       const anchor = map(p.source);
+      // A projection is a not-yet-realized forecast, never a copy of the anchor's settlement state:
+      // `freshOccurrence` drops paid/received/rolled so an August occurrence of a July-paid boleto
+      // reads as pending and totals at the rule's face amount (not July's settled value).
       return {
-        ...anchor,
+        ...map(freshOccurrence(p.source, p.date)),
         id: `proj:${p.source.id}:${month}`,
-        date: p.date,
         parcela: null,
         shares: [],
-        // A projection is a not-yet-realized forecast: never inherit the anchor's received state, or
-        // its total would count at the anchor's custom received amount instead of the rule's face.
-        isReceived: false,
-        receivedAt: null,
-        receivedAccountId: null,
-        receivedAccountLabel: null,
-        receivedAmountCents: null,
         projected: true,
         // The real, persisted source row — opening this lets the user edit/delete the rule.
         anchor,

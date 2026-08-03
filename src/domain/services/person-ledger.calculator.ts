@@ -34,7 +34,7 @@ import {
   type IsoDate,
   monthOf,
 } from "../value-objects/competence-month";
-import { projectRecurring } from "./recurring.projection";
+import { freshOccurrence, projectRecurring } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or card bill due month). */
 type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
@@ -407,9 +407,15 @@ export function computePersonLedger(
   if (earliest !== null) {
     for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m, competenceOf)) {
-        // Stamp the occurrence's own month/date, not the anchor's, so a statement
-        // windows each projected accrual into the month it lands in.
-        projected.push({ tx: occ.source, date: occ.date, competence: m, projected: true });
+        // Stamp the occurrence's own month/date, not the anchor's, so a statement windows each
+        // projected accrual into the month it lands in. The movement carries a FRESH instance
+        // (no paid/received/rolled inherited from the anchor) dated on the occurrence.
+        projected.push({
+          tx: freshOccurrence(occ.source, occ.date),
+          date: occ.date,
+          competence: m,
+          projected: true,
+        });
       }
     }
   }

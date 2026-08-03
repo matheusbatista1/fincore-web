@@ -508,11 +508,11 @@ export function CardsView({
               {compras.map((t) => {
                 const cat = t.category;
                 const isCredit = t.kind === "income";
-                // A projected ("previsto") row opens its real anchor so the recurring rule
-                // can be edited/stopped — mirrors the Mensal statement.
-                const target: TransactionListItem = "anchor" in t ? t.anchor : t;
+                // A projected ("previsto") row opens ITSELF (read-only detail) carrying its rule's
+                // anchor, so the rule can be edited/stopped without any action landing on the
+                // anchor's own month — mirrors the Mensal statement.
                 const isProjected = "anchor" in t;
-                const open = () => openTxDetail(target);
+                const open = () => openTxDetail(t, isProjected ? t.anchor : undefined);
                 return (
                   <div
                     role="button"

@@ -212,4 +212,37 @@ describe("getMonthly", () => {
     ]);
     expect((await getMonthly(repo, "u", "2026-06")).paidObligationFlows).toEqual([]);
   });
+
+  it("a projected occurrence of a PAID recurring obligation reads unpaid, at the rule's face amount", async () => {
+    // Aluguel: recurring boleto anchored (and paid, with a discount) in June. July's projected
+    // occurrence is a fresh instance — inheriting the anchor's paid state would badge it "pago"
+    // and total it at the discounted amount, and let Pagar/Desfazer settle June from July.
+    const repo = stubRepo([
+      expense({
+        id: "aluguel",
+        description: "Aluguel",
+        source: "boleto",
+        accountId: null,
+        date: "2026-06-03" as IsoDate,
+        amountCents: -46967,
+        myShareCents: 46967,
+        recurrence: { dayOfMonth: 3 },
+        paidAt: "2026-06-01" as IsoDate,
+        paidAccountId: "acc-1",
+        paidAmountCents: 40000, // paid with a discount
+      }),
+    ]);
+    const july = await getMonthly(repo, "u", "2026-07");
+    const proj = july.items.find((i) => i.projected);
+
+    expect(proj).toBeDefined();
+    expect(proj?.date).toBe("2026-07-03");
+    expect(proj?.isPaid).toBe(false);
+    expect(proj?.paidAt).toBeNull();
+    expect(proj?.paidAmountCents).toBeNull();
+    // Totals at face (469,67), NOT at June's settled 400,00.
+    expect(july.projectedTotals.expenseCents).toBe(46967);
+    // The rule is still reachable for editing/stopping via the anchor.
+    expect(proj?.anchor?.id).toBe("aluguel");
+  });
 });
