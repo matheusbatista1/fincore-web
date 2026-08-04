@@ -178,14 +178,15 @@ export function obligationsDueThrough(
     }
   }
 
-  // Projected recurring obligations: project by CHARGE month (calendar) so each monthly
-  // charge is captured, then bucket by its bill competence. Skip an occurrence whose bill is
-  // already covered by a real charge of the same rule, and dedupe projections among
-  // themselves, so nothing is counted twice.
+  // Projected recurring obligations, asked for by the month they BILL in: `projectRecurring`
+  // resolves each occurrence through the same competence resolver as real rows, so a subscription
+  // charged LAST month still shows up on the bill it falls due in. (Asking by calendar month
+  // instead would miss exactly those, understating the bills owed in the current month.) Skip an
+  // occurrence already covered by a real charge of the same rule, and dedupe among projections.
   if (currentMonth !== undefined) {
     const seen = new Set<string>();
-    for (let m = currentMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
-      for (const occ of projectRecurring(transactions, m)) {
+    for (let m = fromMonth; compareMonths(m, toMonth) <= 0; m = addMonths(m, 1)) {
+      for (const occ of projectRecurring(transactions, m, competenceOf)) {
         // A projected occurrence is a fresh, not-yet-paid instance — it must never inherit the
         // anchor's paid/rolled state. Otherwise paying THIS month's aluguel marks the anchor
         // debitLanded and every FUTURE month's projected aluguel silently vanishes from the

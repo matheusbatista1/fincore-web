@@ -141,7 +141,7 @@ describe("materializeRecurring", () => {
 
   it("does nothing when the watermark already reached today", async () => {
     const { repo, materialize } = stub([rent()], profile({ recurringMaterializedThrough: today }));
-    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0 });
+    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0, skipped: [] });
     expect(materialize).not.toHaveBeenCalled();
   });
 
@@ -165,7 +165,7 @@ describe("materializeRecurring", () => {
   it("skips an occurrence the user already booked by hand (same rule, same month)", async () => {
     const manual = rent({ id: "manual", date: monthStart, recurrence: null });
     const { repo, materialize } = stub([rent(), manual]);
-    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0 });
+    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0, skipped: [] });
     // The watermark still advances, so the next pass short-circuits.
     expect(materialize).toHaveBeenCalledWith("u", today, []);
   });
@@ -188,6 +188,34 @@ describe("materializeRecurring", () => {
     const { repo } = stub([rent()]);
     // The repository claims the watermark first: a losing pass inserts nothing and returns 0.
     (repo as { materializeRecurring: unknown }).materializeRecurring = async () => 0;
-    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0 });
+    expect(await materializeRecurring(repo, "u")).toEqual({ created: 0, skipped: [] });
+  });
+});
+
+describe("materializeRecurring — audit regressions", () => {
+  it("books a person's recurring payment as PENDING, never as received cash", async () => {
+    // "Ana pays me rent every month" is money EXPECTED. Booking it received would invent cash in
+    // the account and silently abate her debt each month, with no confirmation that it arrived.
+    const fromAna = salary({ id: "aluguel-ana", description: "Aluguel Ana", fromPersonId: "p-ana" });
+    const { repo, materialize } = stub([fromAna]);
+    await materializeRecurring(repo, "u");
+    expect(onlyEntry(materialize)).toMatchObject({
+      kind: "income",
+      fromPersonId: "p-ana",
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    });
+  });
+
+  it("reports what it could not book instead of losing it silently", async () => {
+    // Shares that exceed the amount make the split invalid: the row cannot be replayed, and the
+    // watermark still advances — so the pass has to say so.
+    const broken = rent({ myShareCents: 0, splits: [{ personId: "p", shareCents: 99_999_999 }] });
+    const { repo } = stub([broken]);
+    const result = await materializeRecurring(repo, "u");
+    expect(result.created).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]).toContain("Aluguel");
   });
 });

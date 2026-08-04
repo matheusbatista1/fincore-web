@@ -475,3 +475,19 @@ describe("obligationsDueThrough", () => {
     );
   });
 });
+
+describe("obligationsDueThrough — recurring charge billing into the CURRENT month", () => {
+  it("counts a subscription charged last month whose bill falls due this month", () => {
+    // Closes 24, due 2 → a charge on the 4th bills the NEXT month. Browsing August, the July
+    // occurrence is the one on August's fatura; asking by calendar month missed it entirely,
+    // overstating "fim do mês" by every recurring card charge due in the current month.
+    const competenceOf = billingCompetence([card]);
+    const sub: ExpenseTransaction = {
+      ...cardExpense(-1990, "2026-06-04"),
+      recurrence: { dayOfMonth: 4 },
+    };
+    expect(obligationsDueThrough([sub], "2026-08", "2026-08", competenceOf, "general", "2026-08").cents).toBe(
+      1990,
+    );
+  });
+});

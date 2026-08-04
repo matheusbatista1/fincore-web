@@ -3,7 +3,7 @@ import { isExpense, isIncome } from "@/domain/entities/transaction";
 import { recurringOccurrencesBetween } from "@/domain/services/recurring.projection";
 import { addMonths, dateInMonth, type IsoDate, monthOf } from "@/domain/value-objects/competence-month";
 import { todayInBrazil } from "@/shared/formatting/now";
-import { createTransactionSchema } from "@/shared/schemas/transaction";
+import { type CreateTransactionInput, createTransactionSchema } from "@/shared/schemas/transaction";
 import { loadWorkspaceCached } from "../loaders";
 import type { CreateTransactionCommand, FinanceRepository } from "../ports/finance-repository";
 import { buildCommand } from "./create-transaction";
@@ -11,9 +11,15 @@ import { buildCommand } from "./create-transaction";
 export interface MaterializeResult {
   /** How many occurrences were booked as real transactions. */
   readonly created: number;
+  /**
+   * Occurrences the pass could NOT build (a rule whose data no longer validates — e.g. shares that
+   * exceed the amount, or a card rule whose card is gone). The watermark still moves, so these are
+   * never retried: they are reported (and logged) instead of vanishing silently.
+   */
+  readonly skipped: readonly string[];
 }
 
-const NOOP: MaterializeResult = { created: 0 };
+const NOOP: MaterializeResult = { created: 0, skipped: [] };
 
 /**
  * The floor for a user with no watermark yet: the last day of the PREVIOUS month. The watermark is
@@ -56,27 +62,61 @@ export async function materializeRecurring(
   const occurrences = recurringOccurrencesBetween(ws.transactions, through as IsoDate, today);
 
   const commands: CreateTransactionCommand[] = [];
+  const skipped: string[] = [];
   for (const occurrence of occurrences) {
+    const label = `${occurrence.date} ${occurrence.source.description}`;
     const input = occurrenceInput(occurrence.source, occurrence.date);
-    if (input === null) continue;
+    if (input === null) {
+      skipped.push(label);
+      continue;
+    }
     const parsed = createTransactionSchema.safeParse(input);
-    if (!parsed.success) continue;
+    if (!parsed.success) {
+      skipped.push(label);
+      continue;
+    }
     const command = buildCommand(parsed.data, today);
-    if (!command.ok) continue;
-    commands.push(command.value);
+    if (!command.ok) {
+      skipped.push(label);
+      continue;
+    }
+    commands.push(pendingWhenOwedByPerson(command.value));
+  }
+  if (skipped.length > 0) {
+    console.warn(`[materializeRecurring] ${userId}: could not book ${skipped.join(", ")}`);
   }
 
   // Always advance the watermark — even with nothing to book — so the next pass short-circuits.
   const created = await repo.materializeRecurring(userId, today, commands);
-  return { created };
+  return { created, skipped };
+}
+
+/**
+ * A recurring income from a PERSON is money you expect, not money that arrived: booking it as
+ * received would invent cash in the account and silently abate that person's debt every month.
+ * It stays a pending receivable until the user confirms receipt through "Receber".
+ */
+function pendingWhenOwedByPerson(command: CreateTransactionCommand): CreateTransactionCommand {
+  return {
+    ...command,
+    entries: command.entries.map((entry) =>
+      entry.kind === "income" && entry.fromPersonId != null
+        ? { ...entry, receivedAt: null, receivedAccountId: null, receivedAmountCents: null }
+        : entry,
+    ),
+  };
 }
 
 /**
  * The create-transaction input that reproduces `source` on `date`. Returns null for a rule that
  * cannot be replayed (an income with no destination). Never carries `fixed`: the anchor remains the
  * one rule, so materialised rows never become extra anchors that would double-project.
+ *
+ * The rule is matched to what it already booked by DESCRIPTION identity (see `recurrenceIdentity`),
+ * so a row re-typed with a different wording does not suppress the occurrence and both end up
+ * booked — worth knowing, because here that means two real rows, not two forecasts.
  */
-function occurrenceInput(tx: Transaction, date: IsoDate): unknown {
+function occurrenceInput(tx: Transaction, date: IsoDate): CreateTransactionInput | null {
   if (isIncome(tx)) {
     if (tx.accountId === null && tx.cardId === null) return null;
     return {

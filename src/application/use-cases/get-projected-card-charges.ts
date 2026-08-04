@@ -1,5 +1,5 @@
 import { isExpense, isRolled } from "@/domain/entities/transaction";
-import { projectRecurring } from "@/domain/services/recurring.projection";
+import { freshOccurrence, projectRecurring } from "@/domain/services/recurring.projection";
 import { addMonths, type CompetenceMonth } from "@/domain/value-objects/competence-month";
 import { currentMonthInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
@@ -51,9 +51,10 @@ export async function getProjectedCardCharges(
       if (isRolled(source)) continue;
       const anchor = map(source);
       out.push({
-        ...anchor,
+        // A fresh instance at the occurrence date — spreading the mapped anchor would carry its
+        // bill month and settlement state into a forecast row.
+        ...map(freshOccurrence(source, occ.date)),
         id: `proj:${source.id}:${month}`,
-        date: occ.date,
         parcela: null,
         shares: [],
         projected: true,
