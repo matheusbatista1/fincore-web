@@ -253,9 +253,44 @@ export function computeCardOpenBill(
   today: IsoDate,
   competenceOf: CompetenceResolver,
   overrides?: CardBillOverrides,
+  cardBillPayments: readonly CardBillPayment[] = [],
 ): Money {
+  return computeCardOpenBillMonth(card, transactions, today, competenceOf, overrides, cardBillPayments)
+    .amount;
+}
+
+/**
+ * {@link computeCardOpenBill} plus the competence it refers to — so a screen can say WHICH bill the
+ * figure is (the one closed and due in days, or the cycle still accumulating).
+ *
+ * The bill that matters is the one you owe next: once the cycle turns, the fatura that just closed
+ * is still unpaid and comes due within days, while the new one is nearly empty. Showing the new one
+ * would report "R$ 0,00" to someone who owes R$ 2.360,22 this week. So the first UNPAID bill with a
+ * positive total, from the current month up to the accumulating cycle, wins; when they are all
+ * settled the accumulating cycle is the answer. Competences before the current month are presumed
+ * paid — the same convention {@link computeCardOutstanding} relies on, since a bill settled outside
+ * the app often has no payment record.
+ */
+export function computeCardOpenBillMonth(
+  card: CreditCard,
+  transactions: readonly Transaction[],
+  today: IsoDate,
+  competenceOf: CompetenceResolver,
+  overrides?: CardBillOverrides,
+  cardBillPayments: readonly CardBillPayment[] = [],
+): { readonly amount: Money; readonly competence: CompetenceMonth } {
   const openMonth = cardBillMonth(today, card.closingDay, card.dueDay, overrides);
-  return computeCardBillForMonth(card.id, transactions, openMonth, competenceOf);
+  const paid = new Set(cardBillPayments.map((p) => `${p.cardId}|${p.competence}`));
+
+  for (let m = monthOf(today); compareMonths(m, openMonth) < 0; m = addMonths(m, 1)) {
+    if (paid.has(`${card.id}|${m}`)) continue;
+    const bill = computeCardBillForMonth(card.id, transactions, m, competenceOf);
+    if (bill.isPositive()) return { amount: bill, competence: m };
+  }
+  return {
+    amount: computeCardBillForMonth(card.id, transactions, openMonth, competenceOf),
+    competence: openMonth,
+  };
 }
 
 /** {@link computeCardOpenBill} for every supplied card, keyed by card id (every card present). */
@@ -265,11 +300,22 @@ export function computeCardOpenBills(
   today: IsoDate,
   competenceOf: CompetenceResolver,
   billDates: readonly CardBillDate[] = [],
-): Map<string, Money> {
+  cardBillPayments: readonly CardBillPayment[] = [],
+): Map<string, { readonly amount: Money; readonly competence: CompetenceMonth }> {
   const byCard = cardBillOverridesByCard(billDates);
-  const out = new Map<string, Money>();
+  const out = new Map<string, { amount: Money; competence: CompetenceMonth }>();
   for (const card of cards) {
-    out.set(card.id, computeCardOpenBill(card, transactions, today, competenceOf, byCard.get(card.id)));
+    out.set(
+      card.id,
+      computeCardOpenBillMonth(
+        card,
+        transactions,
+        today,
+        competenceOf,
+        byCard.get(card.id),
+        cardBillPayments,
+      ),
+    );
   }
   return out;
 }

@@ -67,7 +67,14 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   // "Fatura atual" = the OPEN bill (the one accumulating now, due next cycle) — not the whole
   // open-cycle sum across past/future charges.
-  const bills = computeCardOpenBills(ws.creditCards, ws.transactions, today, competenceOf, ws.cardBillDates);
+  const bills = computeCardOpenBills(
+    ws.creditCards,
+    ws.transactions,
+    today,
+    competenceOf,
+    ws.cardBillDates,
+    ws.cardBillPayments,
+  );
   const currentMonth = today.slice(0, 7) as CompetenceMonth;
   const dayToday = Number(today.slice(8, 10));
   const outstandings = computeCardOutstandings(
@@ -95,7 +102,7 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
       balanceCents: (balances.get(account.id) ?? Money.zero()).cents,
     })),
     cards: ws.creditCards.map((card) => {
-      const bill = bills.get(card.id) ?? Money.zero();
+      const bill = bills.get(card.id)?.amount ?? Money.zero();
       const outstanding = outstandings.get(card.id) ?? Money.zero();
       // The bill due on the NEXT due date lives in the competence of that due month
       // (next month if the dueDay already passed this month, else this month).
