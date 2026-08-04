@@ -14,6 +14,7 @@ import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
+import { monthLabel } from "@/shared/formatting/dates";
 import {
   createTransactionSchema,
   type EditScope,
@@ -424,16 +425,21 @@ function TransactionForm({
       return;
     }
     const affected = result.count ?? 1;
+    // A date in another month files the row in THAT month — say so, or the user goes looking for it
+    // in the month they are browsing and concludes it was never saved. Card charges are left out:
+    // they are filed by their bill's competence, not by the date's own month.
+    const otherMonth = srcType !== "card" && ymd.slice(0, 7) !== todayIso().slice(0, 7);
+    const where = otherMonth ? ` Lançado em ${monthLabel(ymd.slice(0, 7) as never, { long: true })}.` : "";
     toast(
       editing
         ? affected > 1
           ? `Aplicado a ${affected} lançamentos.`
           : "Lançamento atualizado."
         : tab === "income"
-          ? "Receita adicionada."
+          ? `Receita adicionada.${where}`
           : tab === "transfer"
-            ? "Transferência feita."
-            : "Despesa adicionada.",
+            ? `Transferência feita.${where}`
+            : `Despesa adicionada.${where}`,
     );
     onDone();
   }
