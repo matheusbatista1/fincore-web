@@ -468,7 +468,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     tx: RlsTransaction,
     userId: string,
     command: CreateTransactionCommand,
-  ): Promise<void> {
+  ): Promise<string[]> {
     let groupId: string | null = null;
     if (command.installmentGroup) {
       const group = one(
@@ -498,10 +498,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     if (splitValues.length > 0) {
       await tx.insert(schema.transactionSplits).values(splitValues);
     }
+    return inserted.map((row) => row.id);
   }
 
   async createTransaction(userId: string, command: CreateTransactionCommand): Promise<void> {
     await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+  }
+
+  async createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string> {
+    const ids = await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+    const id = ids[0];
+    if (id === undefined) throw new Error("createTransactionReturningId: nothing was inserted.");
+    return id;
   }
 
   async replaceWithInstallment(

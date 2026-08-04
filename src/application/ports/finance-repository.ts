@@ -246,6 +246,11 @@ export interface FinanceRepository {
     command: CreateTransactionCommand,
   ): Promise<void>;
   /**
+   * Persist a single-entry command and return the new transaction's id — for flows that must act
+   * on the row right after creating it (paying a recurring occurrence ahead of its day).
+   */
+  createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string>;
+  /**
    * Book the materialised occurrences of the user's recurring rules and advance the watermark to
    * `through`, atomically. The watermark doubles as an OPTIMISTIC LOCK: the update only applies
    * while the stored value is still behind `through`, so a second pass racing the first (app load
