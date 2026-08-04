@@ -116,7 +116,7 @@ function pendingWhenOwedByPerson(command: CreateTransactionCommand): CreateTrans
  * so a row re-typed with a different wording does not suppress the occurrence and both end up
  * booked — worth knowing, because here that means two real rows, not two forecasts.
  */
-function occurrenceInput(tx: Transaction, date: IsoDate): CreateTransactionInput | null {
+export function occurrenceInput(tx: Transaction, date: IsoDate): CreateTransactionInput | null {
   if (isIncome(tx)) {
     if (tx.accountId === null && tx.cardId === null) return null;
     return {

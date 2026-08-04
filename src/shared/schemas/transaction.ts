@@ -165,6 +165,18 @@ export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>;
 /** Stop a fixed transaction from recurring (keeps the row). */
 export const stopRecurringSchema = z.object({ id: idSchema });
 
+/**
+ * Book one occurrence of a recurring rule ahead of its automatic pass — what "Pagar"/"Receber" on a
+ * previsto needs, since a forecast is not a transaction and cannot be settled. The server validates
+ * that `date` really is where the rule falls in that month.
+ */
+export const materializeOccurrenceSchema = z.object({
+  /** The recurring transaction the forecast derives from. */
+  anchorId: idSchema,
+  /** The occurrence's own date (`YYYY-MM-DD`). */
+  date: isoDateSchema,
+});
+
 /** Move a card charge to the previous/next bill. */
 export const moveBillSchema = z.object({
   id: idSchema,

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
+import { materializeOccurrence } from "@/application/use-cases/materialize-occurrence";
 import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { payCardBill } from "@/application/use-cases/pay-card-bill";
@@ -29,6 +30,7 @@ import { importStatementSchema } from "@/shared/schemas/import";
 import {
   createTransactionSchema,
   deleteTransactionSchema,
+  materializeOccurrenceSchema,
   moveBillSchema,
   payCardBillSchema,
   payTransactionSchema,
@@ -249,6 +251,22 @@ export async function materializeRecurringAction(): Promise<ActionState> {
   const { created } = await materializeRecurring(financeRepository, userId);
   if (created > 0) revalidatePath("/", "layout");
   return { ok: true, count: created };
+}
+
+/**
+ * Book one occurrence of a recurring rule on demand, so a "previsto" can be paid/received before
+ * its automatic day. Returns the new (or already existing) transaction id, which the Pagar/Receber
+ * modal then settles — never the rule's anchor, whose own month must not be touched.
+ */
+export async function materializeOccurrenceAction(raw: unknown): Promise<ActionState & { id?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = materializeOccurrenceSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await materializeOccurrence(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, id: result.value.id };
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {
