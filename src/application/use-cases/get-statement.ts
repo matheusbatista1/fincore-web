@@ -65,6 +65,7 @@ function syntheticRow(
     paidAccountId: null,
     paidAccountLabel: null,
     paidAmountCents: null,
+    usualPayAccountId: null,
     isReceivable: false,
     isReceived: false,
     receivedAt: null,

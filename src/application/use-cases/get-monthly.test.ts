@@ -246,3 +246,50 @@ describe("getMonthly", () => {
     expect(proj?.anchor?.id).toBe("aluguel");
   });
 });
+
+describe("usualPayAccountId — which wallet a monthly bill comes out of", () => {
+  it("carries the account that settled the rule's last occurrence", async () => {
+    // "Energia" is paid from Itaú every month. When August's occurrence comes due, the Pagar modal
+    // must offer Itaú — defaulting to the first account silently moved the bill to another wallet.
+    const july = expense({
+      id: "energia-jul",
+      description: "Energia",
+      source: "boleto",
+      accountId: null,
+      date: "2026-07-03" as IsoDate,
+      amountCents: -18672,
+      myShareCents: 18672,
+      recurrence: { dayOfMonth: 3 },
+      paidAt: "2026-07-01" as IsoDate,
+      paidAccountId: "itau",
+      paidAmountCents: 18672,
+    });
+    const august = expense({
+      id: "energia-ago",
+      description: "Energia",
+      source: "boleto",
+      accountId: null,
+      date: "2026-08-03" as IsoDate,
+      amountCents: -18672,
+      myShareCents: 18672,
+    });
+    const data = await getMonthly(stubRepo([july, august]), "u", "2026-08");
+    const row = data.items.find((i) => i.id === "energia-ago");
+
+    expect(row?.isPaid).toBe(false);
+    expect(row?.usualPayAccountId).toBe("itau");
+  });
+
+  it("is null for a rule that has never been paid", async () => {
+    const first = expense({
+      id: "novo",
+      description: "Boleto novo",
+      source: "boleto",
+      accountId: null,
+      date: "2026-06-10" as IsoDate,
+      myShareCents: 10000,
+    });
+    const data = await getMonthly(stubRepo([first]), "u", "2026-06");
+    expect(data.items.find((i) => i.id === "novo")?.usualPayAccountId).toBeNull();
+  });
+});
