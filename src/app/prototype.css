@@ -1258,6 +1258,21 @@
   gap: 10px;
   justify-content: flex-end;
   background: var(--surface-1);
+  /* Never let the actions overflow the sheet: a footer that outgrows its width (Excluir fixo ·
+     Antecipar · Editar fixo · Fechar) wraps onto a second line instead of cutting a button off. */
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.modal-foot .row {
+  flex-wrap: wrap;
+  row-gap: 10px;
+  /* Keeps the action group hugging the right edge, including when it wraps below a
+     destructive action that stays on the left. */
+  margin-left: auto;
+}
+/* A button's label must never break mid-word when the row is tight — it wraps as a whole. */
+.modal-foot .btn {
+  white-space: nowrap;
 }
 
 /* form */
@@ -3354,13 +3369,27 @@ html {
     padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
     position: sticky;
     bottom: 0;
-    /* Footer buttons wrap onto the next line instead of overflowing the sheet — e.g. the
-       transaction detail's Excluir / Pagar / Editar / Fechar on a narrow phone. */
-    flex-wrap: wrap;
-    row-gap: 10px;
+    /* On a phone the actions stack full-width instead of wrapping into ragged lines: the primary
+       row on top, the destructive one alone at the bottom, every target comfortably tappable. */
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
   .modal-foot .row {
-    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+  .modal-foot .btn {
+    flex: 1;
+    justify-content: center;
+    /* Tighter than on desktop so three actions still share one row on a 375px phone. */
+    padding-inline: 12px;
+  }
+  /* The labels are explicit here, so the leading icons give up their ~22px to keep the actions on
+     one row. A spinner is NOT decoration — it is the whole content while saving, so it stays. */
+  .modal-foot .btn svg:not(.spin) {
+    display: none;
+  }
+  .modal-foot .row {
+    margin-left: 0;
   }
   /* Action rows inside a modal wrap instead of overflowing the sheet (e.g. the person
      profile: Cobrar / Rolar dívida / Registrar pagamento). */
