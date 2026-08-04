@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
+import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
@@ -235,6 +236,19 @@ export async function reconcileAutoPaymentsAction(): Promise<ActionState> {
   const count = result.paidObligations + result.paidFaturas;
   if (count > 0) revalidatePath("/", "layout");
   return { ok: true, count };
+}
+
+/**
+ * Materialise the recurring rules whose day has arrived into real transactions. Idempotent (the
+ * watermark short-circuits a pass that already ran, and the write claims it as a lock), so it is
+ * safe on every app load. Revalidates only when something was actually booked.
+ */
+export async function materializeRecurringAction(): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const { created } = await materializeRecurring(financeRepository, userId);
+  if (created > 0) revalidatePath("/", "layout");
+  return { ok: true, count: created };
 }
 
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {

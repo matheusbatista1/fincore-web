@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   CardBillPaymentData,
   CreateTransactionCommand,
@@ -112,6 +112,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
             autoPaymentsEnabled: schema.users.autoPaymentsEnabled,
             defaultPayAccountId: schema.users.defaultPayAccountId,
             autoPaymentsSince: schema.users.autoPaymentsSince,
+            recurringMaterializedThrough: schema.users.recurringMaterializedThrough,
           })
           .from(schema.users)
           .where(eq(schema.users.id, userId)),
@@ -546,6 +547,34 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         note: settlement.note ?? null,
       });
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async materializeRecurring(
+    userId: string,
+    through: IsoDate,
+    commands: readonly CreateTransactionCommand[],
+  ): Promise<number> {
+    return this.run(userId, async (tx) => {
+      // Claim the window first: the watermark only moves while it is still behind `through`, so a
+      // concurrent pass (app load racing the daily cron) finds no row to update and inserts nothing.
+      const claimed = await tx
+        .update(schema.users)
+        .set({ recurringMaterializedThrough: through, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.users.id, userId),
+            or(
+              isNull(schema.users.recurringMaterializedThrough),
+              lt(schema.users.recurringMaterializedThrough, through),
+            ),
+          ),
+        )
+        .returning({ id: schema.users.id });
+      if (claimed.length === 0) return 0;
+
+      for (const command of commands) await this.insertCommand(tx, userId, command);
+      return commands.length;
     });
   }
 
