@@ -10,6 +10,7 @@ import {
   freshOccurrence,
   type ProjectedTransaction,
   projectRecurring,
+  recurringOccurrencesBetween,
   transactionsForMonth,
 } from "./recurring.projection";
 
@@ -482,5 +483,70 @@ describe("projectRecurring — competence-aware bucketing", () => {
       rolledAt: "2026-07-10",
     });
     expect(projectRecurring([sub, rolled], "2026-08", billOf)).toHaveLength(1);
+  });
+});
+
+describe("recurringOccurrencesBetween", () => {
+  const rent = expense({
+    id: "aluguel",
+    description: "Aluguel",
+    date: "2026-06-03",
+    source: "boleto",
+    linkedAccountId: "acc-1",
+    amountCents: -46967,
+    recurrence: { dayOfMonth: 3 },
+  });
+
+  it("returns the occurrences due in (from, to], ordered by date", () => {
+    const occ = recurringOccurrencesBetween([rent], "2026-06-30", "2026-08-03");
+    expect(occ.map((o) => o.date)).toEqual(["2026-07-03", "2026-08-03"]);
+  });
+
+  it("excludes the boundary date itself (the watermark is exclusive)", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-07-03", "2026-07-31").map((o) => o.date)).toEqual([]);
+  });
+
+  it("includes an occurrence on the closing date (the range is inclusive at the end)", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-07-31", "2026-08-03").map((o) => o.date)).toEqual([
+      "2026-08-03",
+    ]);
+  });
+
+  it("never books before the rule's own anchor", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-01-31", "2026-06-30").map((o) => o.date)).toEqual([]);
+  });
+
+  it("skips a month already booked by a real row of the same rule (manual re-entry)", () => {
+    const manual = expense({
+      id: "aluguel-jul",
+      description: "aluguel", // different casing on purpose — same rule
+      date: "2026-07-03",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      amountCents: -46967,
+    });
+    expect(
+      recurringOccurrencesBetween([rent, manual], "2026-06-30", "2026-08-03").map((o) => o.date),
+    ).toEqual(["2026-08-03"]);
+  });
+
+  it("books one occurrence per month even with duplicated anchors of the same rule", () => {
+    const second = expense({ ...rent, id: "aluguel-2", date: "2026-05-03" });
+    expect(recurringOccurrencesBetween([rent, second], "2026-06-30", "2026-07-31")).toHaveLength(1);
+  });
+
+  it("clamps the day to a short month and returns nothing for an empty range", () => {
+    const day31 = expense({
+      id: "d31",
+      description: "Dia 31",
+      date: "2026-01-31",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 31 },
+    });
+    expect(recurringOccurrencesBetween([day31], "2026-01-31", "2026-02-28").map((o) => o.date)).toEqual([
+      "2026-02-28",
+    ]);
+    expect(recurringOccurrencesBetween([day31], "2026-03-10", "2026-03-10")).toEqual([]);
   });
 });

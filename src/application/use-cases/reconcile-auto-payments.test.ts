@@ -71,6 +71,7 @@ const profile = (over: Partial<UserProfile> = {}): UserProfile => ({
   defaultPayAccountId: "acc-1",
   // Enabled long ago, so the PAST fixtures fall within [since, today] and FUTURE ones don't.
   autoPaymentsSince: "2019-01-01",
+  recurringMaterializedThrough: null,
   ...over,
 });
 
