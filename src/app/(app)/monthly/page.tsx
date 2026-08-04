@@ -66,8 +66,12 @@ export default async function MonthlyPage({
       // charged. Estornos are card-bound incomes; they're excluded from the group's row list
       // (shown on the Cards screen) but must still net down the amount to pay.
       const credits = data.items
-        .filter((e) => e.kind === "income" && e.cardId === c.id)
+        .filter((e) => e.kind === "income" && e.cardId === c.id && !e.projected)
         .reduce((s, e) => s + e.amountCents, 0);
+      // A projected ("previsto") charge is a forecast, not something the bank will bill: the
+      // payable fatura counts REAL charges only, matching what the server computes on payment
+      // (and what the Cards screen offers) — otherwise "Pagar fatura · R$X" overshoots.
+      const faturaBase = sumAbs(items.filter((e) => !e.projected));
       return {
         key: `card-${c.id}`,
         name: `${c.bank} · ${c.product}`,
@@ -79,7 +83,7 @@ export default async function MonthlyPage({
         cardId: c.id,
         // Full (general) fatura total — kept independent of the personal-lens recompute so
         // "Pagar fatura" always offers the whole bill.
-        faturaCents: Math.max(0, total - credits),
+        faturaCents: Math.max(0, faturaBase - credits),
       };
     })
     .filter((g) => g.items.length > 0);
