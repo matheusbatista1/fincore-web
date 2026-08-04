@@ -38,8 +38,11 @@ export async function getProjectedCardCharges(
   const current = currentMonthInBrazil() as CompetenceMonth;
 
   const out: ProjectedCardCharge[] = [];
-  // Project by CALENDAR month (default resolver) from the current month forward.
-  for (let k = 0; k <= HORIZON_MONTHS; k++) {
+  // Project by CALENDAR month (default resolver), starting ONE month back: a charge made last
+  // month bills into the current (still open) fatura, so skipping it would empty that bill of its
+  // subscriptions the moment the month turned. A real charge of the rule in that calendar month
+  // suppresses its occurrence, so a booked (or materialised) subscription is never duplicated.
+  for (let k = -1; k <= HORIZON_MONTHS; k++) {
     const month = addMonths(current, k);
     for (const occ of projectRecurring(ws.transactions, month)) {
       const source = occ.source;

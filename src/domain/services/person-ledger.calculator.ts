@@ -407,9 +407,11 @@ export function computePersonLedger(
   if (earliest !== null) {
     for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m, competenceOf)) {
-        // Stamp the occurrence's own month/date, not the anchor's, so a statement windows each
-        // projected accrual into the month it lands in. The movement carries a FRESH instance
-        // (no paid/received/rolled inherited from the anchor) dated on the occurrence.
+        // `projectRecurring` resolves each occurrence through the SAME competence resolver as real
+        // rows, so everything it returns for `m` counts in `m` — a card subscription charged on the
+        // 4th lands in the bill it really falls into, and a person is never billed a cycle early.
+        // The movement carries a FRESH instance (no paid/received/rolled inherited from the anchor)
+        // dated on the real charge day.
         projected.push({
           tx: freshOccurrence(occ.source, occ.date),
           date: occ.date,

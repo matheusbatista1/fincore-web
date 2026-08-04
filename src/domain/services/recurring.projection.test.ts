@@ -1,9 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
+import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, IncomeTransaction, Transaction } from "../entities/transaction";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { dateInMonth, monthOf } from "../value-objects/competence-month";
+import { billingCompetence } from "./card-bill.calculator";
 import {
   freshOccurrence,
   type ProjectedTransaction,
@@ -298,16 +300,19 @@ describe("projectRecurring — invariants", () => {
         for (const p of projections as readonly ProjectedTransaction[]) {
           expect(monthOf(p.source.date) < month).toBe(true);
         }
-        // A projection is emitted for every recurring source that is (a) anchored
-        // before the target month and (b) whose identity is not already booked as
-        // a real recurring entry this month.
+        // One projection per eligible RULE IDENTITY: a rule is eligible when it is (a) anchored
+        // before the target month and (b) not already booked by a real row this month. Two anchors
+        // of the same rule (e.g. the user re-booked it) still forecast a single occurrence.
         const realIdentities = new Set(
           txs.filter((t) => monthOf(t.date) === month).map((t) => `${t.source}|${t.cardId}|${t.description}`),
         );
-        const eligible = txs.filter(
-          (t) => monthOf(t.date) < month && !realIdentities.has(`${t.source}|${t.cardId}|${t.description}`),
+        const eligible = new Set(
+          txs
+            .filter((t) => monthOf(t.date) < month)
+            .map((t) => `${t.source}|${t.cardId}|${t.description}`)
+            .filter((identity) => !realIdentities.has(identity)),
         );
-        expect(projections.length).toBe(eligible.length);
+        expect(projections.length).toBe(eligible.size);
       }),
     );
   });
@@ -399,5 +404,83 @@ describe("freshOccurrence", () => {
       receivedAccountId: null,
       receivedAmountCents: null,
     });
+  });
+});
+
+describe("projectRecurring — competence-aware bucketing", () => {
+  // Closes 24, due 2 → a charge on the 4th bills the NEXT month.
+  const nubank: CreditCard = {
+    id: "c-nu",
+    bank: "Nubank",
+    product: "Gold",
+    flag: "mastercard",
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 1_000_000,
+    closingDay: 24,
+    dueDay: 2,
+  };
+  const billOf = billingCompetence([nubank]);
+  const sub = expense({
+    id: "weverse",
+    description: "Google Weverse Connec",
+    date: "2026-06-04",
+    amountCents: -1099,
+    source: "card",
+    cardId: "c-nu",
+    recurrence: { dayOfMonth: 4 },
+  });
+
+  it("emits the occurrence CHARGED last month for the bill due this month", () => {
+    const [p] = projectRecurring([sub], "2026-08", billOf);
+    expect(p?.date).toBe("2026-07-04"); // charged 04/07 → bills August
+  });
+
+  it("does not emit the charge that bills a LATER month", () => {
+    const dates = projectRecurring([sub], "2026-08", billOf).map((p) => p.date);
+    expect(dates).not.toContain("2026-08-04"); // that one bills September
+  });
+
+  it("a real NON-recurring row of the same rule in the bill suppresses the projection", () => {
+    // The user re-entered a vanished subscription by hand: a plain row, not marked fixo.
+    const manual = expense({
+      id: "weverse-jul",
+      description: "Google Weverse Connec",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+    });
+    expect(projectRecurring([sub, manual], "2026-08", billOf)).toEqual([]);
+  });
+
+  it("matches the rule when the real row was re-typed with different casing/spacing", () => {
+    const retyped = expense({
+      id: "weverse-jul",
+      description: "  google weverse   connec ",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+    });
+    expect(projectRecurring([sub, retyped], "2026-08", billOf)).toEqual([]);
+  });
+
+  it("emits one occurrence per rule identity even with duplicated anchors", () => {
+    const second = expense({ ...sub, id: "weverse-2", date: "2026-05-04" });
+    expect(projectRecurring([sub, second], "2026-08", billOf)).toHaveLength(1);
+  });
+
+  it("an abated (rolled) real row does not suppress the projection", () => {
+    const rolled = expense({
+      id: "weverse-rolled",
+      description: "Google Weverse Connec",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+      rolledAt: "2026-07-10",
+    });
+    expect(projectRecurring([sub, rolled], "2026-08", billOf)).toHaveLength(1);
   });
 });

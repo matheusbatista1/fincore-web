@@ -156,6 +156,46 @@ describe("getPersonStatements", () => {
     expect(settleEntry?.kind).toBe("credit"); // reduces a positive balance
   });
 
+  it("a projected card subscription is billed in its FATURA month, not its charge month", async () => {
+    // The exact user report: "Google Weverse Connec (previsto) 04/08" showed up in the AUGUST
+    // statement, but a charge on the 4th bills the SEPTEMBER fatura (closes 24, due 2).
+    const weverse = expense({
+      description: "Google Weverse Connec",
+      date: "2026-06-04",
+      source: "card",
+      cardId: "c-nu",
+      accountId: null,
+      amountCents: -1099,
+      splits: [{ personId: "p", shareCents: 1099 }],
+      recurrence: { dayOfMonth: 4 },
+    });
+    const repo = {
+      loadWorkspace: async () => ({
+        ...workspace([person("p")], [weverse], []),
+        creditCards: [
+          {
+            id: "c-nu",
+            bank: "Nubank",
+            product: "Gold",
+            flag: "mastercard",
+            themeKey: "",
+            maskedNumber: "",
+            limitCents: 1_000_000,
+            closingDay: 24,
+            dueDay: 2,
+          },
+        ],
+      }),
+    } as unknown as FinanceRepository;
+
+    const [august] = await getPersonStatements(repo, "u", { from: "2026-08", to: "2026-08" });
+    // August's bill carries the 04/07 charge; the 04/08 one belongs to September.
+    expect((august?.entries ?? []).filter((e) => e.projected).map((e) => e.date)).toEqual(["2026-07-04"]);
+
+    const [september] = await getPersonStatements(repo, "u", { from: "2026-09", to: "2026-09" });
+    expect((september?.entries ?? []).filter((e) => e.projected).map((e) => e.date)).toEqual(["2026-08-04"]);
+  });
+
   it("returns a statement for every person, with zeros when there is no activity", async () => {
     const repo = stubRepo([person("p"), person("q")], []);
     const statements = await getPersonStatements(repo, "u", range);
