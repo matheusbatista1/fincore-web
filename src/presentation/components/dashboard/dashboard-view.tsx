@@ -34,8 +34,10 @@ interface MiniCardData {
   readonly bank: string;
   readonly product: string;
   readonly themeKey: string;
-  /** Bill due in the browsed month. */
+  /** The fatura shown: on the current month the one owed next, else the browsed month's. */
   readonly billCents: number;
+  /** Which competence `billCents` is, so the tile can name the month it refers to. */
+  readonly billCompetence: string;
   /** Total committed against the limit (open + future bills) — drives "% do limite". */
   readonly outstandingCents: number;
   readonly limitCents: number;
@@ -119,7 +121,11 @@ function MiniCard({ card }: { card: MiniCardData }) {
       </div>
       <div className="cc-bottom" style={{ alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 2 }}>Fatura atual</div>
+          {/* Naming the bill's month matters the moment a cycle turns: the figure can be the
+              fatura that just closed and is coming due, not the one now accumulating. */}
+          <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 2 }}>
+            Fatura {monthLabel(card.billCompetence)}
+          </div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>
             <Money cents={card.billCents} withSign={false} />
           </div>

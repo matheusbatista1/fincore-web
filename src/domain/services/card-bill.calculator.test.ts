@@ -18,6 +18,7 @@ import {
   computeCardBills,
   computeCardBillsForMonth,
   computeCardOpenBill,
+  computeCardOpenBillMonth,
   computeCardOutstanding,
   computeCardOutstandings,
 } from "./card-bill.calculator";
@@ -654,17 +655,50 @@ describe("card credits (estorno) reduce the bill", () => {
   });
 });
 
-describe("computeCardOpenBill — the OPEN (accumulating) fatura", () => {
-  it("sums only the cycle a charge made today falls into, not every open/closed charge", () => {
-    const c = card("c1", 500000); // closes 3, due 10 → dueOffset 0
-    const today = "2026-07-15"; // a charge today closes 2026-08 → open competence = 2026-08
-    const openCharge = { ...cardExpense(-10000, "c1"), date: "2026-07-15" }; // competence 2026-08 (open)
-    const closedCharge = { ...cardExpense(-25000, "c1"), date: "2026-06-15" }; // competence 2026-07 (closed)
-    const txs = [openCharge, closedCharge];
-    const competenceOf = billingCompetence([c]);
-    // Open bill = only the accumulating cycle.
-    expect(computeCardOpenBill(c, txs, today, competenceOf).cents).toBe(10000);
-    // computeCardBill (the old "fatura atual") piles BOTH cycles in — the over-count we fixed.
+describe("computeCardOpenBill — the fatura you owe next", () => {
+  const c = card("c1", 500000); // closes 3, due 10 → dueOffset 0
+  const today = "2026-07-15"; // a charge today closes 2026-08 → accumulating competence = 2026-08
+  const accumulating = { ...cardExpense(-10000, "c1"), date: "2026-07-15" }; // competence 2026-08
+  const closed = { ...cardExpense(-25000, "c1"), date: "2026-06-15" }; // competence 2026-07 (closed)
+  const txs = [accumulating, closed];
+  const competenceOf = billingCompetence([c]);
+
+  it("shows the bill that closed UNPAID, not the nearly-empty cycle that replaced it", () => {
+    // The cycle turned, so the closed fatura is the one coming due — reporting the accumulating
+    // one instead told a user who owed R$250 that his "fatura atual" was R$100.
+    const bill = computeCardOpenBillMonth(c, txs, today, competenceOf);
+    expect(bill.amount.cents).toBe(25000);
+    expect(bill.competence).toBe("2026-07");
+    // Still never the sum of both cycles (the over-count the open-bill notion replaced).
     expect(computeCardBill("c1", txs).cents).toBe(35000);
+  });
+
+  it("moves to the accumulating cycle once that bill is paid", () => {
+    const paid = [
+      {
+        id: "p1",
+        cardId: "c1",
+        competence: "2026-07",
+        amountCents: 25000,
+        accountId: "a",
+        date: "2026-07-09" as const,
+      },
+    ];
+    const bill = computeCardOpenBillMonth(c, txs, today, competenceOf, undefined, paid);
+    expect(bill.amount.cents).toBe(10000);
+    expect(bill.competence).toBe("2026-08");
+  });
+
+  it("ignores a competence before the current month (presumed paid, as elsewhere)", () => {
+    // Only the June-dated charge exists: its bill (2026-07) is the current month's, so it counts;
+    // an older cycle would not — the app never resurrects bills settled outside it.
+    const old = { ...cardExpense(-4000, "c1"), date: "2026-04-15" }; // competence 2026-05
+    const bill = computeCardOpenBillMonth(c, [old, accumulating], today, competenceOf);
+    expect(bill.amount.cents).toBe(10000);
+    expect(bill.competence).toBe("2026-08");
+  });
+
+  it("sums only one cycle when nothing is owed before it", () => {
+    expect(computeCardOpenBill(c, [accumulating], today, competenceOf).cents).toBe(10000);
   });
 });

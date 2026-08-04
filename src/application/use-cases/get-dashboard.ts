@@ -37,8 +37,11 @@ export interface CardSummary {
   readonly product: string;
   readonly themeKey: string;
   readonly limitCents: number;
-  /** Fatura shown for the view: the open bill on the current month, else the browsed month's. */
+  /** Fatura shown for the view: on the current month the bill you owe NEXT (the one that just
+   * closed while unpaid, else the cycle still accumulating); on another month, that month's own. */
   readonly billCents: number;
+  /** The competence `billCents` refers to, so the UI can say which fatura it is showing. */
+  readonly billCompetence: CompetenceMonth;
   /** Total committed against the limit: open + future bills − estornos ("limite utilizado"). */
   readonly outstandingCents: number;
   readonly dueDay: number;
@@ -153,9 +156,20 @@ export async function getDashboard(
   // one to pay); when browsing another month show that month's own fatura. The "limite
   // utilizado" is the all-open total (today onward), independent of the browsed month.
   const isCurrentView = compareMonths(month, currentMonth) === 0;
-  const bills = isCurrentView
-    ? computeCardOpenBills(ws.creditCards, ws.transactions, today, competenceOf, ws.cardBillDates)
-    : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
+  const bills: Map<string, { amount: Money; competence: CompetenceMonth }> = isCurrentView
+    ? computeCardOpenBills(
+        ws.creditCards,
+        ws.transactions,
+        today,
+        competenceOf,
+        ws.cardBillDates,
+        ws.cardBillPayments,
+      )
+    : new Map(
+        [...computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf)].map(
+          ([id, amount]) => [id, { amount, competence: month }],
+        ),
+      );
   const outstandings = computeCardOutstandings(
     ws.creditCards,
     ws.transactions,
@@ -198,7 +212,7 @@ export async function getDashboard(
   }));
 
   const cards = ws.creditCards.map((card) => {
-    const bill = bills.get(card.id) ?? Money.zero();
+    const bill = bills.get(card.id);
     const outstanding = outstandings.get(card.id) ?? Money.zero();
     return {
       id: card.id,
@@ -206,7 +220,9 @@ export async function getDashboard(
       product: card.product,
       themeKey: card.themeKey,
       limitCents: card.limitCents,
-      billCents: bill.cents,
+      billCents: (bill?.amount ?? Money.zero()).cents,
+      /** Which fatura `billCents` is — the one closed and due now, or the cycle still open. */
+      billCompetence: bill?.competence ?? month,
       outstandingCents: outstanding.cents,
       dueDay: card.dueDay,
       // Utilization is the committed total (open + future), not just this month's bill.
