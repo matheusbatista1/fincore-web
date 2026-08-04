@@ -550,3 +550,63 @@ describe("recurringOccurrencesBetween", () => {
     expect(recurringOccurrencesBetween([day31], "2026-03-10", "2026-03-10")).toEqual([]);
   });
 });
+
+describe("projectRecurring — audit regressions", () => {
+  it("an abated (rolled) rule forecasts nothing", () => {
+    // freshOccurrence clears rolledAt, so consumers can no longer recognise a rolled source —
+    // the guard has to live here or the rolled debt reappears as phantom future charges.
+    const rolled = expense({
+      id: "aluguel",
+      description: "Aluguel",
+      date: "2026-06-05",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 5 },
+      rolledAt: "2026-06-20",
+    });
+    expect(projectRecurring([rolled], "2026-09")).toEqual([]);
+    expect(recurringOccurrencesBetween([rolled], "2026-08-31", "2026-09-30")).toEqual([]);
+  });
+
+  it("a per-charge moved bill does not freeze the rule in that one month", () => {
+    // "Fatura anterior" pins ONE charge via billMonthOverride; carrying it into every occurrence
+    // made competenceOf return that month forever, so the rule vanished from all future bills.
+    const pinned = expense({
+      id: "sub",
+      description: "Assinatura",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+      billMonthOverride: "2026-06",
+    });
+    const nubank: CreditCard = {
+      id: "c-nu",
+      bank: "Nubank",
+      product: "Gold",
+      flag: "mastercard",
+      themeKey: "",
+      maskedNumber: "",
+      limitCents: 1_000_000,
+      closingDay: 24,
+      dueDay: 2,
+    };
+    // Charged the 10th → bills the next month: July's charge belongs to the August fatura.
+    const [p] = projectRecurring([pinned], "2026-08", billingCompetence([nubank]));
+    expect(p?.date).toBe("2026-07-10");
+  });
+
+  it("materialisation skips an installment anchor (a finite plan, not a monthly rule)", () => {
+    const parcela = expense({
+      id: "airpods",
+      description: "Airpods",
+      date: "2026-06-14",
+      source: "card",
+      cardId: "c-nu",
+      amountCents: -14325,
+      recurrence: { dayOfMonth: 14 },
+      installment: { groupId: "g-airpods", number: 1, total: 12, status: "atual" },
+    });
+    expect(recurringOccurrencesBetween([parcela], "2026-06-30", "2026-07-31")).toEqual([]);
+  });
+});

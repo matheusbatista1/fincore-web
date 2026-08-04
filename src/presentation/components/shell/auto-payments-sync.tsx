@@ -9,17 +9,23 @@ import { materializeRecurringAction, reconcileAutoPaymentsAction } from "@/app/_
  * booked as paid. This is the primary trigger; a daily cron is the backstop.
  *
  * The two run as SEPARATE requests, in order: the workspace is memoised per request, so a single
- * call would reconcile against the snapshot taken before the new rows existed. Both are idempotent
- * and fire-and-forget; each revalidates the layout only when it actually wrote something.
+ * call would reconcile against the snapshot taken before the new rows existed. Each latches its own
+ * ref — turning auto-payments on in Settings re-renders this component and must still reconcile in
+ * the same session — and a failure in one never suppresses the other.
  */
 export function AutoPaymentsSync({ enabled }: { enabled: boolean }) {
-  const ran = useRef(false);
+  const materialized = useRef(false);
+  const reconciled = useRef(false);
   useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
     void (async () => {
-      await materializeRecurringAction();
-      if (enabled) await reconcileAutoPaymentsAction();
+      if (!materialized.current) {
+        materialized.current = true;
+        await materializeRecurringAction().catch(() => undefined);
+      }
+      if (enabled && !reconciled.current) {
+        reconciled.current = true;
+        await reconcileAutoPaymentsAction().catch(() => undefined);
+      }
     })();
   }, [enabled]);
   return null;

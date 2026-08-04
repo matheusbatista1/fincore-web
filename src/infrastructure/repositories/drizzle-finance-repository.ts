@@ -573,8 +573,21 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .returning({ id: schema.users.id });
       if (claimed.length === 0) return 0;
 
-      for (const command of commands) await this.insertCommand(tx, userId, command);
-      return commands.length;
+      // Each occurrence gets its own savepoint: a single poisoned rule (a card deleted under it, a
+      // constraint it violates) must not roll back the watermark, or the pass would recompute the
+      // same failure on every load and every cron run, wedging the user forever.
+      let inserted = 0;
+      for (const command of commands) {
+        try {
+          await tx.transaction(async (sp) => {
+            await this.insertCommand(sp, userId, command);
+          });
+          inserted++;
+        } catch {
+          // Reported by the caller as a skipped occurrence; the rest of the pass still lands.
+        }
+      }
+      return inserted;
     });
   }
 

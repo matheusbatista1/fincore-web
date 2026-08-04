@@ -31,7 +31,7 @@ const SHARE_PA: CSSProperties = {
 export function TxDetailModal({ today }: { today: string }) {
   const tx = useTxUIStore((s) => s.detail);
   // Set when the open row is a projected occurrence: the rule's real anchor row, so the read-only
-  // detail can still offer "Editar regra" / "Excluir regra" without ever paying the wrong month.
+  // detail can still offer "Editar fixo" / "Excluir fixo" without ever paying the wrong month.
   const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
@@ -370,12 +370,12 @@ export function TxDetailModal({ today }: { today: string }) {
                     onClick={() => openDelete(ruleAnchor)}
                   >
                     <Icon name="trash-2" size={16} />
-                    Excluir regra
+                    Excluir fixo
                   </button>
                   <div className="row gap-2">
                     <button type="button" className="btn btn-ghost" onClick={() => openEdit(ruleAnchor)}>
                       <Icon name="pencil" size={16} />
-                      Editar regra
+                      Editar fixo
                     </button>
                     <button type="button" className="btn btn-primary" onClick={closeDetail}>
                       Fechar
@@ -401,13 +401,13 @@ export function TxDetailModal({ today }: { today: string }) {
                 Excluir
               </button>
               <div className="row gap-2">
-                {tx.isPayable && !tx.isPaid && !tx.rolled && !tx.id.startsWith("proj:") && (
+                {tx.isPayable && !tx.isPaid && !tx.rolled && (
                   <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
                     <Icon name="wallet" size={16} />
                     Pagar
                   </button>
                 )}
-                {tx.isReceivable && !tx.isReceived && !tx.id.startsWith("proj:") && (
+                {tx.isReceivable && !tx.isReceived && (
                   <button type="button" className="btn btn-ghost" onClick={() => openReceive(tx)}>
                     <Icon name="hand-coins" size={16} />
                     Receber

@@ -25,22 +25,40 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const admin = createSupabaseAdminClient();
-  // Service-role read (bypasses RLS): every active user — recurring rules are not opt-in.
-  const { data: users, error } = await admin.from("users").select("id").is("deactivated_at", null);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Service-role read (bypasses RLS): every active user — recurring rules are not opt-in. Paged,
+  // because an unfiltered select is capped (PostgREST max-rows) and would silently skip the tail.
+  const PAGE = 500;
+  const ids: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from("users")
+      .select("id")
+      .is("deactivated_at", null)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    for (const row of data ?? []) ids.push(row.id as string);
+    if ((data?.length ?? 0) < PAGE) break;
   }
 
   let created = 0;
+  const skipped: string[] = [];
   const failures: { id: string; error: string }[] = [];
-  for (const row of users ?? []) {
-    const id = row.id as string;
+  for (const id of ids) {
     try {
-      created += (await materializeRecurring(financeRepository, id)).created;
+      const result = await materializeRecurring(financeRepository, id);
+      created += result.created;
+      skipped.push(...result.skipped);
     } catch (e) {
       failures.push({ id, error: e instanceof Error ? e.message : String(e) });
     }
   }
 
-  return NextResponse.json({ users: users?.length ?? 0, created, failed: failures.length, failures });
+  return NextResponse.json({
+    users: ids.length,
+    created,
+    skipped,
+    failed: failures.length,
+    failures,
+  });
 }
