@@ -92,6 +92,7 @@ export default async function MonthlyPage({
         totalCents: total - credits,
         // The previsto slice inside totalCents, so the tile/modal can call it out.
         projectedCents,
+        creditsCents: credits,
         lens: "expense" as const,
         cardId: c.id,
         // Full (general) fatura total — kept independent of the personal-lens recompute so

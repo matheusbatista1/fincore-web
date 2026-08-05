@@ -82,6 +82,9 @@ export interface DashboardData {
    * Visão mensal counts on top of these realized chips. */
   readonly projectedIncomeCents: number;
   readonly projectedExpenseCents: number;
+  /** The same slice through the personal lens (only the user's own shares of shared forecasts). */
+  readonly projectedIncomePersonalCents: number;
+  readonly projectedExpensePersonalCents: number;
   /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
   readonly heldForOthersCents: number;
   readonly investedCents: number;
@@ -136,7 +139,10 @@ function MiniCard({ card }: { card: MiniCardData }) {
               subscriptions WILL land before the cycle closes, so the headline anticipates them.
               The payable amount stays real-only — the bank cannot bill a forecast. */}
           <div style={{ fontWeight: 700, fontSize: 16 }}>
-            <Money cents={card.billCents + card.billProjectedCents} withSign={false} />
+            <Money
+              cents={card.billCents + card.billProjectedCents}
+              withSign={card.billCents + card.billProjectedCents < 0}
+            />
           </div>
           {card.billProjectedCents > 0 && (
             <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 1 }}>
@@ -236,6 +242,10 @@ export function DashboardView({ data }: { data: DashboardData }) {
   // Savings rate against the real income — null when there's no income to measure against
   // (avoids the bogus huge % from dividing by ~zero).
   const savingsPct = receitaMes > 0 ? Math.round((economia / receitaMes) * 100) : null;
+  // The still-to-come slice follows the active lens, so "Sobra real · com previstos" never mixes
+  // other people's shares into a personal figure.
+  const projIncome = isPersonal ? data.projectedIncomePersonalCents : data.projectedIncomeCents;
+  const projExpense = isPersonal ? data.projectedExpensePersonalCents : data.projectedExpenseCents;
   // Browsing a future month: the month KPIs fold in projected ("previsto") recurring.
   const isFuture = !data.isPast && !data.isCurrent;
   // The "fim do mês" follows the active lens (general adds people; personal is only mine).
@@ -559,9 +569,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="calendar" size={14} />
-                {data.projectedIncomeCents > 0 ? (
+                {projIncome > 0 ? (
                   <span>
-                    realizado · +<Money cents={data.projectedIncomeCents} withSign={false} /> previstos
+                    realizado · +<Money cents={projIncome} withSign={false} /> previstos
                   </span>
                 ) : isPersonal ? (
                   "Sem reembolsos"
@@ -580,9 +590,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="receipt" size={14} />
-                {data.projectedExpenseCents > 0 ? (
+                {projExpense > 0 ? (
                   <span>
-                    realizado · +<Money cents={data.projectedExpenseCents} withSign={false} /> previstos
+                    realizado · +<Money cents={projExpense} withSign={false} /> previstos
                   </span>
                 ) : isPersonal ? (
                   "Só a sua parte"
@@ -602,13 +612,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="target" size={14} />
-                {data.projectedIncomeCents > 0 || data.projectedExpenseCents > 0 ? (
-                  <span>
-                    com previstos:{" "}
-                    <Money
-                      cents={economia + data.projectedIncomeCents - data.projectedExpenseCents}
-                      withSign
-                    />
+                {projIncome > 0 || projExpense > 0 ? (
+                  <span title="A Visão mensal pode diferir por acertos: lá eles contam na data em que aconteceram; aqui, na competência da dívida coberta.">
+                    com previstos: <Money cents={economia + projIncome - projExpense} withSign />
                   </span>
                 ) : (
                   <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
@@ -803,7 +809,10 @@ export function DashboardView({ data }: { data: DashboardData }) {
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <div className="l-amt">
-                            <Money cents={c.billCents + c.billProjectedCents} withSign={false} />
+                            <Money
+                              cents={c.billCents + c.billProjectedCents}
+                              withSign={c.billCents + c.billProjectedCents < 0}
+                            />
                           </div>
                           {c.billProjectedCents > 0 && (
                             <div style={{ fontSize: 11, color: "var(--text-lo)" }}>

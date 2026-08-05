@@ -126,6 +126,9 @@ export interface DashboardData {
    */
   readonly projectedIncomeCents: number;
   readonly projectedExpenseCents: number;
+  /** The same still-to-come slice through the personal lens (only the user's own shares). */
+  readonly projectedIncomePersonalCents: number;
+  readonly projectedExpensePersonalCents: number;
   /** Trailing 6-month cumulative balance for the hero sparkline. */
   readonly trend: TrendPoint[];
 }
@@ -219,13 +222,12 @@ export async function getDashboard(
   // The month's still-to-come slice, for the chips' reconciliation line: what the Visão mensal
   // (which counts forecasts) shows on top of the realized figures. Zero when browsing the future
   // (the projections are already inside monthSet there) or the past (nothing left to come).
-  const projectedTotals =
-    compareMonths(month, currentMonth) === 0
-      ? computeViewTotals(
-          projected.map((p) => freshOccurrence(p.source, p.date)),
-          "general",
-        )
-      : { income: Money.zero(), expense: Money.zero(), net: Money.zero() };
+  const stillToCome =
+    compareMonths(month, currentMonth) === 0 ? projected.map((p) => freshOccurrence(p.source, p.date)) : [];
+  const projectedTotals = computeViewTotals(stillToCome, "general");
+  // The same slice through the personal lens (only the user's own share of shared forecasts) —
+  // the "Sobra real · com previstos" chip must not mix other people's shares into a personal figure.
+  const projectedTotalsPersonal = computeViewTotals(stillToCome, "personal");
 
   const accounts = ws.accounts.map((account) => ({
     id: account.id,
@@ -396,6 +398,8 @@ export async function getDashboard(
     heldForOthersCents,
     projectedIncomeCents: projectedTotals.income.cents,
     projectedExpenseCents: projectedTotals.expense.cents,
+    projectedIncomePersonalCents: projectedTotalsPersonal.income.cents,
+    projectedExpensePersonalCents: projectedTotalsPersonal.expense.cents,
     trend,
     general: {
       incomeCents: general.income.cents,

@@ -402,7 +402,10 @@ export function CardsView({
               <div style={{ textAlign: "right" }}>
                 {/* Expected total (booked + previstos to come); paying always uses the real part. */}
                 <div className="l-amt">
-                  <AnimatedMoney cents={card.billCents + card.billProjectedCents} withSign={false} />
+                  <AnimatedMoney
+                    cents={card.billCents + card.billProjectedCents}
+                    withSign={card.billCents + card.billProjectedCents < 0}
+                  />
                 </div>
                 {card.billProjectedCents > 0 && (
                   <div style={{ fontSize: 11, color: "var(--text-lo)" }}>
@@ -504,7 +507,7 @@ export function CardsView({
                       color: "var(--text-hi)",
                     }}
                   >
-                    <AnimatedMoney cents={faturaMes} withSign={false} />
+                    <AnimatedMoney cents={faturaMes} withSign={faturaMes < 0} />
                   </div>
                   {faturaMes !== faturaMesReal && (
                     // The header total anticipates the previstos still to charge; the payable

@@ -610,3 +610,56 @@ describe("projectRecurring — audit regressions", () => {
     expect(recurringOccurrencesBetween([parcela], "2026-06-30", "2026-07-31")).toEqual([]);
   });
 });
+
+describe("projectRecurring — forecast-review regressions", () => {
+  const nubank: CreditCard = {
+    id: "c-nu",
+    bank: "Nubank",
+    product: "Gold",
+    flag: "mastercard",
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 1_000_000,
+    closingDay: 24,
+    dueDay: 2,
+  };
+  const billOf = billingCompetence([nubank]);
+
+  it("a charge MOVED to another fatura still suppresses its charge month's forecast", () => {
+    // Rule day 10 anchored June. July's materialized charge was moved to the September bill
+    // (billMonthOverride): August's forecast must NOT re-emit a phantom 10/07 occurrence — the
+    // charge happened; only its fatura changed.
+    const rule = expense({
+      id: "sub",
+      description: "Assinatura",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+    });
+    const moved = expense({
+      id: "sub-jul",
+      description: "Assinatura",
+      date: "2026-07-10",
+      source: "card",
+      cardId: "c-nu",
+      billMonthOverride: "2026-09",
+    });
+    expect(projectRecurring([rule, moved], "2026-08", billOf)).toEqual([]);
+    // September holds the REAL moved charge — no forecast on top of it either.
+    expect(projectRecurring([rule, moved], "2026-09", billOf).map((p) => p.date)).toEqual(["2026-08-10"]);
+  });
+
+  it("an installment-carrying rule forecasts nothing (its parcelas are already real rows)", () => {
+    const plan = expense({
+      id: "parcelas",
+      description: "Notebook",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+      installment: { groupId: "g", number: 1, total: 10, status: "atual" },
+    });
+    expect(projectRecurring([plan], "2026-08", billOf)).toEqual([]);
+  });
+});

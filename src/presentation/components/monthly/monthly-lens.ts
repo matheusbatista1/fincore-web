@@ -1,4 +1,10 @@
+import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { settledItemShareCents } from "@/application/use-cases/get-transactions";
+
+/** An income's cash: what actually landed when received for a different value, else its face. */
+const receivedItemCents = (i: TransactionListItem): number =>
+  i.isReceived && i.receivedAmountCents != null ? i.receivedAmountCents : i.amountCents;
+
 import type { StmtGroup } from "@/presentation/components/monthly/stmt-card";
 
 /**
@@ -20,8 +26,10 @@ export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
       items,
       // People receivables are general-only — drop them from the personal lens.
       receivables: undefined,
-      totalCents: items.reduce((s, i) => s + i.amountCents, 0),
-      projectedCents: items.filter((i) => i.projected).reduce((s, i) => s + i.amountCents, 0),
+      // Same pricing as the general header: an income received for a different value counts at
+      // what actually landed, so the Geral/Apenas-meu toggle never changes the BASIS of a figure.
+      totalCents: items.reduce((s, i) => s + receivedItemCents(i), 0),
+      projectedCents: items.filter((i) => i.projected).reduce((s, i) => s + receivedItemCents(i), 0),
       countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
     };
   }
@@ -36,7 +44,9 @@ export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
   return {
     ...group,
     items,
-    totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0),
+    // Estornos net the personal tile too (the user pays the whole fatura, credit included) —
+    // without this a large credit made "Apenas meu" read HIGHER than "Geral".
+    totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) - (group.creditsCents ?? 0),
     // The previsto slice through the same lens: the user's own share of the projected rows.
     projectedCents: items.filter((i) => i.projected).reduce((s, i) => s + Math.abs(i.amountCents), 0),
   };

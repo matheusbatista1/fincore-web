@@ -36,6 +36,9 @@ export interface StmtGroup {
   readonly receivables?: readonly ReceivableRow[] | undefined;
   /** Set for a credit-card group — enables the "Pagar fatura" / "Fatura paga" affordance. */
   readonly cardId?: string;
+  /** Real estornos netted out of `totalCents` — carried so the personal-lens recompute can net
+   * them too (credits are income rows, invisible to the share-based recompute). */
+  readonly creditsCents?: number;
   /** Projected ("previsto") slice inside `totalCents` — called out so the tile never reads as a
    * closed figure while forecasts are still part of it. */
   readonly projectedCents?: number;
@@ -251,7 +254,8 @@ export function StmtCard({
           <small>{subtitle}</small>
         </div>
         <span className="sh-tot" style={group.key === "income" ? { color: group.accent } : undefined}>
-          <Money cents={displayTotal} withSign={false} />
+          {/* Signed: a fatura with more estornos than charges is a CREDIT and must read as one. */}
+          <Money cents={displayTotal} withSign={displayTotal < 0} />
         </span>
         <Icon name="chevron-right" size={18} style={{ color: "var(--text-lo)", flex: "none" }} />
       </div>
