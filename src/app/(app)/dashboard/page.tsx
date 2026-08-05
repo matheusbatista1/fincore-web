@@ -149,6 +149,7 @@ export default async function DashboardPage({
       themeKey: c.themeKey,
       billCents: c.billCents,
       billCompetence: c.billCompetence,
+      billProjectedCents: c.billProjectedCents,
       outstandingCents: c.outstandingCents,
       limitCents: c.limitCents,
       dueDay: c.dueDay,

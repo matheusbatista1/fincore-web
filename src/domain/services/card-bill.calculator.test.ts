@@ -14,6 +14,7 @@ import {
   cardBillMonth,
   cardUtilization,
   computeCardBill,
+  computeCardBillForecast,
   computeCardBillForMonth,
   computeCardBills,
   computeCardBillsForMonth,
@@ -700,5 +701,36 @@ describe("computeCardOpenBill — the fatura you owe next", () => {
 
   it("sums only one cycle when nothing is owed before it", () => {
     expect(computeCardOpenBill(c, [accumulating], today, competenceOf).cents).toBe(10000);
+  });
+});
+
+describe("computeCardBillForecast — the previsto slice of a bill", () => {
+  const c = card("c1", 500000); // closes 3, due 10 → dueOffset 0
+  const competenceOf = billingCompetence([c]);
+  // Subscription charged the 10th, anchored June: July's charge (2026-07-10) bills 2026-08.
+  const sub: ExpenseTransaction = {
+    ...cardExpense(-1990, "c1"),
+    date: "2026-06-10",
+    recurrence: { dayOfMonth: 10 },
+  };
+
+  it("sums the occurrences that bill into the competence, for that card only", () => {
+    const otherCard: ExpenseTransaction = {
+      ...cardExpense(-9999, "c1"),
+      cardId: "c2",
+      date: "2026-06-10",
+      recurrence: { dayOfMonth: 10 },
+    };
+    expect(computeCardBillForecast("c1", [sub, otherCard], "2026-08", competenceOf).cents).toBe(1990);
+  });
+
+  it("is zero once the occurrence is booked (suppressed by the real row)", () => {
+    const booked: ExpenseTransaction = { ...cardExpense(-1990, "c1"), date: "2026-07-10" };
+    expect(computeCardBillForecast("c1", [sub, booked], "2026-08", competenceOf).cents).toBe(0);
+  });
+
+  it("ignores a rolled rule", () => {
+    const rolled: ExpenseTransaction = { ...sub, rolledAt: "2026-06-20" };
+    expect(computeCardBillForecast("c1", [rolled], "2026-08", competenceOf).cents).toBe(0);
   });
 });

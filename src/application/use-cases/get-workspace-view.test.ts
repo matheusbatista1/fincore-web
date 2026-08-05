@@ -93,3 +93,39 @@ describe("getWorkspaceView", () => {
     expect(view.people[0]?.monthBalanceCents).toBe(8000);
   });
 });
+
+describe("billProjectedCents — the previsto slice of the fatura atual", () => {
+  it("exposes the projected charges that bill into the open competence", async () => {
+    // Card closes 28, due 2; frozen today = 2026-06-24 → open competence 2026-07. The day-10 rule
+    // anchored in January projects a 2026-06-10 charge, which bills July: the whole open fatura is
+    // still a forecast, so billCents stays 0 and the previsto slice carries the amount.
+    const sub: ExpenseTransaction = {
+      id: "sub",
+      description: "Assinatura",
+      date: "2026-01-10" as IsoDate,
+      kind: "expense",
+      amountCents: -1990,
+      categoryId: null,
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      linkedAccountId: null,
+      splits: [],
+      myShareCents: 1990,
+      installment: null,
+      recurrence: { dayOfMonth: 10 },
+      billMonthOverride: null,
+      rolledAt: null,
+    };
+    const view = await getWorkspaceView(stubRepo([sub]), "u");
+    const c = view.cards.find((x) => x.id === "card-1");
+    expect(c?.billProjectedCents).toBe(1990);
+    expect(c?.billCents).toBe(0);
+
+    // Once the June charge is booked, the forecast is suppressed and the real bill takes over.
+    const booked = { ...cardCharge("2026-07", -1990, "2026-06-10"), description: "Assinatura" };
+    const after = await getWorkspaceView(stubRepo([sub, booked]), "u");
+    expect(after.cards.find((x) => x.id === "card-1")?.billProjectedCents).toBe(0);
+    expect(after.cards.find((x) => x.id === "card-1")?.billCents).toBe(1990);
+  });
+});

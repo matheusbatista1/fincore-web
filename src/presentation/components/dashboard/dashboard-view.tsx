@@ -38,6 +38,8 @@ interface MiniCardData {
   readonly billCents: number;
   /** Which competence `billCents` is, so the tile can name the month it refers to. */
   readonly billCompetence: string;
+  /** Projected ("previsto") slice still expected on that fatura — shown on top of billCents. */
+  readonly billProjectedCents: number;
   /** Total committed against the limit (open + future bills) — drives "% do limite". */
   readonly outstandingCents: number;
   readonly limitCents: number;
@@ -126,9 +128,17 @@ function MiniCard({ card }: { card: MiniCardData }) {
           <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 2 }}>
             Fatura {monthLabel(card.billCompetence)}
           </div>
+          {/* Expected TOTAL of the bill (booked + previstos still to charge): the fixed
+              subscriptions WILL land before the cycle closes, so the headline anticipates them.
+              The payable amount stays real-only — the bank cannot bill a forecast. */}
           <div style={{ fontWeight: 700, fontSize: 16 }}>
-            <Money cents={card.billCents} withSign={false} />
+            <Money cents={card.billCents + card.billProjectedCents} withSign={false} />
           </div>
+          {card.billProjectedCents > 0 && (
+            <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 1 }}>
+              inclui <Money cents={card.billProjectedCents} withSign={false} /> previstos
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, opacity: 0.75 }}>{pct}% do limite</div>
@@ -760,8 +770,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <div className="l-amt">
-                            <Money cents={c.billCents} withSign={false} />
+                            <Money cents={c.billCents + c.billProjectedCents} withSign={false} />
                           </div>
+                          {c.billProjectedCents > 0 && (
+                            <div style={{ fontSize: 11, color: "var(--text-lo)" }}>
+                              inclui <Money cents={c.billProjectedCents} withSign={false} /> previstos
+                            </div>
+                          )}
                           <span className={`pill ${soon ? "amber" : "neutral"}`} style={{ marginTop: 4 }}>
                             {soon ? "Em breve" : "Em dia"}
                           </span>
