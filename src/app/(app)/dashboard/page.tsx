@@ -129,6 +129,8 @@ export default async function DashboardPage({
     settlementNetCents: dash.settlementNetCents,
     projectedIncomeCents: dash.projectedIncomeCents,
     projectedExpenseCents: dash.projectedExpenseCents,
+    projectedIncomePersonalCents: dash.projectedIncomePersonalCents,
+    projectedExpensePersonalCents: dash.projectedExpensePersonalCents,
     heldForOthersCents: dash.heldForOthersCents,
     investedCents: 0,
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
