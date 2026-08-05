@@ -32,7 +32,13 @@ export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
       ...i,
       amountCents: -settledItemShareCents(i),
     }));
-  return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
+  return {
+    ...group,
+    items,
+    totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0),
+    // The previsto slice through the same lens: the user's own share of the projected rows.
+    projectedCents: items.filter((i) => i.projected).reduce((s, i) => s + Math.abs(i.amountCents), 0),
+  };
 }
 
 /** Keep a group if it has rows OR (income) people-receivables to show. */

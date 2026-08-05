@@ -72,13 +72,18 @@ export default async function MonthlyPage({
       // payable fatura counts REAL charges only, matching what the server computes on payment
       // (and what the Cards screen offers) — otherwise "Pagar fatura · R$X" overshoots.
       const faturaBase = sumAbs(items.filter((e) => !e.projected));
+      const projectedCents = total - faturaBase;
       return {
         key: `card-${c.id}`,
         name: `${c.bank} · ${c.product}`,
         accent,
         icon: "credit-card",
         items,
-        totalCents: total,
+        // The tile shows the fatura's expected TOTAL: booked + previstos, net of estornos —
+        // the same figure the Cards screen calls "Total".
+        totalCents: total - credits,
+        // The previsto slice inside totalCents, so the tile/modal can call it out.
+        projectedCents,
         lens: "expense" as const,
         cardId: c.id,
         // Full (general) fatura total — kept independent of the personal-lens recompute so

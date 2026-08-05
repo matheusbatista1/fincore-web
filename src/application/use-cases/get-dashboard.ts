@@ -4,6 +4,7 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   cardUtilization,
+  computeCardBillForecast,
   computeCardBillsForMonth,
   computeCardOpenBills,
   computeCardOutstandings,
@@ -42,6 +43,12 @@ export interface CardSummary {
   readonly billCents: number;
   /** The competence `billCents` refers to, so the UI can say which fatura it is showing. */
   readonly billCompetence: CompetenceMonth;
+  /**
+   * The projected ("previsto") portion still expected to charge into that same fatura — recurring
+   * occurrences whose day hasn't come. Screens show `billCents + billProjectedCents` as the bill's
+   * expected total, calling this slice out; it NEVER enters a payable amount.
+   */
+  readonly billProjectedCents: number;
   /** Total committed against the limit: open + future bills − estornos ("limite utilizado"). */
   readonly outstandingCents: number;
   readonly dueDay: number;
@@ -223,6 +230,12 @@ export async function getDashboard(
       billCents: (bill?.amount ?? Money.zero()).cents,
       /** Which fatura `billCents` is — the one closed and due now, or the cycle still open. */
       billCompetence: bill?.competence ?? month,
+      billProjectedCents: computeCardBillForecast(
+        card.id,
+        ws.transactions,
+        bill?.competence ?? month,
+        competenceOf,
+      ).cents,
       outstandingCents: outstanding.cents,
       dueDay: card.dueDay,
       // Utilization is the committed total (open + future), not just this month's bill.

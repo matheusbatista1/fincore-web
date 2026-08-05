@@ -36,6 +36,9 @@ export interface StmtGroup {
   readonly receivables?: readonly ReceivableRow[] | undefined;
   /** Set for a credit-card group — enables the "Pagar fatura" / "Fatura paga" affordance. */
   readonly cardId?: string;
+  /** Projected ("previsto") slice inside `totalCents` — called out so the tile never reads as a
+   * closed figure while forecasts are still part of it. */
+  readonly projectedCents?: number;
   /** The full (general-lens) fatura total for a card group, independent of the lens recompute —
    * so "Pagar fatura" always offers the whole bill even under "Apenas meu". */
   readonly faturaCents?: number;
@@ -183,10 +186,16 @@ export function StmtCard({
   // so the card header adds them back to match the on-screen "Entradas" total.
   const displayTotal = group.totalCents + recvTotal;
   const itemsText = `${group.items.length} ${group.items.length === 1 ? "lançamento" : "lançamentos"}`;
+  // A card tile's total anticipates the previstos still to charge — the subtitle owns up to it,
+  // so the figure never reads as a closed fatura while forecasts are part of it.
+  const projectedNote =
+    (group.projectedCents ?? 0) > 0
+      ? ` · inclui ${formatBRLAbsolute(group.projectedCents ?? 0)} previstos`
+      : "";
   const subtitle =
     receivables.length > 0
       ? `${group.items.length > 0 ? `${group.items.length} ${group.items.length === 1 ? "entrada" : "entradas"} · ` : ""}${receivables.length} a receber`
-      : (group.countText ?? `${group.sub ? `${group.sub} · ` : ""}${itemsText}`);
+      : `${group.countText ?? `${group.sub ? `${group.sub} · ` : ""}${itemsText}`}${projectedNote}`;
 
   // Credit-card group: is this month's fatura already paid? (matched by card + competence).
   const isCard = group.cardId != null;
@@ -274,15 +283,26 @@ export function StmtCard({
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ width: "100%", justifyContent: "center", marginBottom: 16 }}
-                    onClick={payFatura}
-                  >
-                    <Icon name="hand-coins" size={16} />
-                    Pagar fatura · {formatBRLAbsolute(faturaCents)}
-                  </button>
+                  <div style={{ marginBottom: 16 }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: "100%", justifyContent: "center" }}
+                      onClick={payFatura}
+                    >
+                      <Icon name="hand-coins" size={16} />
+                      Pagar fatura · {formatBRLAbsolute(faturaCents)}
+                    </button>
+                    {(group.projectedCents ?? 0) > 0 && (
+                      // The payable amount is the booked part; this explains why it is smaller
+                      // than the tile's total while previstos are still to charge.
+                      <div
+                        style={{ fontSize: 12, color: "var(--text-lo)", textAlign: "center", marginTop: 8 }}
+                      >
+                        + {formatBRLAbsolute(group.projectedCents ?? 0)} previstos ainda vão cair nesta fatura
+                      </div>
+                    )}
+                  </div>
                 ))}
 
               {group.items.map((item) => (

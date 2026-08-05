@@ -32,6 +32,7 @@ import {
   type IsoDate,
   monthOf,
 } from "../value-objects/competence-month";
+import { projectRecurring } from "./recurring.projection";
 
 /** Per-fatura override of the closing/due day, keyed by the bill's competence (due) month. */
 export type CardBillOverrides = ReadonlyMap<
@@ -318,6 +319,29 @@ export function computeCardOpenBills(
     );
   }
   return out;
+}
+
+/**
+ * The projected ("previsto") portion of a card's bill: what the recurring rules still expect to
+ * charge into `competence` — occurrences that have not materialised yet (their day hasn't come).
+ * The bank cannot bill a forecast, so this NEVER enters a payable amount: screens add it to the
+ * real bill to show the fatura's expected TOTAL, with the projected slice called out separately.
+ * Suppression against already-booked rows is inherited from {@link projectRecurring}.
+ */
+export function computeCardBillForecast(
+  cardId: string,
+  transactions: readonly Transaction[],
+  competence: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+): Money {
+  let total = Money.zero();
+  for (const occ of projectRecurring(transactions, competence, competenceOf)) {
+    const source = occ.source;
+    if (isExpense(source) && source.source === "card" && source.cardId === cardId) {
+      total = total.add(Money.fromCents(source.amountCents).abs());
+    }
+  }
+  return total;
 }
 
 /**

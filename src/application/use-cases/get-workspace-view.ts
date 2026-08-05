@@ -9,6 +9,7 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   cardUtilization,
+  computeCardBillForecast,
   computeCardBillForMonth,
   computeCardOpenBills,
   computeCardOutstandings,
@@ -26,6 +27,8 @@ export type AccountView = Account & { readonly balanceCents: number };
 export type CardView = CreditCard & {
   /** The OPEN bill (fatura atual): the cycle accumulating now, due next — not the all-cycles sum. */
   readonly billCents: number;
+  /** Projected ("previsto") slice still expected on that same fatura — display-only, never payable. */
+  readonly billProjectedCents: number;
   /** Bill that comes DUE on the next due date (competence of the upcoming dueDay) — for the
    * "fatura vence" notification, which must show what you'll actually pay, not the open cycle. */
   readonly dueBillCents: number;
@@ -102,7 +105,13 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
       balanceCents: (balances.get(account.id) ?? Money.zero()).cents,
     })),
     cards: ws.creditCards.map((card) => {
-      const bill = bills.get(card.id)?.amount ?? Money.zero();
+      const openBill = bills.get(card.id);
+      const bill = openBill?.amount ?? Money.zero();
+      // The projected slice of the SAME fatura the "Fatura atual" figure refers to.
+      const billProjected =
+        openBill === undefined
+          ? Money.zero()
+          : computeCardBillForecast(card.id, ws.transactions, openBill.competence, competenceOf);
       const outstanding = outstandings.get(card.id) ?? Money.zero();
       // The bill due on the NEXT due date lives in the competence of that due month
       // (next month if the dueDay already passed this month, else this month).
@@ -111,6 +120,7 @@ export async function getWorkspaceView(repo: FinanceRepository, userId: string):
       return {
         ...card,
         billCents: bill.cents,
+        billProjectedCents: billProjected.cents,
         dueBillCents: dueBill.cents,
         outstandingCents: outstanding.cents,
         utilization: cardUtilization(outstanding, card),
