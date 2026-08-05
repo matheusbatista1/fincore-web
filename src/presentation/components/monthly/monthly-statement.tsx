@@ -19,6 +19,7 @@ import {
 } from "@/presentation/components/shell/month-transition";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { Icon } from "@/presentation/components/ui/icon";
+import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
 
@@ -38,6 +39,9 @@ export interface MonthlyStatementProps {
   /** General-lens header totals (the transaction income/expense; receivables added per lens). */
   totInCents: number;
   totOutCents: number;
+  /** The projected ("previsto") slice inside each header total — called out under the figures. */
+  totInProjectedCents: number;
+  totOutProjectedCents: number;
   itemCount: number;
   /** Wallets available to pay a card fatura from (the modal's account picker). */
   accounts: PayFaturaAccount[];
@@ -58,6 +62,8 @@ export function MonthlyStatement({
   exportGroups,
   totInCents,
   totOutCents,
+  totInProjectedCents,
+  totOutProjectedCents,
   itemCount,
   accounts,
   cardBillPayments,
@@ -95,6 +101,16 @@ export function MonthlyStatement({
   const totOut = isPersonal
     ? [...left, ...right].filter((g) => g.lens === "expense").reduce((s, g) => s + g.totalCents, 0)
     : totOutCents;
+  // The previsto slice under each figure — the statement is the month's FULL picture (forecasts
+  // and receivables included), unlike the dashboard's realized-only chips; the sub-labels are what
+  // lets a user reconcile the two screens instead of reading the gap as a bug. The personal lens
+  // sums the lensed groups' own slices (the user's share of each projected row).
+  const inProjected = isPersonal
+    ? [...left, ...right].filter((g) => g.lens === "income").reduce((s, g) => s + (g.projectedCents ?? 0), 0)
+    : totInProjectedCents;
+  const outProjected = isPersonal
+    ? [...left, ...right].filter((g) => g.lens === "expense").reduce((s, g) => s + (g.projectedCents ?? 0), 0)
+    : totOutProjectedCents;
 
   return (
     <MonthTransition prevHref={prevHref} nextHref={nextHref}>
@@ -155,6 +171,9 @@ export function MonthlyStatement({
             </div>
           )}
 
+          {/* The statement is the month's FULL picture — previstos and a-receber included — while
+              the dashboard's chips are realized-only. The sub-labels spell each figure's forward
+              slice out, so the gap between the two screens reads as design, not as a bug. */}
           <div className="month-totals">
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -164,6 +183,21 @@ export function MonthlyStatement({
               <span className="mt-val" style={{ color: "var(--mint-500)" }}>
                 <AnimatedMoney cents={totIn} withSign={false} />
               </span>
+              {(inProjected > 0 || (!isPersonal && aReceberCents > 0)) && (
+                <span className="mt-note">
+                  {inProjected > 0 && (
+                    <>
+                      <Money cents={inProjected} withSign={false} /> previstos
+                    </>
+                  )}
+                  {inProjected > 0 && !isPersonal && aReceberCents > 0 && " · "}
+                  {!isPersonal && aReceberCents > 0 && (
+                    <>
+                      <Money cents={aReceberCents} withSign={false} /> a receber
+                    </>
+                  )}
+                </span>
+              )}
             </div>
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -173,6 +207,11 @@ export function MonthlyStatement({
               <span className="mt-val" style={{ color: "var(--rose-500)" }}>
                 <AnimatedMoney cents={totOut} withSign={false} />
               </span>
+              {outProjected > 0 && (
+                <span className="mt-note">
+                  <Money cents={outProjected} withSign={false} /> previstos
+                </span>
+              )}
             </div>
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -186,6 +225,7 @@ export function MonthlyStatement({
                 {/* Show the sign (− for a deficit) so the result reads without relying on color. */}
                 <AnimatedMoney cents={totIn - totOut} withSign />
               </span>
+              {(inProjected > 0 || outProjected > 0) && <span className="mt-note">com previstos</span>}
             </div>
           </div>
           <MonthExportButtons

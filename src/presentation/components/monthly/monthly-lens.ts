@@ -21,6 +21,7 @@ export function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
       // People receivables are general-only — drop them from the personal lens.
       receivables: undefined,
       totalCents: items.reduce((s, i) => s + i.amountCents, 0),
+      projectedCents: items.filter((i) => i.projected).reduce((s, i) => s + i.amountCents, 0),
       countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
     };
   }

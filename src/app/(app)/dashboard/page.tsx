@@ -127,6 +127,8 @@ export default async function DashboardPage({
     isPast: month < current,
     aReceberCents,
     settlementNetCents: dash.settlementNetCents,
+    projectedIncomeCents: dash.projectedIncomeCents,
+    projectedExpenseCents: dash.projectedExpenseCents,
     heldForOthersCents: dash.heldForOthersCents,
     investedCents: 0,
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },

@@ -2496,6 +2496,13 @@ select.input {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+/* The small forward-slice note under a header figure ("R$X previstos · R$Y a receber"). Its own
+   line, tiny type: it must never squeeze the value, and it wraps as whole chunks on a phone. */
+.mt-note {
+  font-size: 11.5px;
+  color: var(--text-lo);
+  line-height: 1.35;
+}
 .month-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3428,6 +3435,16 @@ html {
 }
 
 /* Very small phones (~360px): trim modal chrome so forms/actions have more room. */
+@media (max-width: 360px) {
+  /* Three money columns at 17px don't fit a 320px phone once values stopped line-breaking
+     mid-number (#151): shrink the figures before they overflow the header grid. */
+  .mt-val {
+    font-size: 14.5px !important;
+  }
+  .mt-note {
+    font-size: 10.5px;
+  }
+}
 @media (max-width: 480px) {
   .modal-head {
     padding: 18px 16px;
