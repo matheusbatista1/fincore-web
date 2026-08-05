@@ -119,6 +119,13 @@ export interface DashboardData {
   readonly heldForOthersCents: number;
   readonly general: ViewTotalsDto;
   readonly personal: ViewTotalsDto;
+  /**
+   * The browsed CURRENT month's projected ("previsto") occurrences still to come, as view totals —
+   * zero for past months (nothing left) and future months (already inside `general`/`personal`).
+   * Feeds the chips' reconciliation line against the Visão mensal, which counts forecasts.
+   */
+  readonly projectedIncomeCents: number;
+  readonly projectedExpenseCents: number;
   /** Trailing 6-month cumulative balance for the hero sparkline. */
   readonly trend: TrendPoint[];
 }
@@ -209,6 +216,16 @@ export async function getDashboard(
       : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
   const general = computeViewTotals(monthSet, "general");
   const personal = computeViewTotals(monthSet, "personal");
+  // The month's still-to-come slice, for the chips' reconciliation line: what the Visão mensal
+  // (which counts forecasts) shows on top of the realized figures. Zero when browsing the future
+  // (the projections are already inside monthSet there) or the past (nothing left to come).
+  const projectedTotals =
+    compareMonths(month, currentMonth) === 0
+      ? computeViewTotals(
+          projected.map((p) => freshOccurrence(p.source, p.date)),
+          "general",
+        )
+      : { income: Money.zero(), expense: Money.zero(), net: Money.zero() };
 
   const accounts = ws.accounts.map((account) => ({
     id: account.id,
@@ -377,6 +394,8 @@ export async function getDashboard(
     aPagarCents,
     settlementNetCents,
     heldForOthersCents,
+    projectedIncomeCents: projectedTotals.income.cents,
+    projectedExpenseCents: projectedTotals.expense.cents,
     trend,
     general: {
       incomeCents: general.income.cents,

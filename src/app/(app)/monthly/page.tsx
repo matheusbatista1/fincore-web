@@ -44,8 +44,16 @@ export default async function MonthlyPage({
   const incomes = data.items.filter((e) => e.kind === "income" && e.cardId === null);
   const expenses = data.items.filter((e) => e.kind === "expense");
   const transfers = data.items.filter((e) => e.kind === "transfer");
-  const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);
+  // An income counts at what actually LANDED when it was received for a different value —
+  // mirroring the dashboard's settledIncomeCents, so the two screens' bases agree.
+  const incomeCents = (e: MonthlyItem): number =>
+    e.isReceived && e.receivedAmountCents != null ? e.receivedAmountCents : e.amountCents;
+  const totIn = incomes.reduce((s, e) => s + incomeCents(e), 0);
   const totOut = expenses.reduce((s, e) => s + settledItemCents(e), 0);
+  // The projected ("previsto") slice inside each header total, called out so the statement's
+  // forward-looking numbers never read as already-realized figures.
+  const totInProjected = incomes.filter((e) => e.projected).reduce((s, e) => s + incomeCents(e), 0);
+  const totOutProjected = expenses.filter((e) => e.projected).reduce((s, e) => s + settledItemCents(e), 0);
 
   // People who owe you this month ("a receber") — shown inside the income group under
   // the general lens (the same month-scoped, projection-aware value the dashboard uses).
@@ -178,6 +186,8 @@ export default async function MonthlyPage({
       exportGroups={exportGroups}
       totInCents={totIn}
       totOutCents={totOut}
+      totInProjectedCents={totInProjected}
+      totOutProjectedCents={totOutProjected}
       itemCount={data.items.length}
       accounts={workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name }))}
       cardBillPayments={workspace.cardBillPayments}

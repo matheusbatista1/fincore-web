@@ -78,6 +78,10 @@ export interface DashboardData {
   readonly aReceberCents: number;
   /** Settlement cash attributed to the month of the debts it covered (received +, paid −). */
   readonly settlementNetCents: number;
+  /** The current month's previstos still to come (zero on past/future months) — the slice the
+   * Visão mensal counts on top of these realized chips. */
+  readonly projectedIncomeCents: number;
+  readonly projectedExpenseCents: number;
   /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
   readonly heldForOthersCents: number;
   readonly investedCents: number;
@@ -542,6 +546,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
             </span>
           </div>
         )}
+        {/* The chips are REALIZED-only (what already happened); the Visão mensal counts the
+            month's forecasts too. The sub-labels + the reconciliation line under Economia are
+            what let the two screens be read side by side without the gap looking like a bug. */}
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
           <KpiCard
             icon="arrow-down-left"
@@ -552,7 +559,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="calendar" size={14} />
-                {isPersonal ? "Sem reembolsos" : "Tudo que entrou"}
+                {data.projectedIncomeCents > 0 ? (
+                  <span>
+                    realizado · +<Money cents={data.projectedIncomeCents} withSign={false} /> previstos
+                  </span>
+                ) : isPersonal ? (
+                  "Sem reembolsos"
+                ) : (
+                  "Tudo que entrou"
+                )}
               </span>
             }
           />
@@ -565,7 +580,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="receipt" size={14} />
-                {isPersonal ? "Só a sua parte" : "Inclui partes de outros"}
+                {data.projectedExpenseCents > 0 ? (
+                  <span>
+                    realizado · +<Money cents={data.projectedExpenseCents} withSign={false} /> previstos
+                  </span>
+                ) : isPersonal ? (
+                  "Só a sua parte"
+                ) : (
+                  "Inclui partes de outros"
+                )}
               </span>
             }
           />
@@ -579,7 +602,17 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="target" size={14} />
-                <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
+                {data.projectedIncomeCents > 0 || data.projectedExpenseCents > 0 ? (
+                  <span>
+                    com previstos:{" "}
+                    <Money
+                      cents={economia + data.projectedIncomeCents - data.projectedExpenseCents}
+                      withSign
+                    />
+                  </span>
+                ) : (
+                  <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
+                )}
               </span>
             }
           />
