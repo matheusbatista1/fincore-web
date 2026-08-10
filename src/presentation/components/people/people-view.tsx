@@ -12,6 +12,7 @@ import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { cardBillMonth } from "@/domain/services/card-bill.calculator";
 import { addMonths, dateInMonth, dayOf } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
@@ -24,10 +25,17 @@ import { Avatar } from "@/presentation/components/ui/avatar";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 import { type AccountOption, SettleBody } from "./settle-person-modal";
+
+/** A card option enriched with its billing cycle, so the roll modal can name the target fatura. */
+export interface CardOption extends AccountOption {
+  readonly closingDay: number;
+  readonly dueDay: number;
+}
 
 /** One open debt of a person (a shared expense not yet rolled) — the target of "Rolar dívida". */
 interface DebtOption {
@@ -37,6 +45,13 @@ interface DebtOption {
 }
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
+
+/** ISO date + n days (UTC-safe for the YYYY-MM-DD shape used across the app). */
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function todayIso(): string {
   const d = new Date();
@@ -62,7 +77,7 @@ export function PeopleView({
   people: PersonMonthView[];
   transactions: TransactionListItem[];
   accounts: AccountOption[];
-  cards: AccountOption[];
+  cards: CardOption[];
   rollableDebts: RollableDebt[];
   settlements: SettlementView[];
   today: string;
@@ -493,8 +508,26 @@ function ProfileBody({
       )}
       {involved.map((t) => {
         const share = t.shares.find((s) => s.personId === person.id)?.shareCents ?? Math.abs(t.amountCents);
+        // The row opens the full transaction detail (Editar / Excluir / mover de fatura): these
+        // used to be display-only, which left a mis-dated rolled debt with no way to fix it from
+        // the very screen where the user finds it. The abated ("Rolada") row opens too — its
+        // detail already hides Pagar.
+        const openDetail = () => openTxDetail(t);
         return (
-          <div className="lrow" key={t.id}>
+          <div
+            className="lrow"
+            key={t.id}
+            role="button"
+            tabIndex={0}
+            style={{ cursor: "pointer" }}
+            onClick={openDetail}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openDetail();
+              }
+            }}
+          >
             <span className="l-ic">
               <Icon name="receipt" size={18} />
             </span>
@@ -588,7 +621,7 @@ function RollDebtBody({
   /** The browsed competence month (`YYYY-MM`) — the pool being rolled. */
   month: string;
   accounts: AccountOption[];
-  cards: AccountOption[];
+  cards: CardOption[];
   debts: DebtOption[];
   onDone: () => void;
 }) {
@@ -600,11 +633,28 @@ function RollDebtBody({
   // available for the itemized case.
   const [mode, setMode] = useState<"month" | "item">("month");
   const monthOwed = Math.max(0, person.monthBalanceCents);
-  // The pool's new debt must land in a month AFTER the rolled one (the server enforces it — the
-  // rollover settlement covers the oldest buckets first, so an earlier due date would intercept it).
-  const nextMonthDue = dateInMonth(addMonths(month, 1), dayOf(todayIso()));
   // A pool roll moves the debt to a DEBT instrument (no cash moves): card if there is one, else loan.
   const poolDefaultInstrument: Instrument = cards.length > 0 ? "card" : "loan";
+  // The pool's new debt must land in the fatura/month AFTER the rolled one (the server enforces
+  // it — the rollover settlement covers the oldest buckets first). For a CARD that is the BILL
+  // month, not the calendar month: a September date after the closing day bills October. Walk
+  // forward from today and pick the first date whose fatura is the target; if the target fatura
+  // already closed, the earliest reachable one wins (the live label below tells the user which).
+  const defaultDueDate = (instr: Instrument, forCardId: string | null): string => {
+    const calendarNext = dateInMonth(addMonths(month, 1), dayOf(todayIso()));
+    const card = cards.find((c) => c.id === forCardId);
+    if (instr !== "card" || !card) return calendarNext;
+    const target = addMonths(month, 1);
+    let earliest: string | null = null;
+    for (let i = 1; i <= 70; i++) {
+      const candidate = addDaysIso(todayIso(), i);
+      const bill = cardBillMonth(candidate as never, card.closingDay, card.dueDay);
+      if (bill === target) return candidate;
+      if (earliest === null && bill > target) earliest = candidate;
+    }
+    return earliest ?? calendarNext;
+  };
+  const nextMonthDue = defaultDueDate(poolDefaultInstrument, cards[0]?.id ?? null);
   const [debtId, setDebtId] = useState<string | null>(debts[0]?.id ?? null);
   const [principal, setPrincipal] = useState(monthOwed);
   const [juros, setJuros] = useState(0);
@@ -622,6 +672,14 @@ function RollDebtBody({
 
   const canInstallment = instrument === "card" || instrument === "loan";
   const usesCard = instrument === "card";
+  // Live label: where the chosen date actually lands — the card's FATURA month, or the calendar
+  // month for the other instruments. Recomputed on every date/card change.
+  const selectedCard = cards.find((c) => c.id === cardId);
+  const dueLandsIn = date
+    ? usesCard && selectedCard
+      ? `fatura de ${monthLabel(cardBillMonth(date as never, selectedCard.closingDay, selectedCard.dueDay), { long: true })}`
+      : `${monthLabel(date.slice(0, 7), { long: true })}`
+    : null;
   const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
   const total = principal + juros;
   const valid =
@@ -784,7 +842,13 @@ function RollDebtBody({
           id="roll-instrument"
           className="input"
           value={instrument}
-          onChange={(e) => setInstrument(e.target.value as Instrument)}
+          onChange={(e) => {
+            const next = e.target.value as Instrument;
+            setInstrument(next);
+            // In pool mode the due date tracks the instrument: a card's "next month" is the next
+            // FATURA, whose date window differs from the plain calendar default.
+            if (mode === "month") setDate(defaultDueDate(next, cardId));
+          }}
           style={{ width: "100%", marginBottom: 12 }}
         >
           {(mode === "month" ? POOL_INSTRUMENTS : INSTRUMENTS).map((i) => (
@@ -799,7 +863,11 @@ function RollDebtBody({
             aria-label="Cartão"
             className="input"
             value={cardId ?? ""}
-            onChange={(e) => setCardId(e.target.value || null)}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              setCardId(id);
+              if (mode === "month" && usesCard) setDate(defaultDueDate("card", id));
+            }}
             style={{ width: "100%", marginBottom: 12 }}
           >
             {cards.length === 0 && <option value="">Nenhum cartão</option>}
@@ -889,6 +957,15 @@ function RollDebtBody({
               onChange={(e) => setDate(e.target.value)}
               style={{ width: "100%" }}
             />
+            {/* A card debt counts in its FATURA, not in the date's own month — a September date
+                after the closing day bills October. Saying which fatura the chosen date lands in
+                is what keeps the roll from slipping one month past what the user meant. */}
+            {dueLandsIn && (
+              <div style={{ fontSize: 12, color: "var(--text-lo)", marginTop: 6 }}>
+                {usesCard ? "vai cair na " : "vai contar em "}
+                <b style={{ color: "var(--text-hi)" }}>{dueLandsIn}</b>
+              </div>
+            )}
           </div>
         </div>
 
@@ -898,6 +975,7 @@ function RollDebtBody({
             <span className="v" style={{ color: "var(--mint-500)" }}>
               {formatBRLAbsolute(total)}
               {canInstallment && installments > 1 ? ` em ${installments}x` : ""}
+              {dueLandsIn ? ` · ${dueLandsIn}` : ""}
             </span>
           </div>
           {error && (
