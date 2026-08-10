@@ -3,6 +3,7 @@ import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computePersonBookedBalancesThrough } from "@/domain/services/person-ledger.calculator";
 import { compareMonths, monthOf } from "@/domain/value-objects/competence-month";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
+import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
 import { err, ok, type Result } from "@/shared/result";
 import { createTransactionSchema, type RollMonthDebtInput } from "@/shared/schemas/transaction";
@@ -61,10 +62,36 @@ export async function rollPersonMonthDebt(
       message: `Valor maior que o saldo devedor em aberto (${formatBRLAbsolute(outstanding)}).`,
     });
   }
-  if (compareMonths(monthOf(input.date), input.month) <= 0) {
+  // Where the new debt will actually COUNT: a card charge lands in its bill's competence — a date
+  // in September after the card's closing day bills OCTOBER. Validating the calendar month let the
+  // debt slip one fatura past what the user (and this guard) meant.
+  const dueCompetence =
+    input.source === "card" && input.cardId !== null
+      ? competenceOf({
+          kind: "expense",
+          id: "roll-preview",
+          description: "",
+          date: input.date,
+          amountCents: -1,
+          categoryId: null,
+          source: "card",
+          cardId: input.cardId,
+          accountId: null,
+          linkedAccountId: null,
+          splits: [],
+          myShareCents: 1,
+          installment: null,
+          recurrence: null,
+          billMonthOverride: null,
+        })
+      : monthOf(input.date);
+  if (compareMonths(dueCompetence, input.month) <= 0) {
     return err({
       code: "bad_due_month",
-      message: "O vencimento da nova dívida deve ficar num mês depois do mês rolado.",
+      message:
+        input.source === "card"
+          ? `Com essa data, a dívida cai na fatura de ${monthLabel(dueCompetence, { long: true })} — escolha uma data que caia numa fatura depois do mês rolado.`
+          : "O vencimento da nova dívida deve ficar num mês depois do mês rolado.",
     });
   }
   if (input.cashAccountId !== null && !ws.accounts.some((a) => a.id === input.cashAccountId)) {

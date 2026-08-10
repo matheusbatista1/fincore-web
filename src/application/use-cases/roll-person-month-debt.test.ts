@@ -168,3 +168,73 @@ describe("rollPersonMonthDebt — cash-backed rollover (Pix no crédito money la
     expect(rollFn).not.toHaveBeenCalled();
   });
 });
+
+describe("rollPersonMonthDebt — the guard thinks in FATURAS for card debts", () => {
+  // Nubank-style card: closes day 2, due day 9 → a September date after the 2nd bills OCTOBER.
+  const gold = {
+    id: "card-1",
+    bank: "Nubank",
+    product: "Gold",
+    flag: "mastercard" as const,
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 1_000_000,
+    closingDay: 2,
+    dueDay: 9,
+  };
+
+  function cardStub() {
+    const base = stub([sharedExpense()]);
+    const patched = {
+      ...base,
+      repo: {
+        ...base.repo,
+        loadWorkspace: async () => ({
+          ...(await (base.repo.loadWorkspace as () => Promise<Workspace>)()),
+          creditCards: [gold],
+        }),
+      } as unknown as FinanceRepository,
+    };
+    return { repo: patched.repo, rollFn: base.rollFn };
+  }
+
+  it("rejects a date that BILLS in the rolled month even though its calendar month is later", async () => {
+    // Rolling July; 2026-08-01 is a later calendar month, but it closed on 02/08 → bills August…
+    // wait: with closing 2, a charge on 01/08 bills 2026-08 — later than July, fine. The failing
+    // case is rolling AUGUST with a date like 2026-08-01 (bills August itself).
+    const { repo, rollFn } = stub([sharedExpense({ date: "2026-08-05" as IsoDate })]);
+    void repo;
+    void rollFn;
+    const { repo: cardRepo, rollFn: cardRoll } = cardStub();
+    const result = await rollPersonMonthDebt(cardRepo, "u", {
+      ...input({ month: "2026-07", source: "card", cardId: "card-1", accountId: null }),
+      date: "2026-07-25" as IsoDate, // calendar July — but bills August (after closing day 2)
+    });
+    // Bills August (> July): the roll is legal — the CALENDAR guard would have rejected it.
+    expect(result.ok).toBe(true);
+    expect(cardRoll).toHaveBeenCalled();
+  });
+
+  it("rejects a card date whose fatura lands in the rolled month itself", async () => {
+    const { repo, rollFn } = cardStub();
+    const result = await rollPersonMonthDebt(repo, "u", {
+      ...input({ month: "2026-08", source: "card", cardId: "card-1", accountId: null }),
+      date: "2026-08-01" as IsoDate, // before the Aug-2 closing → bills 2026-08 = the rolled month
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("bad_due_month");
+      expect(result.error.message).toContain("fatura de Agosto");
+    }
+    expect(rollFn).not.toHaveBeenCalled();
+  });
+
+  it("loan keeps the calendar rule", async () => {
+    const { repo } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", {
+      ...input({ month: "2026-07", source: "loan" }),
+      date: "2026-08-10" as IsoDate,
+    });
+    expect(result.ok).toBe(true);
+  });
+});
