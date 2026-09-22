@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
+import {
+  type PayFaturaAccount,
+  PayFaturaModal,
+  type PayFaturaTarget,
+} from "@/presentation/components/cards/pay-fatura-modal";
 import { MonthExportButtons } from "@/presentation/components/monthly/month-export-buttons";
+import { applyLens, keepGroup } from "@/presentation/components/monthly/monthly-lens";
 import { StmtCard, type StmtGroup } from "@/presentation/components/monthly/stmt-card";
 import {
   MonthFade,
@@ -12,36 +19,9 @@ import {
 } from "@/presentation/components/shell/month-transition";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { Icon } from "@/presentation/components/ui/icon";
+import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
-
-/**
- * Recast a group through the personal lens: expenses show only the user's share,
- * income drops reimbursements; transfers and the general lens pass through.
- */
-function applyLens(group: StmtGroup, isPersonal: boolean): StmtGroup {
-  if (!isPersonal || !group.lens || group.lens === "transfer") return group;
-  if (group.lens === "income") {
-    const items = group.items.filter((i) => !i.isReimbursement);
-    return {
-      ...group,
-      items,
-      // People receivables are general-only — drop them from the personal lens.
-      receivables: undefined,
-      totalCents: items.reduce((s, i) => s + i.amountCents, 0),
-      countText: `${items.length} ${items.length === 1 ? "entrada" : "entradas"}`,
-    };
-  }
-  // expense: display only the user's own share per row.
-  const items = group.items.map((i) => ({
-    ...i,
-    amountCents: -(i.myShareCents ?? Math.abs(i.amountCents)),
-  }));
-  return { ...group, items, totalCents: items.reduce((s, i) => s + Math.abs(i.amountCents), 0) };
-}
-
-/** Keep a group if it has rows OR (income) people-receivables to show. */
-const keep = (g: StmtGroup): boolean => g.items.length > 0 || (g.receivables?.length ?? 0) > 0;
 
 export interface MonthlyStatementProps {
   month: string;
@@ -59,7 +39,14 @@ export interface MonthlyStatementProps {
   /** General-lens header totals (the transaction income/expense; receivables added per lens). */
   totInCents: number;
   totOutCents: number;
+  /** The projected ("previsto") slice inside each header total — called out under the figures. */
+  totInProjectedCents: number;
+  totOutProjectedCents: number;
   itemCount: number;
+  /** Wallets available to pay a card fatura from (the modal's account picker). */
+  accounts: PayFaturaAccount[];
+  /** Card bill payments — a card group reads its own (cardId, competence) to show "Fatura paga". */
+  cardBillPayments: CardBillPayment[];
 }
 
 /** Monthly statement with month navigation, the immersive transition and a Geral/Apenas-meu lens. */
@@ -75,24 +62,30 @@ export function MonthlyStatement({
   exportGroups,
   totInCents,
   totOutCents,
+  totInProjectedCents,
+  totOutProjectedCents,
   itemCount,
+  accounts,
+  cardBillPayments,
 }: MonthlyStatementProps) {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
   const peopleOn = useModuleEnabled("people");
   const isPersonal = peopleOn && view === "personal";
+  // "Pagar fatura" is triggered from inside a card group's modal; the modal itself lives here.
+  const [payingFatura, setPayingFatura] = useState<PayFaturaTarget | null>(null);
 
   const left = useMemo(
-    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => leftGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [leftGroups, isPersonal],
   );
   const right = useMemo(
-    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => rightGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [rightGroups, isPersonal],
   );
   // Lens-aware, export-ordered groups (carry receivables on the income group under general).
   const exportLensed = useMemo(
-    () => exportGroups.map((g) => applyLens(g, isPersonal)).filter(keep),
+    () => exportGroups.map((g) => applyLens(g, isPersonal)).filter(keepGroup),
     [exportGroups, isPersonal],
   );
 
@@ -108,6 +101,16 @@ export function MonthlyStatement({
   const totOut = isPersonal
     ? [...left, ...right].filter((g) => g.lens === "expense").reduce((s, g) => s + g.totalCents, 0)
     : totOutCents;
+  // The previsto slice under each figure — the statement is the month's FULL picture (forecasts
+  // and receivables included), unlike the dashboard's realized-only chips; the sub-labels are what
+  // lets a user reconcile the two screens instead of reading the gap as a bug. The personal lens
+  // sums the lensed groups' own slices (the user's share of each projected row).
+  const inProjected = isPersonal
+    ? [...left, ...right].filter((g) => g.lens === "income").reduce((s, g) => s + (g.projectedCents ?? 0), 0)
+    : totInProjectedCents;
+  const outProjected = isPersonal
+    ? [...left, ...right].filter((g) => g.lens === "expense").reduce((s, g) => s + (g.projectedCents ?? 0), 0)
+    : totOutProjectedCents;
 
   return (
     <MonthTransition prevHref={prevHref} nextHref={nextHref}>
@@ -168,6 +171,9 @@ export function MonthlyStatement({
             </div>
           )}
 
+          {/* The statement is the month's FULL picture — previstos and a-receber included — while
+              the dashboard's chips are realized-only. The sub-labels spell each figure's forward
+              slice out, so the gap between the two screens reads as design, not as a bug. */}
           <div className="month-totals">
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -177,6 +183,21 @@ export function MonthlyStatement({
               <span className="mt-val" style={{ color: "var(--mint-500)" }}>
                 <AnimatedMoney cents={totIn} withSign={false} />
               </span>
+              {(inProjected > 0 || (!isPersonal && aReceberCents > 0)) && (
+                <span className="mt-note">
+                  {inProjected > 0 && (
+                    <>
+                      <Money cents={inProjected} withSign={false} /> previstos
+                    </>
+                  )}
+                  {inProjected > 0 && !isPersonal && aReceberCents > 0 && " · "}
+                  {!isPersonal && aReceberCents > 0 && (
+                    <>
+                      <Money cents={aReceberCents} withSign={false} /> a receber
+                    </>
+                  )}
+                </span>
+              )}
             </div>
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -186,6 +207,11 @@ export function MonthlyStatement({
               <span className="mt-val" style={{ color: "var(--rose-500)" }}>
                 <AnimatedMoney cents={totOut} withSign={false} />
               </span>
+              {outProjected > 0 && (
+                <span className="mt-note">
+                  <Money cents={outProjected} withSign={false} /> previstos
+                </span>
+              )}
             </div>
             <div className="mt-cell">
               <span className="mt-lbl">
@@ -199,6 +225,7 @@ export function MonthlyStatement({
                 {/* Show the sign (− for a deficit) so the result reads without relying on color. */}
                 <AnimatedMoney cents={totIn - totOut} withSign />
               </span>
+              {(inProjected > 0 || outProjected > 0) && <span className="mt-note">com previstos</span>}
             </div>
           </div>
           <MonthExportButtons
@@ -227,17 +254,41 @@ export function MonthlyStatement({
           <div className="month-cols">
             <div className="col gap-4">
               {left.map((g) => (
-                <StmtCard key={g.key} group={g} today={today} />
+                <StmtCard
+                  key={`${g.key}-${month}-${isPersonal ? "p" : "g"}`}
+                  group={g}
+                  today={today}
+                  month={month}
+                  competenceLabel={label}
+                  accounts={accounts}
+                  cardBillPayments={cardBillPayments}
+                  onOpenPayFatura={setPayingFatura}
+                />
               ))}
             </div>
             <div className="col gap-4">
               {right.map((g) => (
-                <StmtCard key={g.key} group={g} today={today} />
+                <StmtCard
+                  key={`${g.key}-${month}-${isPersonal ? "p" : "g"}`}
+                  group={g}
+                  today={today}
+                  month={month}
+                  competenceLabel={label}
+                  accounts={accounts}
+                  cardBillPayments={cardBillPayments}
+                  onOpenPayFatura={setPayingFatura}
+                />
               ))}
             </div>
           </div>
         </MonthFade>
       </div>
+      <PayFaturaModal
+        target={payingFatura}
+        accounts={accounts}
+        today={today}
+        onClose={() => setPayingFatura(null)}
+      />
     </MonthTransition>
   );
 }

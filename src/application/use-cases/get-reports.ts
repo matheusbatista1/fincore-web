@@ -1,7 +1,14 @@
-import { isExpense, isIncome, isRolled, type Transaction } from "@/domain/entities/transaction";
+import {
+  isExpense,
+  isIncome,
+  isRolled,
+  settledExpenseCents,
+  settledMyShareCents,
+  type Transaction,
+} from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
   type CompetenceMonth,
@@ -102,7 +109,12 @@ export async function getReports(
   // fixed lançamentos. Past/current months stay real-only (actuals/history unchanged).
   const setForMonth = (month: CompetenceMonth): Transaction[] => {
     const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
-    const base = compareMonths(month, current) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+    // A projected occurrence counts as a fresh instance at its own date — never as the anchor row
+    // (which would total at the anchor's settled amount and sit on the anchor's date).
+    const base =
+      compareMonths(month, current) <= 0
+        ? real
+        : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
     // A rolled (abated) debt is history-only — exclude it from the bars, the category donut
     // and the per-card spend (the bars' computeViewTotals already skips it; this aligns the rest).
     return base.filter((tx) => !isRolled(tx));
@@ -155,10 +167,13 @@ export async function getReports(
     for (const tx of setForMonth(month)) {
       if (!isExpense(tx)) continue;
       const key = tx.categoryId ?? "__none__";
-      byCategory.set(key, (byCategory.get(key) ?? 0) + Math.abs(tx.amountCents));
+      // Paid obligations count at what actually left the account (settled amount), matching the
+      // trend bars' computeViewTotals — a discounted payoff shrinks its category slice too.
+      byCategory.set(key, (byCategory.get(key) ?? 0) + settledExpenseCents(tx));
       // A fully-shared expense (myShareCents === 0) leaves the personal donut.
-      if (tx.myShareCents > 0) {
-        byCategoryPersonal.set(key, (byCategoryPersonal.get(key) ?? 0) + tx.myShareCents);
+      const share = settledMyShareCents(tx);
+      if (share > 0) {
+        byCategoryPersonal.set(key, (byCategoryPersonal.get(key) ?? 0) + share);
       }
     }
   }

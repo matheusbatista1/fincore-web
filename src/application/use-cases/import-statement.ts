@@ -65,6 +65,11 @@ async function importAccount(
       isReimbursement: false,
       myShareCents: entry.amountCents,
       recurrenceDayOfMonth,
+      // An imported statement line is a movement that already happened — book it as received on its
+      // own date for its full amount, so it credits the balance (not left as a pending receivable).
+      receivedAt: entry.date,
+      receivedAccountId: accountId,
+      receivedAmountCents: entry.amountCents,
     };
   });
   if (entries.length === 0) return { imported: 0 };

@@ -34,8 +34,12 @@ interface MiniCardData {
   readonly bank: string;
   readonly product: string;
   readonly themeKey: string;
-  /** Bill due in the browsed month. */
+  /** The fatura shown: on the current month the one owed next, else the browsed month's. */
   readonly billCents: number;
+  /** Which competence `billCents` is, so the tile can name the month it refers to. */
+  readonly billCompetence: string;
+  /** Projected ("previsto") slice still expected on that fatura — shown on top of billCents. */
+  readonly billProjectedCents: number;
   /** Total committed against the limit (open + future bills) — drives "% do limite". */
   readonly outstandingCents: number;
   readonly limitCents: number;
@@ -72,6 +76,17 @@ export interface DashboardData {
   /** Whether the browsed month is already in the past (no projection to show). */
   readonly isPast: boolean;
   readonly aReceberCents: number;
+  /** Settlement cash attributed to the month of the debts it covered (received +, paid −). */
+  readonly settlementNetCents: number;
+  /** The current month's previstos still to come (zero on past/future months) — the slice the
+   * Visão mensal counts on top of these realized chips. */
+  readonly projectedIncomeCents: number;
+  readonly projectedExpenseCents: number;
+  /** The same slice through the personal lens (only the user's own shares of shared forecasts). */
+  readonly projectedIncomePersonalCents: number;
+  readonly projectedExpensePersonalCents: number;
+  /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
+  readonly heldForOthersCents: number;
   readonly investedCents: number;
   readonly general: Totals;
   readonly personal: Totals;
@@ -115,10 +130,25 @@ function MiniCard({ card }: { card: MiniCardData }) {
       </div>
       <div className="cc-bottom" style={{ alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 2 }}>Fatura atual</div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>
-            <Money cents={card.billCents} withSign={false} />
+          {/* Naming the bill's month matters the moment a cycle turns: the figure can be the
+              fatura that just closed and is coming due, not the one now accumulating. */}
+          <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 2 }}>
+            Fatura {monthLabel(card.billCompetence)}
           </div>
+          {/* Expected TOTAL of the bill (booked + previstos still to charge): the fixed
+              subscriptions WILL land before the cycle closes, so the headline anticipates them.
+              The payable amount stays real-only — the bank cannot bill a forecast. */}
+          <div style={{ fontWeight: 700, fontSize: 16 }}>
+            <Money
+              cents={card.billCents + card.billProjectedCents}
+              withSign={card.billCents + card.billProjectedCents < 0}
+            />
+          </div>
+          {card.billProjectedCents > 0 && (
+            <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 1 }}>
+              inclui <Money cents={card.billProjectedCents} withSign={false} /> previstos
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, opacity: 0.75 }}>{pct}% do limite</div>
@@ -195,21 +225,46 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   const personalInc = Math.max(0, data.personal.incomeCents);
   const personalExp = Math.max(0, data.personal.expenseCents);
-  // General income also counts what people owe you this month ("a receber"); personal
-  // counts only your own (no people). Expense is the full amount in both lenses.
-  const receitaMes = isPersonal ? personalInc : data.general.incomeCents + data.aReceberCents;
-  const gastoMes = isPersonal ? personalExp : data.general.expenseCents;
+  // General income also counts what people owe you this month ("a receber") plus the cash a person
+  // actually paid you back (settlement entrada); a settlement you paid out is a saída. Since general
+  // expense includes other people's shares, crediting the settlement cash keeps a reimbursed share
+  // from dragging the month down twice. Personal counts only your own (no people, no settlements).
+  const receitaMes = isPersonal
+    ? personalInc
+    : data.general.incomeCents + data.aReceberCents + Math.max(0, data.settlementNetCents);
+  // NOTE: aPagar (negative person nets) is deliberately NOT added to the general gasto — it can
+  // contain PROJECTED recurring person-payments while income here is real-only, which would book a
+  // phantom expense. The advance-as-reimbursement-income wart stays a known, documented limitation.
+  const gastoMes = isPersonal
+    ? personalExp
+    : data.general.expenseCents + Math.max(0, -data.settlementNetCents);
   const economia = receitaMes - gastoMes;
   // Savings rate against the real income — null when there's no income to measure against
   // (avoids the bogus huge % from dividing by ~zero).
   const savingsPct = receitaMes > 0 ? Math.round((economia / receitaMes) * 100) : null;
+  // The still-to-come slice follows the active lens, so "Sobra real · com previstos" never mixes
+  // other people's shares into a personal figure.
+  const projIncome = isPersonal ? data.projectedIncomePersonalCents : data.projectedIncomeCents;
+  const projExpense = isPersonal ? data.projectedExpensePersonalCents : data.projectedExpenseCents;
   // Browsing a future month: the month KPIs fold in projected ("previsto") recurring.
   const isFuture = !data.isPast && !data.isCurrent;
   // The "fim do mês" follows the active lens (general adds people; personal is only mine).
   const projectedEom = isPersonal ? data.projectedBalancePersonalCents : data.projectedBalanceCents;
-  // The hero balance also follows the lens: "apenas meu" counts only the user's own share
-  // of shared account/overdraft debits.
-  const saldoTotal = isPersonal ? data.saldoTotalPersonalCents : data.saldoTotalCents;
+  // The hero balance is REAL cash in both lenses — money is fungible (the user spends advances
+  // received from others on his own bills), so a lens-dependent "available" is misleading. The
+  // lens changes the ANNOTATION under it: how much of that cash is other people's advances, and
+  // how much of their money the user has already consumed (own slice negative).
+  const saldoTotal = data.saldoTotalCents;
+  const ownCents = data.saldoTotalPersonalCents;
+  const heldCents = data.heldForOthersCents;
+  // WATERFALL reading of the split (the user's rule: spending consumes YOUR money first, then the
+  // advances; "yours" only reads negative once the whole cash is gone): how much of the held float
+  // was already consumed, how much is still sitting in the accounts, and the own slice floored at
+  // the general balance (money is fungible — you can't be more negative than the cash itself
+  // while third-party float remains).
+  const usedAdvancesCents = Math.min(Math.max(-ownCents, 0), heldCents);
+  const advancesLeftCents = heldCents - usedAdvancesCents;
+  const ownWaterfallCents = Math.max(ownCents, Math.min(saldoTotal, 0));
   // Charts follow the active lens: personal sums only the user's own shares.
   const chartMonths = isPersonal ? data.monthsPersonal : data.months;
   const chartCategories = isPersonal ? data.categoriesPersonal : data.categories;
@@ -287,7 +342,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
             >
               <Icon name="info" size={14} style={{ color: "var(--purple-300)", flex: "none" }} />
               {isPersonal
-                ? "Mostrando só o que é seu — as partes de outras pessoas foram descontadas."
+                ? "Mostrando só o que é seu — partes de outras pessoas e adiantamentos recebidos foram descontados dos indicadores do mês."
                 : "Mostrando tudo, incluindo o que será reembolsado por outras pessoas."}
             </span>
           </div>
@@ -317,7 +372,10 @@ export function DashboardView({ data }: { data: DashboardData }) {
               >
                 <CountMoney cents={saldoTotal} />
               </div>
-              <div className="row gap-3" style={{ marginTop: 12 }}>
+              {/* The meta line can outgrow the column (waterfall annotation + fim-do-mês on a
+                  narrow window/phone): wrap by whole chips instead of squeezing the spans until
+                  their text breaks mid-value. */}
+              <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap", rowGap: 4 }}>
                 {data.deltaPct !== null && (
                   <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
                     <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
@@ -330,19 +388,65 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   em {data.accountsCount} {data.accountsCount === 1 ? "conta" : "contas"}
                 </span>
-                {!data.isPast && projectedEom !== saldoTotal && (
+                {peopleOn && heldCents > 0 && (
                   <span
-                    className="row gap-1"
-                    style={{ color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)", fontSize: 13.5 }}
+                    style={{
+                      color: ownCents < 0 && isPersonal ? "var(--rose-500)" : "var(--text-lo)",
+                      fontSize: 13.5,
+                    }}
                     title={
-                      isPersonal
-                        ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
-                        : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
+                      advancesLeftCents === 0 && usedAdvancesCents > 0
+                        ? "Você já usou todos os adiantamentos que as pessoas te mandaram para as faturas que ainda vão vencer — quando elas chegarem, o valor sai do seu bolso (e volta quando as dívidas registradas forem pagas)."
+                        : ownCents < 0
+                          ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
+                          : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."
                     }
                   >
-                    · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
+                    {isPersonal && ownCents < 0 && advancesLeftCents === 0 ? (
+                      // Waterfall floor: the advances are fully consumed, so "yours" reads as the
+                      // (negative) cash itself — you can't owe less than the hole in the accounts.
+                      <>
+                        · seu: <Money cents={ownWaterfallCents} withSign /> · adiantamentos (
+                        <Money cents={heldCents} withSign={false} />) já usados
+                      </>
+                    ) : isPersonal && ownCents < 0 ? (
+                      <>
+                        · usando <Money cents={usedAdvancesCents} withSign={false} /> dos adiantamentos
+                        (restam <Money cents={advancesLeftCents} withSign={false} />)
+                      </>
+                    ) : isPersonal ? (
+                      <>
+                        · seu: <Money cents={ownCents} withSign={false} /> · de terceiros:{" "}
+                        <Money cents={heldCents} withSign={false} />
+                      </>
+                    ) : advancesLeftCents > 0 ? (
+                      <>
+                        · <Money cents={advancesLeftCents} withSign={false} /> de terceiros
+                      </>
+                    ) : (
+                      <>· adiantamentos de terceiros já usados</>
+                    )}
                   </span>
                 )}
+                {/* Hide only when the projection adds nothing over ITS OWN lens's live base — the
+                    hero number is general in both lenses, so comparing against it would misread. */}
+                {!data.isPast &&
+                  projectedEom !== (isPersonal ? data.saldoTotalPersonalCents : saldoTotal) && (
+                    <span
+                      className="row gap-1"
+                      style={{
+                        color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)",
+                        fontSize: 13.5,
+                      }}
+                      title={
+                        isPersonal
+                          ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
+                          : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
+                      }
+                    >
+                      · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
+                    </span>
+                  )}
               </div>
               <div
                 style={{
@@ -379,7 +483,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     </div>
                   </div>
                 )}
-                <div>
+                <div
+                  title={
+                    heldCents > 0
+                      ? "Saldo em contas + investimentos. Inclui os adiantamentos de terceiros ainda não descontados nas faturas."
+                      : "Saldo em contas + investimentos."
+                  }
+                >
                   <div
                     className="row gap-2"
                     style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
@@ -388,7 +498,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     Patrimônio
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
-                    {/* Follows the active lens and shows the sign (negative when in overdraft). */}
+                    {/* Real cash + invested (negative when in overdraft); lens changes only the annotation. */}
                     <Money cents={saldoTotal + data.investedCents} />
                   </div>
                 </div>
@@ -446,6 +556,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
             </span>
           </div>
         )}
+        {/* The chips are REALIZED-only (what already happened); the Visão mensal counts the
+            month's forecasts too. The sub-labels + the reconciliation line under Economia are
+            what let the two screens be read side by side without the gap looking like a bug. */}
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
           <KpiCard
             icon="arrow-down-left"
@@ -456,7 +569,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="calendar" size={14} />
-                {isPersonal ? "Sem reembolsos" : "Tudo que entrou"}
+                {projIncome > 0 ? (
+                  <span>
+                    realizado · +<Money cents={projIncome} withSign={false} /> previstos
+                  </span>
+                ) : isPersonal ? (
+                  "Sem reembolsos"
+                ) : (
+                  "Tudo que entrou"
+                )}
               </span>
             }
           />
@@ -469,7 +590,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="receipt" size={14} />
-                {isPersonal ? "Só a sua parte" : "Inclui partes de outros"}
+                {projExpense > 0 ? (
+                  <span>
+                    realizado · +<Money cents={projExpense} withSign={false} /> previstos
+                  </span>
+                ) : isPersonal ? (
+                  "Só a sua parte"
+                ) : (
+                  "Inclui partes de outros"
+                )}
               </span>
             }
           />
@@ -483,7 +612,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
             sub={
               <span className="row gap-2">
                 <Icon name="target" size={14} />
-                <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
+                {projIncome > 0 || projExpense > 0 ? (
+                  <span title="A Visão mensal pode diferir por acertos: lá eles contam na data em que aconteceram; aqui, na competência da dívida coberta.">
+                    com previstos: <Money cents={economia + projIncome - projExpense} withSign />
+                  </span>
+                ) : (
+                  <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>
+                )}
               </span>
             }
           />
@@ -674,8 +809,16 @@ export function DashboardView({ data }: { data: DashboardData }) {
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <div className="l-amt">
-                            <Money cents={c.billCents} withSign={false} />
+                            <Money
+                              cents={c.billCents + c.billProjectedCents}
+                              withSign={c.billCents + c.billProjectedCents < 0}
+                            />
                           </div>
+                          {c.billProjectedCents > 0 && (
+                            <div style={{ fontSize: 11, color: "var(--text-lo)" }}>
+                              inclui <Money cents={c.billProjectedCents} withSign={false} /> previstos
+                            </div>
+                          )}
                           <span className={`pill ${soon ? "amber" : "neutral"}`} style={{ marginTop: 4 }}>
                             {soon ? "Em breve" : "Em dia"}
                           </span>

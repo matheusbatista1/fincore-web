@@ -8,6 +8,7 @@ import { financeRepository } from "@/infrastructure/composition";
 import { PullToRefresh } from "@/presentation/components/gestures/pull-to-refresh";
 import { OnboardingHost } from "@/presentation/components/onboarding/onboarding-host";
 import { AppHeader } from "@/presentation/components/shell/app-header";
+import { AutoPaymentsSync } from "@/presentation/components/shell/auto-payments-sync";
 import { MobileNav } from "@/presentation/components/shell/mobile-nav";
 import { PageHead } from "@/presentation/components/shell/page-head";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
@@ -58,7 +59,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   };
   const enabledModules = profile.enabledModules;
   const peopleOn = isModuleEnabled(enabledModules, "people");
-  const pendingCount = peopleOn ? workspace.people.filter((p) => p.balanceCents !== 0).length : 0;
+  // Month-scoped, matching the People page (which lists the month's pendências).
+  const pendingCount = peopleOn ? workspace.people.filter((p) => p.monthBalanceCents !== 0).length : 0;
 
   const today = todayInBrazil();
   const displayName = profile.displayName ?? nameFromEmail(user.email ?? "");
@@ -72,17 +74,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       id: c.id,
       bank: c.bank,
       dueDay: c.dueDay,
-      billCents: c.billCents,
+      dueBillCents: c.dueBillCents,
       utilization: c.utilization,
     })),
     debtors: peopleOn
       ? workspace.people
-          .filter((p) => p.balanceCents > 0)
+          .filter((p) => p.monthBalanceCents > 0)
           .map((p) => ({
             id: p.id,
             name: p.name,
             relationship: p.relationship,
-            balanceCents: p.balanceCents,
+            balanceCents: p.monthBalanceCents,
           }))
       : [],
     today,
@@ -131,6 +133,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </main>
         <MobileNav {...formData} pendingCount={pendingCount} />
         <TxModalsHost {...formData} transactions={transactions} today={today} />
+        <AutoPaymentsSync enabled={profile.autoPaymentsEnabled} />
         <OnboardingHost onboarded={profile.onboardedAt !== null} enabledModules={enabledModules} />
       </div>
     </ModulesProvider>

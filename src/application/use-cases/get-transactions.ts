@@ -4,8 +4,19 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
-import { isExpense, isIncome, isTransfer } from "@/domain/entities/transaction";
-import type { IsoDate } from "@/domain/value-objects/competence-month";
+import {
+  isExpense,
+  isIncome,
+  isPaid,
+  isPayableObligation,
+  isReceivableIncome,
+  isReceived,
+  isRolled,
+  isTransfer,
+} from "@/domain/entities/transaction";
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import { recurrenceIdentity } from "@/domain/services/recurring.projection";
+import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
@@ -59,9 +70,48 @@ export interface TransactionListItem {
   readonly installmentGroupId: string | null;
   /** Manual bill (competence month) override for a card charge; null = automatic. */
   readonly billMonthOverride: string | null;
+  /**
+   * The competence month (`YYYY-MM`) this row is filed under: a card charge's BILL due month,
+   * everything else its date's calendar month. Lets month-scoped views (person breakdown, extrato)
+   * match the competence-based balances instead of the raw calendar date. Set by the mapper.
+   */
+  readonly billMonth?: CompetenceMonth;
+  /** True for a projected ("previsto") recurring occurrence that isn't a booked transaction yet
+   * (only ever set by the statement/future builder). Absent on real rows. */
+  readonly projected?: boolean;
   readonly isFixed: boolean;
   /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
   readonly rolled: boolean;
+  /** True when this is a payable obligation (boleto/loan/financing) that can be settled via the Pay flow. */
+  readonly isPayable: boolean;
+  /** True when a deferred obligation has been paid (see paidAt/paidAccountId/paidAmountCents). */
+  readonly isPaid: boolean;
+  /** Date the payment was made (`YYYY-MM-DD`); null when unpaid. */
+  readonly paidAt: IsoDate | null;
+  /** Account the payment was drawn from; null when unpaid. */
+  readonly paidAccountId: string | null;
+  /** Resolved label of the paying account ("Itaú · Conta principal"); null when unpaid. */
+  readonly paidAccountLabel: string | null;
+  /** Amount actually paid, in cents; null when unpaid. */
+  readonly paidAmountCents: number | null;
+  /**
+   * The account this bill is USUALLY paid from — the one that settled the most recent occurrence of
+   * the same recurring rule. Pre-selects the Pagar modal so a monthly bill keeps being paid from its
+   * own account instead of whichever account happens to come first in the list.
+   */
+  readonly usualPayAccountId: string | null;
+  /** True when this is a normal income (not a card-credit estorno) — eligible for the Receber flow. */
+  readonly isReceivable: boolean;
+  /** True when a normal income's cash has been received (see receivedAt/receivedAccountId/amount). */
+  readonly isReceived: boolean;
+  /** Date the income was received (`YYYY-MM-DD`); null when a pending receivable. */
+  readonly receivedAt: IsoDate | null;
+  /** Account the money landed in; null when a pending receivable. */
+  readonly receivedAccountId: string | null;
+  /** Resolved label of the receiving account ("Itaú · Conta principal"); null when a pending receivable. */
+  readonly receivedAccountLabel: string | null;
+  /** Amount actually received, in cents; null when a pending receivable. */
+  readonly receivedAmountCents: number | null;
   /** People sharing the expense (empty when not shared). */
   readonly shares: TxShareView[];
   readonly myShareCents: number | null;
@@ -88,6 +138,27 @@ export function byDateDesc(a: TransactionListItem, b: TransactionListItem): numb
 }
 
 /**
+ * The "gasto" of a display row (positive cents): the amount actually PAID once a deferred obligation
+ * is settled (a discounted payoff counts at what left the account), else the face value. DTO-level
+ * mirror of `settledExpenseCents` for views that work on {@link TransactionListItem} rather than the
+ * domain entity (monthly totals, per-account movements).
+ */
+export function settledItemCents(item: TransactionListItem): number {
+  return item.kind === "expense" && item.isPaid && item.paidAmountCents != null
+    ? item.paidAmountCents
+    : Math.abs(item.amountCents);
+}
+
+/** The user's own slice of a row's "gasto", scaled to the settled amount (mirror of settledMyShareCents). */
+export function settledItemShareCents(item: TransactionListItem): number {
+  const original = Math.abs(item.amountCents);
+  const share = item.myShareCents ?? original;
+  if (item.kind !== "expense" || !item.isPaid || item.paidAmountCents == null || original === 0) return share;
+  if (item.paidAmountCents === original) return share;
+  return Math.round((share * item.paidAmountCents) / original);
+}
+
+/**
  * Build a pure mapper from a loaded workspace: `(transaction) => TransactionListItem`.
  * Resolves account/card/category/person names once, so callers (history, monthly
  * view, projections) share the exact same display logic.
@@ -98,12 +169,30 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
   const categoryById = new Map(ws.categories.map((c) => [c.id, c]));
   const personById = new Map(ws.people.map((p) => [p.id, p]));
   const firstName = (full: string): string => full.split(" ")[0] ?? full;
+  // Card charges are filed under their bill's due month; everything else under its calendar month.
+  const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
+  // The account each recurring bill was last settled from, so the Pagar modal can offer it again.
+  // Keyed by rule identity, keeping the most recent payment — a monthly bill paid from Itaú must
+  // not silently default to whichever account sorts first when it comes due again.
+  const lastPayAccount = new Map<string, { date: IsoDate; accountId: string }>();
+  for (const tx of ws.transactions) {
+    if (!isExpense(tx) || !isPayableObligation(tx) || isRolled(tx)) continue;
+    if (tx.paidAt == null || tx.paidAccountId == null) continue;
+    const key = recurrenceIdentity(tx);
+    const seen = lastPayAccount.get(key);
+    if (seen === undefined || tx.paidAt > seen.date) {
+      lastPayAccount.set(key, { date: tx.paidAt, accountId: tx.paidAccountId });
+    }
+  }
+  const usualPayAccountFor = (tx: Transaction): string | undefined =>
+    lastPayAccount.get(recurrenceIdentity(tx))?.accountId;
 
   return (tx: Transaction): TransactionListItem => {
     const base = {
       id: tx.id,
       description: tx.description,
       date: tx.date,
+      billMonth: competenceOf(tx),
       note: tx.note ?? null,
       category: null,
       categoryId: null,
@@ -117,6 +206,19 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       billMonthOverride: null,
       isFixed: false,
       rolled: false,
+      isPayable: false,
+      isPaid: false,
+      paidAt: null,
+      paidAccountId: null,
+      paidAccountLabel: null,
+      paidAmountCents: null,
+      usualPayAccountId: null,
+      isReceivable: false,
+      isReceived: false,
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAccountLabel: null,
+      receivedAmountCents: null,
       fromPersonId: null,
       shares: [] as TxShareView[],
       myShareCents: null,
@@ -165,6 +267,13 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         billMonthOverride: tx.billMonthOverride,
         isFixed: tx.recurrence !== null,
         rolled: tx.rolledAt != null,
+        isPayable: isPayableObligation(tx),
+        isPaid: isPaid(tx),
+        paidAt: tx.paidAt ?? null,
+        paidAccountId: tx.paidAccountId ?? null,
+        paidAccountLabel: tx.paidAccountId ? (accountName.get(tx.paidAccountId) ?? null) : null,
+        paidAmountCents: tx.paidAmountCents ?? null,
+        usualPayAccountId: isPayableObligation(tx) ? (usualPayAccountFor(tx) ?? null) : null,
         shares,
         myShareCents: tx.myShareCents,
       };
@@ -190,6 +299,12 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         isReimbursement: tx.isReimbursement,
         fromPersonId: tx.fromPersonId,
         fromPersonName: person ? firstName(person.name) : null,
+        isReceivable: isReceivableIncome(tx),
+        isReceived: isReceived(tx),
+        receivedAt: tx.receivedAt ?? null,
+        receivedAccountId: tx.receivedAccountId ?? null,
+        receivedAccountLabel: tx.receivedAccountId ? (accountName.get(tx.receivedAccountId) ?? null) : null,
+        receivedAmountCents: tx.receivedAmountCents ?? null,
       };
     }
 

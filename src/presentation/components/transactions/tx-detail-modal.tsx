@@ -1,7 +1,13 @@
 "use client";
 
 import { type CSSProperties, useState } from "react";
-import { deleteTransactionAction, moveTransactionBillAction } from "@/app/_actions/finance";
+import {
+  deleteTransactionAction,
+  materializeOccurrenceAction,
+  moveTransactionBillAction,
+  undoPaymentAction,
+  undoReceiveAction,
+} from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -25,11 +31,48 @@ const SHARE_PA: CSSProperties = {
 /** Detalhe da transação — ported 1:1 from the prototype (extras.jsx TxDetailModal). */
 export function TxDetailModal({ today }: { today: string }) {
   const tx = useTxUIStore((s) => s.detail);
+  // Set when the open row is a projected occurrence: the rule's real anchor row, so the read-only
+  // detail can still offer "Editar fixo" / "Excluir fixo" without ever paying the wrong month.
+  const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
+  const openPay = useTxUIStore((s) => s.openPay);
+  const openReceive = useTxUIStore((s) => s.openReceive);
   const peopleOn = useModuleEnabled("people");
   const [moving, setMoving] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [booking, setBooking] = useState(false);
+  // Synthetic rows (settlement / fatura payment / projected occurrence) carry a `type:id` id and
+  // are NOT editable transactions — the statement/monthly views surface them for context only, so
+  // the detail is read-only (no Excluir / Editar / Pagar, which would act on a non-existent tx).
+  const synthetic = tx?.id.includes(":") ?? false;
+
+  async function undoPay(id: string) {
+    if (undoing) return;
+    setUndoing(true);
+    const result = await undoPaymentAction({ id });
+    setUndoing(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast("Pagamento desfeito.");
+    closeDetail();
+  }
+
+  async function undoReceipt(id: string) {
+    if (undoing) return;
+    setUndoing(true);
+    const result = await undoReceiveAction({ id });
+    setUndoing(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast("Recebimento desfeito.");
+    closeDetail();
+  }
 
   async function moveBill(id: string, direction: "prev" | "next") {
     if (moving) return;
@@ -42,6 +85,25 @@ export function TxDetailModal({ today }: { today: string }) {
     }
     toast(direction === "prev" ? "Movido para a fatura anterior." : "Movido para a fatura seguinte.");
     closeDetail();
+  }
+
+  /**
+   * Settle a forecast row. A previsto is not a transaction, so it is BOOKED first (server-side, on
+   * the occurrence's own date) and the Pagar/Receber modal then opens on the row that was created —
+   * never on the rule's anchor, whose own month must not be touched.
+   */
+  async function settleForecast(item: TransactionListItem, anchor: TransactionListItem) {
+    if (booking) return;
+    setBooking(true);
+    const result = await materializeOccurrenceAction({ anchorId: anchor.id, date: item.date });
+    setBooking(false);
+    if (!result.ok || !result.id) {
+      toast(result.ok ? "Não foi possível lançar." : result.error, "error");
+      return;
+    }
+    const booked: TransactionListItem = { ...item, id: result.id, projected: false };
+    if (anchor.isPayable) openPay(booked);
+    else openReceive(booked);
   }
 
   async function removeDirect(item: TransactionListItem) {
@@ -166,7 +228,7 @@ export function TxDetailModal({ today }: { today: string }) {
               </div>
             )}
 
-            {tx.source === "card" && (
+            {tx.source === "card" && !synthetic && (
               <div style={{ marginTop: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>
                   Fatura
@@ -194,6 +256,78 @@ export function TxDetailModal({ today }: { today: string }) {
                     <Icon name="chevron-right" size={15} />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {tx.isPaid && !synthetic && (
+              <div style={{ marginTop: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>
+                  Pagamento
+                </div>
+                <div className="summary-box" style={{ margin: 0 }}>
+                  <div className="sb-row">
+                    <span className="k">Pago em</span>
+                    <span className="v">{relativeDateLabel(tx.paidAt ?? today, today)}</span>
+                  </div>
+                  <div className="sb-row">
+                    <span className="k">Valor pago</span>
+                    <span className="v">
+                      <Money cents={tx.paidAmountCents ?? 0} withSign={false} />
+                    </span>
+                  </div>
+                  {tx.paidAccountLabel && (
+                    <div className="sb-row">
+                      <span className="k">Conta</span>
+                      <span className="v">{tx.paidAccountLabel}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ marginTop: 10 }}
+                  onClick={() => undoPay(tx.id)}
+                  disabled={undoing}
+                >
+                  <Icon name="rotate-ccw" size={14} />
+                  Desfazer pagamento
+                </button>
+              </div>
+            )}
+
+            {tx.isReceived && !synthetic && (
+              <div style={{ marginTop: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>
+                  Recebimento
+                </div>
+                <div className="summary-box" style={{ margin: 0 }}>
+                  <div className="sb-row">
+                    <span className="k">Recebido em</span>
+                    <span className="v">{relativeDateLabel(tx.receivedAt ?? today, today)}</span>
+                  </div>
+                  <div className="sb-row">
+                    <span className="k">Valor recebido</span>
+                    <span className="v">
+                      <Money cents={tx.receivedAmountCents ?? tx.amountCents} withSign={false} />
+                    </span>
+                  </div>
+                  {tx.receivedAccountLabel && (
+                    <div className="sb-row">
+                      <span className="k">Conta</span>
+                      <span className="v">{tx.receivedAccountLabel}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  style={{ marginTop: 10 }}
+                  onClick={() => undoReceipt(tx.id)}
+                  disabled={undoing}
+                >
+                  <Icon name="rotate-ccw" size={14} />
+                  Desfazer recebimento
+                </button>
               </div>
             )}
 
@@ -246,26 +380,82 @@ export function TxDetailModal({ today }: { today: string }) {
             )}
           </div>
 
-          <div className="modal-foot" style={{ justifyContent: "space-between" }}>
-            <button
-              type="button"
-              className="btn btn-quiet"
-              style={{ color: "var(--rose-500)" }}
-              onClick={() => (tx.parcela || tx.isFixed ? openDelete(tx) : removeDirect(tx))}
-            >
-              <Icon name="trash-2" size={16} />
-              Excluir
-            </button>
-            <div className="row gap-2">
-              <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>
-                <Icon name="pencil" size={16} />
-                Editar
-              </button>
-              <button type="button" className="btn btn-primary" onClick={closeDetail}>
-                Fechar
-              </button>
+          {synthetic ? (
+            <div className="modal-foot" style={{ justifyContent: ruleAnchor ? "space-between" : "flex-end" }}>
+              {ruleAnchor && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-quiet"
+                    style={{ color: "var(--rose-500)" }}
+                    onClick={() => openDelete(ruleAnchor)}
+                  >
+                    <Icon name="trash-2" size={16} />
+                    Excluir fixo
+                  </button>
+                  <div className="row gap-2">
+                    {(ruleAnchor.isPayable || ruleAnchor.isReceivable) && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => settleForecast(tx, ruleAnchor)}
+                        disabled={booking}
+                        title="Lança este mês agora e abre o pagamento"
+                      >
+                        <Icon name={ruleAnchor.isPayable ? "wallet" : "hand-coins"} size={16} />
+                        {booking ? "Lançando…" : ruleAnchor.isPayable ? "Antecipar" : "Receber"}
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-ghost" onClick={() => openEdit(ruleAnchor)}>
+                      <Icon name="pencil" size={16} />
+                      Editar fixo
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                      Fechar
+                    </button>
+                  </div>
+                </>
+              )}
+              {!ruleAnchor && (
+                <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                  Fechar
+                </button>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="modal-foot" style={{ justifyContent: "space-between" }}>
+              <button
+                type="button"
+                className="btn btn-quiet"
+                style={{ color: "var(--rose-500)" }}
+                onClick={() => (tx.parcela || tx.isFixed ? openDelete(tx) : removeDirect(tx))}
+              >
+                <Icon name="trash-2" size={16} />
+                Excluir
+              </button>
+              <div className="row gap-2">
+                {tx.isPayable && !tx.isPaid && !tx.rolled && (
+                  <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
+                    <Icon name="wallet" size={16} />
+                    Pagar
+                  </button>
+                )}
+                {tx.isReceivable && !tx.isReceived && (
+                  <button type="button" className="btn btn-ghost" onClick={() => openReceive(tx)}>
+                    <Icon name="hand-coins" size={16} />
+                    Receber
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost" onClick={() => openEdit(tx)}>
+                  <Icon name="pencil" size={16} />
+                  Editar
+                </button>
+                <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
         </DialogModal>
       )}
     </Dialog>

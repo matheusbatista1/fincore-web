@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { centsSchema, idSchema, isoDateSchema } from "./common";
+import { centsSchema, competenceMonthSchema, idSchema, isoDateSchema } from "./common";
 
 /**
  * Which rows an edit (or delete) applies to: just this one, this + later, or the
@@ -165,10 +165,72 @@ export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>;
 /** Stop a fixed transaction from recurring (keeps the row). */
 export const stopRecurringSchema = z.object({ id: idSchema });
 
+/**
+ * Book one occurrence of a recurring rule ahead of its automatic pass — what "Pagar"/"Receber" on a
+ * previsto needs, since a forecast is not a transaction and cannot be settled. The server validates
+ * that `date` really is where the rule falls in that month.
+ */
+export const materializeOccurrenceSchema = z.object({
+  /** The recurring transaction the forecast derives from. */
+  anchorId: idSchema,
+  /** The occurrence's own date (`YYYY-MM-DD`). */
+  date: isoDateSchema,
+});
+
 /** Move a card charge to the previous/next bill. */
 export const moveBillSchema = z.object({
   id: idSchema,
   direction: z.enum(["prev", "next"]),
+});
+
+/**
+ * Pay a deferred obligation (boleto/loan/financing): choose the paying account, optionally the
+ * paid date (defaults to today) and a custom paid amount (early settlement, e.g. a loan discount).
+ * The original due date and amount are kept intact for history.
+ */
+export const payTransactionSchema = z.object({
+  id: idSchema,
+  paidAccountId: idSchema,
+  paidAt: isoDateSchema.optional(),
+  paidAmountCents: centsSchema.positive("Informe um valor maior que zero.").optional(),
+});
+export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
+
+/** Revert a payment (make the obligation pending again). */
+export const undoPaymentSchema = z.object({ id: idSchema });
+
+/**
+ * Receive a normal income (the income-side mirror of {@link payTransactionSchema}): choose the
+ * receiving account, optionally the receipt date (defaults to today) and a custom received amount
+ * (a person paying you back a different value). The original booked date and amount stay intact.
+ */
+export const receiveIncomeSchema = z.object({
+  id: idSchema,
+  receivedAccountId: idSchema,
+  receivedAt: isoDateSchema.optional(),
+  receivedAmountCents: centsSchema.positive("Informe um valor maior que zero.").optional(),
+});
+export type ReceiveIncomeInput = z.infer<typeof receiveIncomeSchema>;
+
+/** Revert a receipt (make the income a pending receivable again). */
+export const undoReceiveSchema = z.object({ id: idSchema });
+
+/**
+ * Pay a whole card fatura: the server computes the bill total for (card, competence) and debits
+ * the chosen account on the paid date (defaults to today). Card charges are settled via the bill,
+ * never per-charge.
+ */
+export const payCardBillSchema = z.object({
+  cardId: idSchema,
+  competenceMonth: competenceMonthSchema,
+  paidAccountId: idSchema,
+  paidAt: isoDateSchema.optional(),
+});
+
+/** Revert a fatura payment (the whole bill becomes pending again). */
+export const undoCardBillPaymentSchema = z.object({
+  cardId: idSchema,
+  competenceMonth: competenceMonthSchema,
 });
 
 export const settlementInputSchema = z.object({
@@ -201,3 +263,34 @@ export const rollDebtSchema = z.object({
   description: z.string().trim().max(120).default(""),
 });
 export type RollDebtInput = z.infer<typeof rollDebtSchema>;
+
+/**
+ * "Rolar o saldo do mês": roll what the person still owes as a POOL — no specific transaction is
+ * abated. The server zeroes the outstanding via a cash-less rollover settlement (clamped, so it can
+ * never overshoot) and creates the new debt (principal + juros) on the chosen instrument, fully owed
+ * by the person. Matches how pooled debts are managed in practice ("she owed 3.000, paid 2.600, I
+ * roll the 400"), where no single lançamento corresponds to the remainder.
+ */
+export const rollMonthDebtSchema = z.object({
+  personId: idSchema,
+  /** The browsed month whose remainder is being rolled — the server validates the outstanding
+   * through it and requires the new debt to land in a LATER month (so the rollover settlement
+   * covers the old debts, never the new one). */
+  month: competenceMonthSchema,
+  principalCents: centsSchema.positive("Informe o valor da dívida."),
+  jurosCents: centsSchema.nonnegative().default(0),
+  date: isoDateSchema,
+  /** Pool rolls move the debt to a DEBT instrument only — `account`/`overdraft` would debit real
+   * cash at roll time, but a pool roll moves no money ("sem dinheiro trocando de mãos"). */
+  source: z.enum(["card", "loan"]),
+  /** When the roll DID move real money — a Pix no crédito whose cash landed in an account (and was
+   * used to cover the person's share) — the rollover settlement is account-backed: it credits this
+   * account and counts as third-party money (dropped from the personal lens). Null = paper-only. */
+  cashAccountId: idSchema.nullable().default(null),
+  cardId: idSchema.nullable().default(null),
+  accountId: idSchema.nullable().default(null),
+  linkedAccountId: idSchema.nullable().default(null),
+  installments: z.number().int().min(1).max(420).default(1),
+  description: z.string().trim().max(120).default(""),
+});
+export type RollMonthDebtInput = z.infer<typeof rollMonthDebtSchema>;

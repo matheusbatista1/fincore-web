@@ -61,6 +61,7 @@ function workspace(transactions: (ExpenseTransaction | IncomeTransaction)[]): Wo
     budgets: [],
     goals: [],
     cardBillDates: [],
+    cardBillPayments: [],
   };
 }
 

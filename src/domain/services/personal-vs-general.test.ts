@@ -20,6 +20,12 @@ interface ExpenseOpts {
   readonly amountCents: number;
   readonly date?: string;
   readonly splits?: readonly TransactionSplit[];
+  /** Defaults to "card"; pass "loan"/"boleto"/"financing" for a payable obligation. */
+  readonly source?: ExpenseTransaction["source"];
+  /** When set, marks the obligation PAID on this date. */
+  readonly paidAt?: string;
+  /** The amount actually paid (may differ from |amount| when settled with a discount). */
+  readonly paidAmountCents?: number;
 }
 
 function expense(opts: ExpenseOpts): ExpenseTransaction {
@@ -27,6 +33,7 @@ function expense(opts: ExpenseOpts): ExpenseTransaction {
   const othersTotal = splits.reduce((s, sp) => s + sp.shareCents, 0);
   // myShare = |amount| − Σ split shares, mirroring the contract's derivation.
   const myShareCents = Math.abs(opts.amountCents) - othersTotal;
+  const source = opts.source ?? "card";
   return {
     kind: "expense",
     id: opts.id,
@@ -34,8 +41,8 @@ function expense(opts: ExpenseOpts): ExpenseTransaction {
     date: opts.date ?? "2026-06-10",
     amountCents: opts.amountCents,
     categoryId: null,
-    source: "card",
-    cardId: "c-nu",
+    source,
+    cardId: source === "card" ? "c-nu" : null,
     accountId: null,
     linkedAccountId: null,
     splits,
@@ -43,6 +50,9 @@ function expense(opts: ExpenseOpts): ExpenseTransaction {
     installment: null,
     recurrence: null,
     billMonthOverride: null,
+    paidAt: opts.paidAt ?? null,
+    paidAccountId: opts.paidAt ? "it" : null,
+    paidAmountCents: opts.paidAmountCents ?? null,
   };
 }
 
@@ -170,6 +180,71 @@ describe("computeViewTotals — card credits (estorno)", () => {
     // The card credit only reduces a card bill — it is invisible to both lenses.
     expect(computeViewTotals(txs, "general").income.cents).toBe(500_000);
     expect(computeViewTotals(txs, "personal").income.cents).toBe(500_000);
+  });
+});
+
+describe("computeViewTotals — paid obligation settled with a discount", () => {
+  it("counts a loan at what was PAID, not its original face value (general)", () => {
+    // R$500 loan settled early for R$470 → the "gasto" is 470, not 500.
+    const txs: Transaction[] = [
+      expense({
+        id: "loan",
+        amountCents: -50_000,
+        source: "loan",
+        paidAt: "2026-06-15",
+        paidAmountCents: 47_000,
+      }),
+    ];
+    expect(computeViewTotals(txs, "general").expense.cents).toBe(47_000);
+  });
+
+  it("counts the discounted amount in the personal lens too (no split → full is yours)", () => {
+    const txs: Transaction[] = [
+      expense({
+        id: "loan",
+        amountCents: -50_000,
+        source: "loan",
+        paidAt: "2026-06-15",
+        paidAmountCents: 47_000,
+      }),
+    ];
+    expect(computeViewTotals(txs, "personal").expense.cents).toBe(47_000);
+  });
+
+  it("scales the user's share proportionally when a shared obligation is discounted", () => {
+    // |amount| 500, other person owes 200 (myShare 300), settled for 470 (6% off).
+    // personal share = round(300 * 470/500) = 282.00; general = 470.00.
+    const txs: Transaction[] = [
+      expense({
+        id: "shared-loan",
+        amountCents: -50_000,
+        source: "financing",
+        splits: [{ personId: "p-x", shareCents: 20_000 }],
+        paidAt: "2026-06-15",
+        paidAmountCents: 47_000,
+      }),
+    ];
+    expect(computeViewTotals(txs, "general").expense.cents).toBe(47_000);
+    expect(computeViewTotals(txs, "personal").expense.cents).toBe(28_200);
+  });
+
+  it("still counts an UNPAID obligation at its full face value", () => {
+    const txs: Transaction[] = [expense({ id: "loan", amountCents: -50_000, source: "loan" })];
+    expect(computeViewTotals(txs, "general").expense.cents).toBe(50_000);
+    expect(computeViewTotals(txs, "personal").expense.cents).toBe(50_000);
+  });
+
+  it("counts the full amount when paid without a discount (paidAmount = original)", () => {
+    const txs: Transaction[] = [
+      expense({
+        id: "loan",
+        amountCents: -50_000,
+        source: "loan",
+        paidAt: "2026-06-15",
+        paidAmountCents: 50_000,
+      }),
+    ];
+    expect(computeViewTotals(txs, "general").expense.cents).toBe(50_000);
   });
 });
 

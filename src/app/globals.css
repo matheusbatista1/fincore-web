@@ -241,6 +241,9 @@
 @utility tnum {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
+  /* A money value never line-breaks inside itself ("R$" on one line, the number on the
+     next) — when space runs out, the whole value drops to the next line as one unit. */
+  white-space: nowrap;
 }
 
 /* Atmospheric purple glow behind the app */

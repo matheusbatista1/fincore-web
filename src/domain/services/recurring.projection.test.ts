@@ -1,10 +1,18 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
+import type { CreditCard } from "../entities/credit-card";
 import type { ExpenseTransaction, IncomeTransaction, Transaction } from "../entities/transaction";
 import type { CompetenceMonth } from "../value-objects/competence-month";
 import { dateInMonth, monthOf } from "../value-objects/competence-month";
-import { type ProjectedTransaction, projectRecurring, transactionsForMonth } from "./recurring.projection";
+import { billingCompetence } from "./card-bill.calculator";
+import {
+  freshOccurrence,
+  type ProjectedTransaction,
+  projectRecurring,
+  recurringOccurrencesBetween,
+  transactionsForMonth,
+} from "./recurring.projection";
 
 // ---------------------------------------------------------------------------
 // Builders — minimal, fully-typed factories so tests read like the prototype.
@@ -293,16 +301,19 @@ describe("projectRecurring — invariants", () => {
         for (const p of projections as readonly ProjectedTransaction[]) {
           expect(monthOf(p.source.date) < month).toBe(true);
         }
-        // A projection is emitted for every recurring source that is (a) anchored
-        // before the target month and (b) whose identity is not already booked as
-        // a real recurring entry this month.
+        // One projection per eligible RULE IDENTITY: a rule is eligible when it is (a) anchored
+        // before the target month and (b) not already booked by a real row this month. Two anchors
+        // of the same rule (e.g. the user re-booked it) still forecast a single occurrence.
         const realIdentities = new Set(
           txs.filter((t) => monthOf(t.date) === month).map((t) => `${t.source}|${t.cardId}|${t.description}`),
         );
-        const eligible = txs.filter(
-          (t) => monthOf(t.date) < month && !realIdentities.has(`${t.source}|${t.cardId}|${t.description}`),
+        const eligible = new Set(
+          txs
+            .filter((t) => monthOf(t.date) < month)
+            .map((t) => `${t.source}|${t.cardId}|${t.description}`)
+            .filter((identity) => !realIdentities.has(identity)),
         );
-        expect(projections.length).toBe(eligible.length);
+        expect(projections.length).toBe(eligible.size);
       }),
     );
   });
@@ -344,5 +355,311 @@ describe("projectRecurring — invariants", () => {
         },
       ),
     );
+  });
+});
+
+describe("freshOccurrence", () => {
+  it("drops the anchor's paid/rolled state and moves the expense to the occurrence date", () => {
+    const anchor = expense({
+      id: "aluguel",
+      description: "Aluguel",
+      date: "2026-06-03",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 3 },
+      paidAt: "2026-06-01",
+      paidAccountId: "acc-1",
+      paidAmountCents: 40000,
+      rolledAt: "2026-06-05",
+    });
+    const occ = freshOccurrence(anchor, "2026-07-03");
+
+    expect(occ).toMatchObject({
+      id: "aluguel",
+      date: "2026-07-03",
+      paidAt: null,
+      paidAccountId: null,
+      paidAmountCents: null,
+      rolledAt: null,
+      // The rule itself and the money/split shape are preserved.
+      amountCents: -1000,
+      myShareCents: 1000,
+      recurrence: { dayOfMonth: 3 },
+    });
+  });
+
+  it("drops the anchor's received state on an income occurrence", () => {
+    const anchor = income({
+      id: "salario",
+      description: "Salário",
+      date: "2026-07-01",
+      accountId: "acc-1",
+      recurrence: { dayOfMonth: 1 },
+      receivedAt: "2026-07-01",
+      receivedAccountId: "acc-1",
+      receivedAmountCents: 100000,
+    });
+    expect(freshOccurrence(anchor, "2026-08-01")).toMatchObject({
+      date: "2026-08-01",
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    });
+  });
+});
+
+describe("projectRecurring — competence-aware bucketing", () => {
+  // Closes 24, due 2 → a charge on the 4th bills the NEXT month.
+  const nubank: CreditCard = {
+    id: "c-nu",
+    bank: "Nubank",
+    product: "Gold",
+    flag: "mastercard",
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 1_000_000,
+    closingDay: 24,
+    dueDay: 2,
+  };
+  const billOf = billingCompetence([nubank]);
+  const sub = expense({
+    id: "weverse",
+    description: "Google Weverse Connec",
+    date: "2026-06-04",
+    amountCents: -1099,
+    source: "card",
+    cardId: "c-nu",
+    recurrence: { dayOfMonth: 4 },
+  });
+
+  it("emits the occurrence CHARGED last month for the bill due this month", () => {
+    const [p] = projectRecurring([sub], "2026-08", billOf);
+    expect(p?.date).toBe("2026-07-04"); // charged 04/07 → bills August
+  });
+
+  it("does not emit the charge that bills a LATER month", () => {
+    const dates = projectRecurring([sub], "2026-08", billOf).map((p) => p.date);
+    expect(dates).not.toContain("2026-08-04"); // that one bills September
+  });
+
+  it("a real NON-recurring row of the same rule in the bill suppresses the projection", () => {
+    // The user re-entered a vanished subscription by hand: a plain row, not marked fixo.
+    const manual = expense({
+      id: "weverse-jul",
+      description: "Google Weverse Connec",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+    });
+    expect(projectRecurring([sub, manual], "2026-08", billOf)).toEqual([]);
+  });
+
+  it("matches the rule when the real row was re-typed with different casing/spacing", () => {
+    const retyped = expense({
+      id: "weverse-jul",
+      description: "  google weverse   connec ",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+    });
+    expect(projectRecurring([sub, retyped], "2026-08", billOf)).toEqual([]);
+  });
+
+  it("emits one occurrence per rule identity even with duplicated anchors", () => {
+    const second = expense({ ...sub, id: "weverse-2", date: "2026-05-04" });
+    expect(projectRecurring([sub, second], "2026-08", billOf)).toHaveLength(1);
+  });
+
+  it("an abated (rolled) real row does not suppress the projection", () => {
+    const rolled = expense({
+      id: "weverse-rolled",
+      description: "Google Weverse Connec",
+      date: "2026-07-04",
+      amountCents: -1099,
+      source: "card",
+      cardId: "c-nu",
+      rolledAt: "2026-07-10",
+    });
+    expect(projectRecurring([sub, rolled], "2026-08", billOf)).toHaveLength(1);
+  });
+});
+
+describe("recurringOccurrencesBetween", () => {
+  const rent = expense({
+    id: "aluguel",
+    description: "Aluguel",
+    date: "2026-06-03",
+    source: "boleto",
+    linkedAccountId: "acc-1",
+    amountCents: -46967,
+    recurrence: { dayOfMonth: 3 },
+  });
+
+  it("returns the occurrences due in (from, to], ordered by date", () => {
+    const occ = recurringOccurrencesBetween([rent], "2026-06-30", "2026-08-03");
+    expect(occ.map((o) => o.date)).toEqual(["2026-07-03", "2026-08-03"]);
+  });
+
+  it("excludes the boundary date itself (the watermark is exclusive)", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-07-03", "2026-07-31").map((o) => o.date)).toEqual([]);
+  });
+
+  it("includes an occurrence on the closing date (the range is inclusive at the end)", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-07-31", "2026-08-03").map((o) => o.date)).toEqual([
+      "2026-08-03",
+    ]);
+  });
+
+  it("never books before the rule's own anchor", () => {
+    expect(recurringOccurrencesBetween([rent], "2026-01-31", "2026-06-30").map((o) => o.date)).toEqual([]);
+  });
+
+  it("skips a month already booked by a real row of the same rule (manual re-entry)", () => {
+    const manual = expense({
+      id: "aluguel-jul",
+      description: "aluguel", // different casing on purpose — same rule
+      date: "2026-07-03",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      amountCents: -46967,
+    });
+    expect(
+      recurringOccurrencesBetween([rent, manual], "2026-06-30", "2026-08-03").map((o) => o.date),
+    ).toEqual(["2026-08-03"]);
+  });
+
+  it("books one occurrence per month even with duplicated anchors of the same rule", () => {
+    const second = expense({ ...rent, id: "aluguel-2", date: "2026-05-03" });
+    expect(recurringOccurrencesBetween([rent, second], "2026-06-30", "2026-07-31")).toHaveLength(1);
+  });
+
+  it("clamps the day to a short month and returns nothing for an empty range", () => {
+    const day31 = expense({
+      id: "d31",
+      description: "Dia 31",
+      date: "2026-01-31",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 31 },
+    });
+    expect(recurringOccurrencesBetween([day31], "2026-01-31", "2026-02-28").map((o) => o.date)).toEqual([
+      "2026-02-28",
+    ]);
+    expect(recurringOccurrencesBetween([day31], "2026-03-10", "2026-03-10")).toEqual([]);
+  });
+});
+
+describe("projectRecurring — audit regressions", () => {
+  it("an abated (rolled) rule forecasts nothing", () => {
+    // freshOccurrence clears rolledAt, so consumers can no longer recognise a rolled source —
+    // the guard has to live here or the rolled debt reappears as phantom future charges.
+    const rolled = expense({
+      id: "aluguel",
+      description: "Aluguel",
+      date: "2026-06-05",
+      source: "boleto",
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 5 },
+      rolledAt: "2026-06-20",
+    });
+    expect(projectRecurring([rolled], "2026-09")).toEqual([]);
+    expect(recurringOccurrencesBetween([rolled], "2026-08-31", "2026-09-30")).toEqual([]);
+  });
+
+  it("a per-charge moved bill does not freeze the rule in that one month", () => {
+    // "Fatura anterior" pins ONE charge via billMonthOverride; carrying it into every occurrence
+    // made competenceOf return that month forever, so the rule vanished from all future bills.
+    const pinned = expense({
+      id: "sub",
+      description: "Assinatura",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+      billMonthOverride: "2026-06",
+    });
+    const nubank: CreditCard = {
+      id: "c-nu",
+      bank: "Nubank",
+      product: "Gold",
+      flag: "mastercard",
+      themeKey: "",
+      maskedNumber: "",
+      limitCents: 1_000_000,
+      closingDay: 24,
+      dueDay: 2,
+    };
+    // Charged the 10th → bills the next month: July's charge belongs to the August fatura.
+    const [p] = projectRecurring([pinned], "2026-08", billingCompetence([nubank]));
+    expect(p?.date).toBe("2026-07-10");
+  });
+
+  it("materialisation skips an installment anchor (a finite plan, not a monthly rule)", () => {
+    const parcela = expense({
+      id: "airpods",
+      description: "Airpods",
+      date: "2026-06-14",
+      source: "card",
+      cardId: "c-nu",
+      amountCents: -14325,
+      recurrence: { dayOfMonth: 14 },
+      installment: { groupId: "g-airpods", number: 1, total: 12, status: "atual" },
+    });
+    expect(recurringOccurrencesBetween([parcela], "2026-06-30", "2026-07-31")).toEqual([]);
+  });
+});
+
+describe("projectRecurring — forecast-review regressions", () => {
+  const nubank: CreditCard = {
+    id: "c-nu",
+    bank: "Nubank",
+    product: "Gold",
+    flag: "mastercard",
+    themeKey: "",
+    maskedNumber: "",
+    limitCents: 1_000_000,
+    closingDay: 24,
+    dueDay: 2,
+  };
+  const billOf = billingCompetence([nubank]);
+
+  it("a charge MOVED to another fatura still suppresses its charge month's forecast", () => {
+    // Rule day 10 anchored June. July's materialized charge was moved to the September bill
+    // (billMonthOverride): August's forecast must NOT re-emit a phantom 10/07 occurrence — the
+    // charge happened; only its fatura changed.
+    const rule = expense({
+      id: "sub",
+      description: "Assinatura",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+    });
+    const moved = expense({
+      id: "sub-jul",
+      description: "Assinatura",
+      date: "2026-07-10",
+      source: "card",
+      cardId: "c-nu",
+      billMonthOverride: "2026-09",
+    });
+    expect(projectRecurring([rule, moved], "2026-08", billOf)).toEqual([]);
+    // September holds the REAL moved charge — no forecast on top of it either.
+    expect(projectRecurring([rule, moved], "2026-09", billOf).map((p) => p.date)).toEqual(["2026-08-10"]);
+  });
+
+  it("an installment-carrying rule forecasts nothing (its parcelas are already real rows)", () => {
+    const plan = expense({
+      id: "parcelas",
+      description: "Notebook",
+      date: "2026-06-10",
+      source: "card",
+      cardId: "c-nu",
+      recurrence: { dayOfMonth: 10 },
+      installment: { groupId: "g", number: 1, total: 10, status: "atual" },
+    });
+    expect(projectRecurring([plan], "2026-08", billOf)).toEqual([]);
   });
 });

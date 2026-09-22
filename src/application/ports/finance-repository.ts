@@ -1,6 +1,7 @@
 import type { Account } from "@/domain/entities/account";
 import type { Budget } from "@/domain/entities/budget";
 import type { CardBillDate } from "@/domain/entities/card-bill-date";
+import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
@@ -30,6 +31,15 @@ export interface UserProfile {
   readonly avatarUrl: string | null;
   readonly enabledModules: ModuleKey[];
   readonly onboardedAt: Date | null;
+  /** When on, due obligations and faturas are auto-paid from {@link defaultPayAccountId}. */
+  readonly autoPaymentsEnabled: boolean;
+  /** The account auto-payments debit from; null when unset. */
+  readonly defaultPayAccountId: string | null;
+  /** The date auto-payments were turned on (`YYYY-MM-DD`); reconciliation only books from here on. */
+  readonly autoPaymentsSince: string | null;
+  /** The date recurring rules were materialised through (`YYYY-MM-DD`); the next pass books every
+   * occurrence dated after it, up to today. Null = start from the beginning of the current month. */
+  readonly recurringMaterializedThrough: string | null;
 }
 
 /**
@@ -48,6 +58,8 @@ export interface Workspace {
   readonly goals: Goal[];
   /** Per-bill closing/due-day overrides (one row per card+competence month). */
   readonly cardBillDates: CardBillDate[];
+  /** Paid credit-card faturas (one active row per card+competence month). */
+  readonly cardBillPayments: CardBillPayment[];
 }
 
 /** One transaction row to persist (a single tx, or one parcela of an installment). */
@@ -69,6 +81,11 @@ export interface NewTransactionEntry {
   readonly parcelaStatus?: ParcelaStatus | null;
   readonly fromPersonId?: string | null;
   readonly isReimbursement?: boolean;
+  /** Income receipt state — set for a normal income received on booking (date ≤ today); a pending
+   * (future-dated) receivable leaves these null. Mirrors the paid-obligation fields. */
+  readonly receivedAt?: IsoDate | null;
+  readonly receivedAccountId?: string | null;
+  readonly receivedAmountCents?: number | null;
   readonly transferFromAccountId?: string | null;
   readonly transferToAccountId?: string | null;
   readonly transferValueCents?: number | null;
@@ -118,6 +135,15 @@ export interface SettlementData {
   readonly note?: string;
 }
 
+export interface CardBillPaymentData {
+  readonly cardId: string;
+  readonly competenceMonth: string;
+  readonly amountCents: number;
+  readonly accountId: string;
+  readonly paidOn: IsoDate;
+  readonly note?: string;
+}
+
 /**
  * Port for reading/writing a user's finance data. Implementations enforce per-user
  * isolation via Postgres RLS (the `userId` argument scopes the auth context); every
@@ -128,6 +154,15 @@ export interface FinanceRepository {
   /** The user's profile + settings (name, enabled modules, onboarding state). */
   getProfile(userId: string): Promise<UserProfile>;
   updateProfile(userId: string, input: { displayName: string }): Promise<void>;
+  /** Persist the auto-payments preference + the account they debit from + the "enabled since" date. */
+  updatePreferences(
+    userId: string,
+    input: {
+      autoPaymentsEnabled: boolean;
+      defaultPayAccountId: string | null;
+      autoPaymentsSince: string | null;
+    },
+  ): Promise<void>;
   /** Persist (or clear) the user's avatar URL. */
   updateAvatar(userId: string, avatarUrl: string | null): Promise<void>;
   /** Persist the set of optional modules the user has turned on. */
@@ -200,6 +235,56 @@ export interface FinanceRepository {
    * calculations) and persist `command` (the new debt on the chosen instrument), atomically.
    */
   rollPersonDebt(userId: string, originalId: string, command: CreateTransactionCommand): Promise<void>;
+  /**
+   * "Rolar o saldo do mês" (pool roll): zero the person's outstanding via a cash-less rollover
+   * settlement and persist `command` (the new debt on the chosen instrument), atomically. No
+   * transaction is abated — the settlement's zero-clamp covers the oldest open debts first.
+   */
+  rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
+  /**
+   * Persist a single-entry command and return the new transaction's id — for flows that must act
+   * on the row right after creating it (paying a recurring occurrence ahead of its day).
+   */
+  createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string>;
+  /**
+   * Book the materialised occurrences of the user's recurring rules and advance the watermark to
+   * `through`, atomically. The watermark doubles as an OPTIMISTIC LOCK: the update only applies
+   * while the stored value is still behind `through`, so a second pass racing the first (app load
+   * × cron) writes nothing and the rows cannot be double-booked. Returns how many were inserted
+   * (0 when the lock was lost).
+   */
+  materializeRecurring(
+    userId: string,
+    through: IsoDate,
+    commands: readonly CreateTransactionCommand[],
+  ): Promise<number>;
+  /**
+   * Mark a deferred obligation (boleto/loan/financing) as PAID: it debits `paidAccountId` by
+   * `paidAmountCents` on `paidAt`, while its original due date and amount stay intact for history.
+   */
+  payTransaction(
+    userId: string,
+    id: string,
+    payment: { paidAt: IsoDate; paidAccountId: string; paidAmountCents: number },
+  ): Promise<void>;
+  /** Revert a payment: clears the paid fields so the obligation is pending again. */
+  undoPayment(userId: string, id: string): Promise<void>;
+  /**
+   * Mark a normal income as RECEIVED: it credits `receivedAccountId` by `receivedAmountCents` on
+   * `receivedAt`, while its original booked date and amount stay intact for history. When the income
+   * is a payment from a person, receiving abates that person's debt by the amount received.
+   */
+  receiveIncome(
+    userId: string,
+    id: string,
+    receipt: { receivedAt: IsoDate; receivedAccountId: string; receivedAmountCents: number },
+  ): Promise<void>;
+  /** Revert a receipt: clears the received fields so the income is a pending receivable again. */
+  undoReceive(userId: string, id: string): Promise<void>;
   /** Soft-delete a transaction; for installments, `scope` decides how many. Returns the count removed. */
   deleteTransaction(userId: string, id: string, scope: "one" | "forward" | "all"): Promise<number>;
   /** Stop a fixed transaction from recurring: clears its recurrence, keeping the row. */
@@ -212,4 +297,12 @@ export interface FinanceRepository {
   updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
   /** Soft-delete a settlement (revert a person payment). */
   deleteSettlement(userId: string, id: string): Promise<void>;
+
+  /**
+   * Pay a card fatura (upsert the one active payment for its card+competence): debits the account
+   * by `amountCents` on `paidOn`. Re-paying the same bill replaces the active row.
+   */
+  payCardBill(userId: string, input: CardBillPaymentData): Promise<void>;
+  /** Revert a fatura payment: soft-delete the active payment for that card+competence. */
+  undoCardBillPayment(userId: string, cardId: string, competenceMonth: string): Promise<void>;
 }

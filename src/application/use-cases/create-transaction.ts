@@ -3,6 +3,7 @@ import { Money } from "@/domain/money/money";
 import { generateInstallments } from "@/domain/services/installment.generator";
 import { calculateSplit } from "@/domain/services/split.calculator";
 import { dayOf, type IsoDate } from "@/domain/value-objects/competence-month";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { err, ok, type Result } from "@/shared/result";
 import type { CreateTransactionInput } from "@/shared/schemas/transaction";
 import type {
@@ -16,9 +17,17 @@ export interface CreateTransactionError {
   readonly message: string;
 }
 
-/** Build the persist command from raw input, recomputing splits/installments server-side. */
+/**
+ * Build the persist command from raw input, recomputing splits/installments server-side.
+ *
+ * `today` (`YYYY-MM-DD`) drives the income receipt default ("pela data"): a normal income booked
+ * for today or earlier is received on booking (credits the balance immediately); a future-dated one
+ * is a pending receivable (received once the user confirms it via the Receber flow). When `today`
+ * is omitted the income is treated as received-on-booking (the legacy/immediate behavior).
+ */
 export function buildCommand(
   input: CreateTransactionInput,
+  today?: IsoDate,
 ): Result<CreateTransactionCommand, CreateTransactionError> {
   if (input.kind === "transfer") {
     const entry: NewTransactionEntry = {
@@ -38,6 +47,10 @@ export function buildCommand(
     // A card credit (estorno) targets a card instead of an account: it only
     // reduces the card bill, never counts as income, and carries no person/share.
     const isCardCredit = input.cardId !== null;
+    // "Pela data": a normal income booked for today or earlier is received on booking; a future one
+    // is a pending receivable (received_at null) until the user confirms receipt. Card credits never
+    // flow through the received mechanism.
+    const receivedOnBooking = !isCardCredit && (today === undefined || input.date <= today);
     const entry: NewTransactionEntry = {
       kind: "income",
       description:
@@ -52,6 +65,13 @@ export function buildCommand(
       isReimbursement: !isCardCredit && input.fromPersonId !== null,
       recurrenceDayOfMonth: input.fixed ? dayOf(input.date) : null,
       myShareCents: isCardCredit ? 0 : input.amountCents,
+      ...(receivedOnBooking
+        ? {
+            receivedAt: input.date,
+            receivedAccountId: input.accountId,
+            receivedAmountCents: input.amountCents,
+          }
+        : {}),
     };
     return ok({ entries: [entry] });
   }
@@ -145,7 +165,7 @@ export async function createTransaction(
   userId: string,
   input: CreateTransactionInput,
 ): Promise<Result<void, CreateTransactionError>> {
-  const command = buildCommand(input);
+  const command = buildCommand(input, todayInBrazil());
   if (!command.ok) return command;
   await repo.createTransaction(userId, command.value);
   return ok(undefined);

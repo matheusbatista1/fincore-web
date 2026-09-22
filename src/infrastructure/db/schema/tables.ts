@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -50,6 +51,21 @@ export const users = pgTable(
     enabledModules: jsonb("enabled_modules").$type<ModuleKey[]>().notNull().default(sql`'[]'::jsonb`),
     /** Set when the first-run onboarding has been completed; null = not onboarded yet. */
     onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
+    /** When on, due obligations and faturas are auto-paid (booked) from `defaultPayAccountId`. */
+    autoPaymentsEnabled: boolean("auto_payments_enabled").notNull().default(false),
+    /** The single account auto-payments debit from; required while autoPaymentsEnabled is on. The
+     * return type is annotated to break the users↔accounts reference cycle for TS inference. */
+    defaultPayAccountId: uuid("default_pay_account_id").references((): AnyPgColumn => accounts.id, {
+      onDelete: "set null",
+    }),
+    /** The date auto-payments were turned on; reconciliation only books items due on/after it, so
+     * enabling never retroactively books arbitrary past-due history. */
+    autoPaymentsSince: date("auto_payments_since", { mode: "string" }),
+    /** The last date recurring rules ("lançamentos fixos") were materialised through: every
+     * occurrence dated after it and up to today is booked as a real transaction on the next pass.
+     * Also the optimistic lock that keeps concurrent passes (app load × cron) from double-booking.
+     * Null falls back to the start of the current month, so enabling never back-fills history. */
+    recurringMaterializedThrough: date("recurring_materialized_through", { mode: "string" }),
     /** Set when the user requested deletion; a cron purges the account 30 days later. Login clears it. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     ...timestamps,
@@ -223,10 +239,24 @@ export const transactions = pgTable(
     /** Set when this expense was "rolled" into a new debt: kept for history but abated (excluded
      * from balances/obligations/totals/bills/ledger). Null = active. */
     rolledAt: timestamp("rolled_at", { withTimezone: true }),
+    /** When a deferred obligation (boleto/loan/financing) was PAID: the date the money left the
+     * account. The original occurred_on (due date) and amount_cents stay intact for tracking. */
+    paidAt: date("paid_at", { mode: "string" }),
+    /** Account the payment was drawn from (debited on paid_at). Set together with paid_at. */
+    paidAccountId: uuid("paid_account_id").references(() => accounts.id, { onDelete: "set null" }),
+    /** Amount actually paid, in cents (may differ from amount_cents on early settlement). */
+    paidAmountCents: bigint("paid_amount_cents", { mode: "number" }),
 
     // income-only
     fromPersonId: uuid("from_person_id").references(() => people.id, { onDelete: "set null" }),
     isReimbursement: boolean("is_reimbursement").notNull().default(false),
+    /** When a normal income was RECEIVED: the date the cash landed. A future-dated income is a
+     * pending receivable (received_at NULL) until received. The mirror of paid_at. */
+    receivedAt: date("received_at", { mode: "string" }),
+    /** Account the money landed in (credited on received_at). Set together with received_at. */
+    receivedAccountId: uuid("received_account_id").references(() => accounts.id, { onDelete: "set null" }),
+    /** Amount actually received, in cents (may differ from amount_cents — a partial/custom receipt). */
+    receivedAmountCents: bigint("received_amount_cents", { mode: "number" }),
 
     // transfer-only
     transferFromAccountId: uuid("transfer_from_account_id").references(() => accounts.id, {
@@ -263,6 +293,10 @@ export const transactions = pgTable(
       sql`kind <> 'transfer' OR (transfer_from_account_id IS NOT NULL AND transfer_to_account_id IS NOT NULL AND transfer_value_cents > 0 AND transfer_from_account_id <> transfer_to_account_id)`,
     ),
     check("chk_parcela_pair", sql`(installment_group_id IS NULL) = (parcela_no IS NULL)`),
+    // A payment records its date and paying account together (both or neither).
+    check("chk_paid_pair", sql`(paid_at IS NULL) = (paid_account_id IS NULL)`),
+    // A receipt records its date and receiving account together (both or neither).
+    check("chk_received_pair", sql`(received_at IS NULL) = (received_account_id IS NULL)`),
     ownerPolicy("transactions_owner"),
   ],
 );
@@ -357,5 +391,45 @@ export const settlements = pgTable(
     index("idx_settlements_person").on(t.personId).where(sql`deleted_at IS NULL`),
     check("chk_settlement_amount", sql`amount_cents <> 0`),
     ownerPolicy("settlements_owner"),
+  ],
+);
+
+/**
+ * Payment of a whole credit-card bill (fatura). A fatura is a computed aggregate (no row to
+ * stamp), so its payment is its own record, keyed by (card, competence) — the bill's due month
+ * as `billingCompetence` buckets it, NOT the calendar month. Paying a fatura debits `accountId`
+ * by `amountCents` on `paidOn`; it is the only way a card moves a live account balance.
+ */
+export const cardBillPayments = pgTable(
+  "card_bill_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => creditCards.id, { onDelete: "cascade" }),
+    /** The paid bill's competence (due) month `YYYY-MM`. */
+    competenceMonth: text("competence_month").notNull(),
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    /** Account debited on paidOn; the write path requires a real account (a fatura always moves
+     * cash). Accounts are soft-deleted, so loadWorkspace drops payments whose account is no longer
+     * live (this FK set-null only fires on a physical purge). */
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    paidOn: date("paid_on", { mode: "string" }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("idx_card_bill_payments_card").on(t.cardId).where(sql`deleted_at IS NULL`),
+    // At most one ACTIVE payment per (card, competence) — a fatura is paid once.
+    uniqueIndex("uq_card_bill_payment_card_competence")
+      .on(t.cardId, t.competenceMonth)
+      .where(sql`deleted_at IS NULL`),
+    check("chk_card_bill_payment_amount", sql`amount_cents > 0`),
+    ownerPolicy("card_bill_payments_owner"),
   ],
 );

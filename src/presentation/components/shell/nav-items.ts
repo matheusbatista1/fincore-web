@@ -20,11 +20,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Principal",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: "layout-dashboard" },
+      { href: "/monthly", label: "Visão mensal", icon: "calendar-range" },
       { href: "/wallets", label: "Carteiras", icon: "wallet" },
-      { href: "/cards", label: "Cartões", icon: "credit-card" },
       { href: "/transactions", label: "Transações", icon: "arrow-left-right" },
       { href: "/categories", label: "Categorias", icon: "tag" },
-      { href: "/monthly", label: "Visão mensal", icon: "calendar-range" },
     ],
   },
   {
@@ -49,16 +48,16 @@ export const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Configuraçõ
 /** Discreet entry just below Settings (import a bank statement or a card bill). */
 export const IMPORT_ITEM: NavItem = { href: "/import", label: "Importar", icon: "file-up" };
 
-/** Mobile bottom-nav: 4 primary tabs (+ a "Mais" sheet for the rest). */
+/** Mobile bottom-nav: 4 primary tabs (+ a "Mais" sheet for the rest). Cartões now live inside
+ * Carteiras (a tab there), so Carteiras is the primary tab. */
 export const MOBILE_TABS: NavItem[] = [
   { href: "/dashboard", label: "Início", icon: "house" },
+  { href: "/wallets", label: "Carteiras", icon: "wallet" },
   { href: "/monthly", label: "Mensal", icon: "calendar-range" },
-  { href: "/cards", label: "Cartões", icon: "credit-card" },
   { href: "/people", label: "Pessoas", icon: "users", badge: true },
 ];
 
 export const MOBILE_MORE: NavItem[] = [
-  { href: "/wallets", label: "Carteiras", icon: "wallet" },
   { href: "/transactions", label: "Transações", icon: "arrow-left-right" },
   { href: "/categories", label: "Categorias", icon: "tag" },
   { href: "/budgets", label: "Orçamentos", icon: "target" },

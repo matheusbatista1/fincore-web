@@ -103,6 +103,94 @@ describe("projectedMonthEndBalances", () => {
     const out = projectedMonthEndBalances([account], txs, "2026-04", calendar, "2026-06");
     expect(sum(out)).toBe(100000);
   });
+
+  it("does not re-debit a PAID recurring obligation on future projected occurrences", () => {
+    // Recurring rent boleto day 10 anchored July, marked paid July 10 from acc-1. Its real paid
+    // debit lands ONCE (July); the projected Aug/Sep occurrences are fresh, unpaid instances of a
+    // deferred obligation → they must debit no account (a boleto never touches a balance unpaid).
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-20000, "2026-07-10"),
+      source: "boleto",
+      cardId: null,
+      linkedAccountId: "acc-1",
+      recurrence: { dayOfMonth: 10 },
+      paidAt: "2026-07-10",
+      paidAccountId: "acc-1",
+    };
+    // July: opening 100000 − 20000 (the real paid debit) = 80000.
+    expect(sum(projectedMonthEndBalances([account], [rec], "2026-07", calendar, "2026-07"))).toBe(80000);
+    // Aug/Sep: still 80000 — the projected occurrences must NOT re-debit (was −60000/−40000 before).
+    expect(sum(projectedMonthEndBalances([account], [rec], "2026-08", calendar, "2026-07"))).toBe(80000);
+    expect(sum(projectedMonthEndBalances([account], [rec], "2026-09", calendar, "2026-07"))).toBe(80000);
+  });
+
+  it("forecasts a one-off pending receivable (future income) in the month it is booked", () => {
+    const pending: IncomeTransaction = {
+      id: "freela",
+      kind: "income",
+      description: "Freela",
+      date: "2026-07-20",
+      amountCents: 50000,
+      accountId: "acc-1",
+      cardId: null,
+      fromPersonId: null,
+      isReimbursement: false,
+      recurrence: null,
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    };
+    // June (before its booked date): not yet expected → opening only.
+    expect(sum(projectedMonthEndBalances([account], [pending], "2026-06", calendar, "2026-06"))).toBe(100000);
+    // July: the expected R$500 is forecast even though it hasn't been received (a pending receivable).
+    expect(sum(projectedMonthEndBalances([account], [pending], "2026-07", calendar, "2026-07"))).toBe(150000);
+  });
+
+  it("forecasts a recurring income whose anchor is a future pending receivable, every month", () => {
+    const salary: IncomeTransaction = {
+      id: "sal",
+      kind: "income",
+      description: "Salário",
+      date: "2026-08-05",
+      amountCents: 80000,
+      accountId: "acc-1",
+      cardId: null,
+      fromPersonId: null,
+      isReimbursement: false,
+      recurrence: { dayOfMonth: 5 },
+      receivedAt: null,
+      receivedAccountId: null,
+      receivedAmountCents: null,
+    };
+    // Aug (anchor month): the real pending anchor is forecast (100000 + 80000).
+    expect(sum(projectedMonthEndBalances([account], [salary], "2026-08", calendar, "2026-08"))).toBe(180000);
+    // Sep: anchor (Aug) + the projected Sep occurrence → 100000 + 80000 + 80000.
+    expect(sum(projectedMonthEndBalances([account], [salary], "2026-09", calendar, "2026-08"))).toBe(260000);
+  });
+
+  it("debits a paid card fatura from the projected month-end balance on the pay date", () => {
+    // A card charge never debits; paying the fatura (07-05) debits acc-1 by the paid amount.
+    const charge = cardExpense(-30000, "2026-06-10");
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    const out = projectedMonthEndBalances(
+      [account],
+      [charge],
+      "2026-07",
+      calendar,
+      "2026-07",
+      "general",
+      [],
+      [pay],
+    );
+    expect(sum(out)).toBe(70000);
+  });
 });
 
 describe("projectedMonthEndBalances — personal lens", () => {
@@ -195,6 +283,27 @@ describe("obligationsDueThrough", () => {
     ).toBe(8000);
   });
 
+  it("still projects future occurrences of a recurring obligation whose anchor was PAID", () => {
+    // Recurring rent boleto day 10 anchored July, PAID July 10. The July debit already landed in
+    // the balance (debitLanded → excluded here), but Aug/Sep's projected occurrences are fresh,
+    // unpaid instances — paying THIS month's aluguel must not erase NEXT months' bills from the
+    // projection (they vanished before, overstating "fim do mês" by the whole recurring total).
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-20000, "2026-07-10"),
+      source: "boleto",
+      cardId: null,
+      recurrence: { dayOfMonth: 10 },
+      paidAt: "2026-07-10",
+      paidAccountId: "acc-1",
+    };
+    expect(obligationsDueThrough([rec], "2026-07", "2026-08", calendar, "general", "2026-07").cents).toBe(
+      20000,
+    );
+    expect(obligationsDueThrough([rec], "2026-07", "2026-09", calendar, "general", "2026-07").cents).toBe(
+      40000,
+    );
+  });
+
   it("does not project a non-recurring card charge", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July, not recurring
     expect(obligationsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
@@ -249,6 +358,107 @@ describe("obligationsDueThrough", () => {
     expect(obligationsDueThrough([rolled], "2026-07", "2026-07", competenceOf).cents).toBe(0);
   });
 
+  it("excludes a PAID obligation — it already debited the account on its paid date", () => {
+    const paid: ExpenseTransaction = {
+      ...cardExpense(-30000, "2026-07-03"),
+      source: "boleto",
+      cardId: null,
+      paidAt: "2026-07-01",
+      paidAccountId: "acc-1",
+    };
+    expect(obligationsDueThrough([paid], "2026-07", "2026-07", competenceOf).cents).toBe(0);
+  });
+
+  it("keeps a paid obligation pending until its debit lands (paidAt after the browsed month-end)", () => {
+    // Boleto due July, but recorded paid in September (a payment dated later than the month being
+    // projected). Browsing July, the debit isn't in the balance yet (paidAt > July-end), so it must
+    // still count as a pending obligation — otherwise it vanishes from both terms and overstates.
+    const paidLate: ExpenseTransaction = {
+      ...cardExpense(-30000, "2026-07-03"),
+      source: "boleto",
+      cardId: null,
+      paidAt: "2026-09-05",
+      paidAccountId: "acc-1",
+    };
+    // Browsing July: still pending (debit lands only in September).
+    expect(obligationsDueThrough([paidLate], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
+    // Browsing through September: the debit has landed → excluded (no double-subtract).
+    expect(obligationsDueThrough([paidLate], "2026-07", "2026-09", competenceOf).cents).toBe(0);
+  });
+
+  it("does not double-count a paid obligation between the projected balance and obligations", () => {
+    // A R$500 boleto due July, paid early in June. It must be subtracted exactly ONCE.
+    const paid: ExpenseTransaction = {
+      ...cardExpense(-50000, "2026-07-03"),
+      source: "boleto",
+      cardId: null,
+      paidAt: "2026-06-15",
+      paidAccountId: "acc-1",
+    };
+    // Projected June balance already reflects the payment (100000 − 50000).
+    expect(sum(projectedMonthEndBalances([account], [paid], "2026-06", calendar, "2026-06"))).toBe(50000);
+    // …so it must NOT also be counted as a still-pending obligation.
+    expect(obligationsDueThrough([paid], "2026-06", "2026-07", competenceOf).cents).toBe(0);
+  });
+
+  it("excludes a PAID card fatura's charges from the obligations (no double-count)", () => {
+    // Charge 2026-06-10 → bill due July. Paying the July fatura (07-05) removes it from pending.
+    const charge = cardExpense(-30000, "2026-06-10");
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    expect(obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf).cents).toBe(30000);
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(0);
+  });
+
+  it("also excludes the estorno of a paid fatura (no negative drift)", () => {
+    const charge = cardExpense(-30000, "2026-06-10");
+    const estorno = cardCredit(600, "2026-06-12"); // also bills in July
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 29400,
+      accountId: "acc-1",
+      date: "2026-07-05" as const,
+    };
+    // Unpaid: 30000 − 600 = 29400 pending.
+    expect(obligationsDueThrough([charge, estorno], "2026-07", "2026-07", competenceOf).cents).toBe(29400);
+    // Paid: the whole competence drops (charge AND estorno) → 0, not −600.
+    expect(
+      obligationsDueThrough([charge, estorno], "2026-07", "2026-07", competenceOf, "general", undefined, [
+        pay,
+      ]).cents,
+    ).toBe(0);
+  });
+
+  it("keeps a fatura pending until its payment lands (paid after the browsed month-end)", () => {
+    const charge = cardExpense(-30000, "2026-06-10"); // due July
+    const pay = {
+      id: "p1",
+      cardId: "card-1",
+      competence: "2026-07",
+      amountCents: 30000,
+      accountId: "acc-1",
+      date: "2026-09-05" as const,
+    };
+    // Browsing July: paid in September (after July-end) → debit not landed → still pending.
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-07", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(30000);
+    // Browsing through September: landed → excluded.
+    expect(
+      obligationsDueThrough([charge], "2026-07", "2026-09", competenceOf, "general", undefined, [pay]).cents,
+    ).toBe(0);
+  });
+
   it("excludes overdraft (cheque especial) — it already debits its linked account", () => {
     // Overdraft now debits its account (PR #108), so counting it here too would double-subtract.
     const overdraft: ExpenseTransaction = {
@@ -262,6 +472,22 @@ describe("obligationsDueThrough", () => {
     const rec: ExpenseTransaction = { ...overdraft, recurrence: { dayOfMonth: 3 } };
     expect(obligationsDueThrough([rec], "2026-06", "2026-09", competenceOf, "general", "2026-06").cents).toBe(
       0,
+    );
+  });
+});
+
+describe("obligationsDueThrough — recurring charge billing into the CURRENT month", () => {
+  it("counts a subscription charged last month whose bill falls due this month", () => {
+    // Closes 24, due 2 → a charge on the 4th bills the NEXT month. Browsing August, the July
+    // occurrence is the one on August's fatura; asking by calendar month missed it entirely,
+    // overstating "fim do mês" by every recurring card charge due in the current month.
+    const competenceOf = billingCompetence([card]);
+    const sub: ExpenseTransaction = {
+      ...cardExpense(-1990, "2026-06-04"),
+      recurrence: { dayOfMonth: 4 },
+    };
+    expect(obligationsDueThrough([sub], "2026-08", "2026-08", competenceOf, "general", "2026-08").cents).toBe(
+      1990,
     );
   });
 });

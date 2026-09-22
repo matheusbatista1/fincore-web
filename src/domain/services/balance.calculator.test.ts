@@ -372,6 +372,165 @@ describe("rolled (abated) expenses are excluded", () => {
   });
 });
 
+describe("paid deferred obligations debit the paying account on their paid date", () => {
+  it("a paid boleto debits its paying account (was invisible while unpaid)", () => {
+    const accounts = [makeAccount("nu", 100_000), makeAccount("it", 0)];
+    // MEI tax: filed under its due date, linked to 'it', but paid from 'nu'.
+    const unpaid = expense(-24_000, { source: "boleto", linkedAccountId: "it", date: "2026-07-20" });
+    expect(computeAccountBalances(accounts, [unpaid]).get("nu")?.cents).toBe(100_000); // no effect while unpaid
+    const paid: ExpenseTransaction = { ...unpaid, paidAt: "2026-07-01", paidAccountId: "nu" };
+    // Paid → debits the chosen account by its amount; the linked 'it' is untouched.
+    expect(computeAccountBalances(accounts, [paid]).get("nu")?.cents).toBe(76_000);
+    expect(computeAccountBalances(accounts, [paid]).get("it")?.cents).toBe(0);
+  });
+
+  it("the debit lands on the paid date, not the (later) due date", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // Due 2026-07-20 but paid early on 2026-07-01.
+    const paid: ExpenseTransaction = {
+      ...expense(-24_000, { source: "boleto", linkedAccountId: "it", date: "2026-07-20" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+    };
+    // As of 2026-07-10 the money already left (paidAt passed) even though the due date hasn't.
+    expect(computeAccountBalances(accounts, [paid], "2026-07-10").get("nu")?.cents).toBe(76_000);
+    // As of 2026-06-30 neither date has arrived → untouched.
+    expect(computeAccountBalances(accounts, [paid], "2026-06-30").get("nu")?.cents).toBe(100_000);
+  });
+
+  it("respects a custom paid amount (loan settled early with a discount)", () => {
+    const accounts = [makeAccount("nu", 200_000)];
+    const paid: ExpenseTransaction = {
+      ...expense(-100_000, { source: "loan", linkedAccountId: "nu", date: "2026-08-05" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+      paidAmountCents: 90_000, // R$100 owed, settled for R$90
+    };
+    expect(computeAccountBalances(accounts, [paid], "2026-07-01").get("nu")?.cents).toBe(110_000);
+  });
+
+  it("falls back to the full amount when no custom paid amount is given", () => {
+    const accounts = [makeAccount("nu", 200_000)];
+    const paid: ExpenseTransaction = {
+      ...expense(-64_000, { source: "loan", linkedAccountId: "nu" }),
+      paidAt: "2026-06-01",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [paid]).get("nu")?.cents).toBe(136_000);
+  });
+
+  it("personal lens debits only the user's share for a shared obligation, full when unshared", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const sharedPaid: ExpenseTransaction = {
+      ...expense(-30_000, { source: "boleto", linkedAccountId: "it" }),
+      splits: [{ personId: "p1", shareCents: 20_000 }],
+      myShareCents: 10_000,
+      paidAt: "2026-06-05",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [sharedPaid]).get("nu")?.cents).toBe(70_000); // general: full
+    expect(computeAccountBalances(accounts, [sharedPaid], undefined, "personal").get("nu")?.cents).toBe(
+      90_000,
+    ); // personal: only the R$100 share
+  });
+
+  it("a paid 'futura' installment still debits (you can settle a parcela early)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const paidFuture: ExpenseTransaction = {
+      ...expense(-10_000, { source: "financing", linkedAccountId: "it", installmentStatus: "futura" }),
+      paidAt: "2026-06-10",
+      paidAccountId: "nu",
+    };
+    expect(computeAccountBalances(accounts, [paidFuture]).get("nu")?.cents).toBe(90_000);
+  });
+
+  it("accountDeltas of a paid obligation is a single debit on the paying account", () => {
+    const paid: ExpenseTransaction = {
+      ...expense(-24_000, { source: "boleto", linkedAccountId: "it" }),
+      paidAt: "2026-07-01",
+      paidAccountId: "nu",
+    };
+    const deltas = accountDeltas(paid);
+    expect(deltas.size).toBe(1);
+    expect(deltas.get("nu")?.cents).toBe(-24_000);
+  });
+});
+
+describe("card fatura payments debit the paying account", () => {
+  const payment = (over: Partial<import("../entities/card-bill-payment").CardBillPayment> = {}) => ({
+    id: nextId(),
+    cardId: "c1",
+    competence: "2026-07",
+    amountCents: 30000,
+    accountId: "nu",
+    date: "2026-07-10",
+    ...over,
+  });
+
+  it("debits the account by the paid amount on the pay date (card charges alone never do)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const charge = expense(-30_000, { source: "card", cardId: "c1" });
+    // The charge itself never moves the balance.
+    expect(computeAccountBalances(accounts, [charge]).get("nu")?.cents).toBe(100_000);
+    // Paying the fatura debits the chosen account by the paid amount.
+    expect(
+      computeAccountBalances(accounts, [charge], undefined, "general", [], [payment()]).get("nu")?.cents,
+    ).toBe(70_000);
+  });
+
+  it("falls back to the full amount in the personal lens when no competence resolver is given", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    expect(
+      computeAccountBalances(accounts, [], undefined, "personal", [], [payment({ amountCents: 25_000 })]).get(
+        "nu",
+      )?.cents,
+    ).toBe(75_000);
+  });
+
+  it("debits only the user's share in the personal lens when a fatura includes others' shares", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // Bill for c1/2026-07 = R$300: a shared R$200 charge (R$120 owed by someone else, myShare R$80)
+    // plus a solo R$100 charge → the user's slice is R$180 of R$300 (ratio 0.6).
+    const shared: ExpenseTransaction = {
+      ...expense(-20_000, { source: "card", cardId: "c1" }),
+      splits: [{ personId: "p1", shareCents: 12_000 }],
+      myShareCents: 8_000,
+    };
+    const solo = expense(-10_000, { source: "card", cardId: "c1" });
+    const charges: Transaction[] = [shared, solo];
+    const comp = () => "2026-07";
+    const p = payment({ amountCents: 30_000, competence: "2026-07" });
+    // General: the full R$300 leaves the account.
+    expect(
+      computeAccountBalances(accounts, charges, undefined, "general", [], [p], comp).get("nu")?.cents,
+    ).toBe(70_000);
+    // Personal: only the user's R$180 share (0.6 × R$300 paid).
+    expect(
+      computeAccountBalances(accounts, charges, undefined, "personal", [], [p], comp).get("nu")?.cents,
+    ).toBe(82_000);
+  });
+
+  it("lands on the pay date (excluded before it, included on/after)", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const p = payment({ date: "2026-07-10" });
+    expect(computeAccountBalances(accounts, [], "2026-07-09", "general", [], [p]).get("nu")?.cents).toBe(
+      100_000,
+    );
+    expect(computeAccountBalances(accounts, [], "2026-07-10", "general", [], [p]).get("nu")?.cents).toBe(
+      70_000,
+    );
+  });
+
+  it("ignores a payment naming an unknown account", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    expect(
+      computeAccountBalances(accounts, [], undefined, "general", [], [payment({ accountId: "gone" })]).get(
+        "nu",
+      )?.cents,
+    ).toBe(100_000);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — the business invariants.
 // ---------------------------------------------------------------------------
@@ -488,5 +647,37 @@ describe("balance invariants (property-based)", () => {
         }
       }),
     );
+  });
+});
+
+describe("income received-state", () => {
+  it("a legacy income (no received fields) credits its account on its date", () => {
+    const acc = makeAccount("acc-1", 0);
+    const tx = income("acc-1", 30000, "2026-06-01");
+    expect(computeAccountBalance(acc, [tx]).cents).toBe(30000);
+  });
+
+  it("a pending receivable (receivedAt null) does NOT credit any balance", () => {
+    const acc = makeAccount("acc-1", 0);
+    const pending: IncomeTransaction = { ...income("acc-1", 30000, "2026-09-10"), receivedAt: null };
+    expect(accountDeltas(pending).size).toBe(0);
+    expect(computeAccountBalances([acc], [pending]).get("acc-1")?.cents).toBe(0);
+  });
+
+  it("a received income credits the receiving account by the amount received, on the receipt date", () => {
+    const booked = makeAccount("acc-1", 0);
+    const landed = makeAccount("acc-2", 0);
+    const received: IncomeTransaction = {
+      ...income("acc-1", 30000, "2026-09-10"),
+      receivedAt: "2026-09-12",
+      receivedAccountId: "acc-2",
+      receivedAmountCents: 28000,
+    };
+    // Before the receipt date nothing has landed.
+    expect(computeAccountBalances([booked, landed], [received], "2026-09-11").get("acc-2")?.cents).toBe(0);
+    // On/after the receipt date the RECEIVING account gets the amount received (not the booked one).
+    const after = computeAccountBalances([booked, landed], [received], "2026-09-30");
+    expect(after.get("acc-1")?.cents).toBe(0);
+    expect(after.get("acc-2")?.cents).toBe(28000);
   });
 });

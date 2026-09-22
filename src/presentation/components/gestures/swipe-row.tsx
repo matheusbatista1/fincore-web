@@ -15,7 +15,7 @@ export function SwipeRow({
 }: {
   onOpen?: () => void;
   onEdit?: (() => void) | null;
-  onDelete?: () => void;
+  onDelete?: (() => void) | null;
   children: ReactNode;
 }) {
   const [off, setOff] = useState(0);

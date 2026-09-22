@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
-import type { MonthlyItem } from "@/application/use-cases/get-monthly";
+import { useMemo, useState } from "react";
+import type {
+  MonthlyItem,
+  PaidObligationFlow,
+  ReceivedIncomeFlow,
+} from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import {
@@ -13,6 +17,7 @@ import {
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
+import { AccountDetailModal } from "@/presentation/components/wallets/account-detail-modal";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel } from "@/shared/formatting/dates";
@@ -24,53 +29,77 @@ const themeAccent = (themeKey: string, bank: string): string => resolveBankTheme
 export function WalletsView({
   accounts,
   items,
+  paidFlows,
+  receivedFlows,
   month,
+  today,
   isCurrent,
-  projectedTotalCents,
-  projectedByAccount,
   prevHref,
   nextHref,
 }: {
   accounts: AccountView[];
   /** The browsed month's movements (real + projected), from getMonthly. */
   items: MonthlyItem[];
+  /** Paid obligations whose payment landed this month (bucketed by paid date, not due date). */
+  paidFlows: PaidObligationFlow[];
+  /** Incomes whose receipt landed this month (bucketed by receipt date, not booked date). */
+  receivedFlows: ReceivedIncomeFlow[];
   month: string;
+  today: string;
   isCurrent: boolean;
-  /** Projected total at month-end (after the month's card bills). */
-  projectedTotalCents: number;
-  /** Projected end-of-month balance per account (account movements only). */
-  projectedByAccount: Record<string, number>;
   prevHref: string;
   nextHref: string;
 }) {
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
+  // Tapping an account opens its detail (movements + Editar), not the edit form directly.
+  const [detail, setDetail] = useState<AccountView | null>(null);
 
   // Balances are "live" (as of today), independent of the browsed month.
   const total = accounts.reduce((s, a) => s + a.balanceCents, 0);
   const posTotal = accounts.reduce((s, a) => s + Math.max(0, a.balanceCents), 0) || 1;
   const sorted = [...accounts].sort((a, b) => b.balanceCents - a.balanceCents);
 
-  // Per-account in/out for the browsed month (getMonthly already scopes the items).
+  // Per-account in/out for the browsed month (getMonthly already scopes the items). Transfers are
+  // kept in their OWN channel (tIn/tOut), never folded into entradas/saídas — otherwise moving money
+  // between your own accounts (or a round-trip ida-e-volta) inflates both sides and reads as income.
   const flow = useMemo(() => {
-    const f = new Map<string, { in: number; out: number }>();
-    for (const a of accounts) f.set(a.id, { in: 0, out: 0 });
+    const f = new Map<string, { in: number; out: number; tIn: number; tOut: number }>();
+    for (const a of accounts) f.set(a.id, { in: 0, out: 0, tIn: 0, tOut: 0 });
     for (const t of items) {
       if (t.kind === "transfer") {
         const from = t.transferFromAccountId ? f.get(t.transferFromAccountId) : undefined;
         const to = t.transferToAccountId ? f.get(t.transferToAccountId) : undefined;
-        if (from) from.out += t.transferValueCents ?? 0;
-        if (to) to.in += t.transferValueCents ?? 0;
+        if (from) from.tOut += t.transferValueCents ?? 0;
+        if (to) to.tIn += t.transferValueCents ?? 0;
         continue;
       }
       if (!t.accountId) continue;
+      // A normal income moves cash on its RECEIPT (a different month/account/amount is possible), so
+      // it's attributed via receivedFlows below — and a pending receivable moves no cash yet. Skip
+      // both here (settlements and other synthetic in-rows are not `isReceivable`, so they stay).
+      if (t.kind === "income" && t.isReceivable) continue;
       const acc = f.get(t.accountId);
       if (!acc) continue;
       if (t.amountCents > 0) acc.in += t.amountCents;
       else acc.out += Math.abs(t.amountCents);
     }
+    // Paid deferred obligations debit their paying account on the paid date (their row lives in the
+    // due month with a null accountId, so they're not in the loop above). Attribute the out-flow to
+    // paidAccountId so the per-account "saídas" reconciles with the balance movement.
+    for (const pf of paidFlows) {
+      const acc = f.get(pf.accountId);
+      if (acc) acc.out += pf.outCents;
+    }
+    // Received incomes credit their receiving account on the receipt date (their row lives in the
+    // booked month, possibly a different account/amount), so attribute the in-flow here — mirrors
+    // paidFlows on the income side, keeping per-account "entradas" consistent with the balance.
+    for (const rf of receivedFlows) {
+      const acc = f.get(rf.accountId);
+      if (acc) acc.in += rf.inCents;
+    }
     return f;
-  }, [items, accounts]);
+  }, [items, paidFlows, receivedFlows, accounts]);
 
   const cash = (cents: number): string => (privacy ? "•••" : formatBRLAbsolute(cents));
 
@@ -127,16 +156,6 @@ export function WalletsView({
               <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap" }}>
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   distribuído em {accounts.length} {accounts.length === 1 ? "carteira" : "carteiras"}
-                </span>
-                <span
-                  className="row gap-1"
-                  style={{
-                    color: projectedTotalCents < 0 ? "var(--rose-500)" : "var(--text-lo)",
-                    fontSize: 13.5,
-                  }}
-                  title="Saldo previsto para o fim do mês (só o que é seu), após pagar as faturas do mês"
-                >
-                  · fim do mês ~<AnimatedMoney cents={projectedTotalCents} withSign />
                 </span>
               </div>
             </div>
@@ -197,69 +216,60 @@ export function WalletsView({
           <div className="card-pad" style={{ paddingTop: 6, paddingBottom: 10 }}>
             {sorted.map((a) => {
               const accent = themeAccent(a.themeKey, a.bank);
-              const fl = flow.get(a.id) ?? { in: 0, out: 0 };
+              const fl = flow.get(a.id) ?? { in: 0, out: 0, tIn: 0, tOut: 0 };
+              const netTransfer = fl.tIn - fl.tOut;
               return (
-                <AccountFormDialog
-                  account={a}
-                  key={a.id}
-                  trigger={
-                    <button type="button" className="acct-row">
-                      <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
-                        {a.bank.slice(0, 2).toUpperCase()}
-                      </span>
-                      <div className="acct-info">
-                        <div className="acct-name">
-                          {a.bank}
-                          <span className="type-badge">{a.type}</span>
-                          {a.balanceCents < 0 && (
-                            <span
-                              className="type-badge"
-                              style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
-                            >
-                              Cheque especial
-                            </span>
-                          )}
-                        </div>
-                        <div className="acct-meta">
-                          {a.name} · {a.maskedNumber}
-                        </div>
-                      </div>
-                      <div className="acct-flow">
-                        <span className="af up">
-                          <Icon name="arrow-down-left" size={13} />
-                          <AnimatedMoney cents={fl.in} withSign={false} />
-                        </span>
-                        <span className="af down">
-                          <Icon name="arrow-up-right" size={13} />
-                          <AnimatedMoney cents={fl.out} withSign={false} />
-                        </span>
-                      </div>
-                      <div className="acct-bal">
-                        <div
-                          className="ab-val"
-                          style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}
+                <button type="button" className="acct-row" key={a.id} onClick={() => setDetail(a)}>
+                  <span className="acct-ava" style={{ background: `${accent}22`, color: accent }}>
+                    {a.bank.slice(0, 2).toUpperCase()}
+                  </span>
+                  <div className="acct-info">
+                    <div className="acct-name">
+                      {a.bank}
+                      <span className="type-badge">{a.type}</span>
+                      {a.balanceCents < 0 && (
+                        <span
+                          className="type-badge"
+                          style={{ background: "var(--rose-soft)", color: "var(--rose-500)" }}
                         >
-                          <AnimatedMoney cents={a.balanceCents} />
-                        </div>
-                        <div
-                          className="ab-pct"
-                          title="Saldo previsto para o fim do mês (só o que é seu)"
-                          style={
-                            (projectedByAccount[a.id] ?? a.balanceCents) < 0
-                              ? { color: "var(--rose-500)" }
-                              : {}
-                          }
-                        >
-                          fim do mês ~
-                          <AnimatedMoney cents={projectedByAccount[a.id] ?? a.balanceCents} withSign />
-                        </div>
-                      </div>
-                      <span className="acct-edit">
-                        <Icon name="pencil" size={16} />
+                          Cheque especial
+                        </span>
+                      )}
+                    </div>
+                    <div className="acct-meta">
+                      {a.name} · {a.maskedNumber}
+                    </div>
+                  </div>
+                  <div className="acct-flow">
+                    <span className="af up">
+                      <Icon name="arrow-down-left" size={13} />
+                      <AnimatedMoney cents={fl.in} withSign={false} />
+                    </span>
+                    <span className="af down">
+                      <Icon name="arrow-up-right" size={13} />
+                      <AnimatedMoney cents={fl.out} withSign={false} />
+                    </span>
+                    {netTransfer !== 0 && (
+                      <span
+                        className="af"
+                        style={{ color: "var(--text-lo)" }}
+                        title="Transferências (não contam como entrada/saída)"
+                      >
+                        <Icon name="arrow-left-right" size={13} />
+                        {netTransfer > 0 ? "+" : "−"}
+                        <AnimatedMoney cents={Math.abs(netTransfer)} withSign={false} />
                       </span>
-                    </button>
-                  }
-                />
+                    )}
+                  </div>
+                  <div className="acct-bal">
+                    <div className="ab-val" style={a.balanceCents < 0 ? { color: "var(--rose-500)" } : {}}>
+                      <AnimatedMoney cents={a.balanceCents} />
+                    </div>
+                  </div>
+                  <span className="acct-edit">
+                    <Icon name="chevron-right" size={16} />
+                  </span>
+                </button>
               );
             })}
             <AccountFormDialog
@@ -273,6 +283,14 @@ export function WalletsView({
           </div>
         </div>
       </div>
+      <AccountDetailModal
+        account={detail}
+        items={items}
+        paidFlows={paidFlows}
+        month={month}
+        today={today}
+        onClose={() => setDetail(null)}
+      />
     </MonthTransition>
   );
 }

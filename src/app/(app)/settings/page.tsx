@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getProfileCached } from "@/application/loaders";
+import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { AutoPaymentsCard } from "@/presentation/components/settings/auto-payments-card";
 import { DeleteAccountCard } from "@/presentation/components/settings/delete-account-card";
 import { HelpCard } from "@/presentation/components/settings/help-card";
 import { MfaCard } from "@/presentation/components/settings/mfa-card";
@@ -34,9 +36,10 @@ export default async function SettingsPage() {
   if (!user) redirect("/login");
 
   const supabase = await createSupabaseServerClient();
-  const [profile, factors] = await Promise.all([
+  const [profile, factors, { accounts }] = await Promise.all([
     getProfileCached(financeRepository, user.id),
     supabase.auth.mfa.listFactors(),
+    getWorkspaceView(financeRepository, user.id),
   ]);
   const mfaEnabled = (factors.data?.totp ?? []).some((f) => f.status === "verified");
   const email = user.email ?? "";
@@ -100,6 +103,18 @@ export default async function SettingsPage() {
             label: "Seções",
             icon: "layout-dashboard",
             panel: <ModulesCard enabled={profile.enabledModules} />,
+          },
+          {
+            id: "pagamentos",
+            label: "Pagamentos",
+            icon: "hand-coins",
+            panel: (
+              <AutoPaymentsCard
+                enabled={profile.autoPaymentsEnabled}
+                defaultAccountId={profile.defaultPayAccountId}
+                accounts={accounts}
+              />
+            ),
           },
           {
             id: "mais",

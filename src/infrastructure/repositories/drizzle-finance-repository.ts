@@ -1,5 +1,6 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
+  CardBillPaymentData,
   CreateTransactionCommand,
   FinanceRepository,
   NewTransactionEntry,
@@ -14,6 +15,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { type ModuleKey, sanitizeModules } from "@/shared/modules";
 import type {
   AccountInput,
@@ -28,6 +30,7 @@ import {
   toAccount,
   toBudget,
   toCardBillDate,
+  toCardBillPayment,
   toCategory,
   toCreditCard,
   toGoal,
@@ -66,6 +69,9 @@ function toTransactionValues(userId: string, entry: NewTransactionEntry, install
     parcelaStatus: entry.parcelaStatus ?? null,
     fromPersonId: entry.fromPersonId ?? null,
     isReimbursement: entry.isReimbursement ?? false,
+    receivedAt: entry.receivedAt ?? null,
+    receivedAccountId: entry.receivedAccountId ?? null,
+    receivedAmountCents: entry.receivedAmountCents ?? null,
     transferFromAccountId: entry.transferFromAccountId ?? null,
     transferToAccountId: entry.transferToAccountId ?? null,
     transferValueCents: entry.transferValueCents ?? null,
@@ -103,6 +109,10 @@ export class DrizzleFinanceRepository implements FinanceRepository {
             avatarUrl: schema.users.avatarUrl,
             enabledModules: schema.users.enabledModules,
             onboardedAt: schema.users.onboardedAt,
+            autoPaymentsEnabled: schema.users.autoPaymentsEnabled,
+            defaultPayAccountId: schema.users.defaultPayAccountId,
+            autoPaymentsSince: schema.users.autoPaymentsSince,
+            recurringMaterializedThrough: schema.users.recurringMaterializedThrough,
           })
           .from(schema.users)
           .where(eq(schema.users.id, userId)),
@@ -134,6 +144,27 @@ export class DrizzleFinanceRepository implements FinanceRepository {
       await tx
         .update(schema.users)
         .set({ enabledModules: sanitizeModules(modules), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+    });
+  }
+
+  async updatePreferences(
+    userId: string,
+    input: {
+      autoPaymentsEnabled: boolean;
+      defaultPayAccountId: string | null;
+      autoPaymentsSince: string | null;
+    },
+  ): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({
+          autoPaymentsEnabled: input.autoPaymentsEnabled,
+          defaultPayAccountId: input.defaultPayAccountId,
+          autoPaymentsSince: input.autoPaymentsSince,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.users.id, userId));
     });
   }
@@ -180,6 +211,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         budgetRows,
         goalRows,
         cardBillDateRows,
+        cardBillPaymentRows,
       ] = await Promise.all([
         tx.select().from(schema.accounts).where(isNull(schema.accounts.deletedAt)),
         tx.select().from(schema.creditCards).where(isNull(schema.creditCards.deletedAt)),
@@ -191,6 +223,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         tx.select().from(schema.budgets).where(isNull(schema.budgets.deletedAt)),
         tx.select().from(schema.goals).where(isNull(schema.goals.deletedAt)),
         tx.select().from(schema.cardBillDates),
+        tx.select().from(schema.cardBillPayments).where(isNull(schema.cardBillPayments.deletedAt)),
       ]);
 
       const splitsByTx = new Map<string, (typeof splitRows)[number][]>();
@@ -199,6 +232,10 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         list.push(split);
         splitsByTx.set(split.transactionId, list);
       }
+      // A fatura payment whose paying account is no longer live (soft-deleted) reverts to unpaid:
+      // keeping it would free the card limit and drop the projected obligation while no account
+      // reflects the debit. Accounts are soft-deleted, so the FK set-null never fires — filter here.
+      const liveAccountIds = new Set(accountRows.map((a) => a.id));
 
       return {
         accounts: accountRows.map(toAccount),
@@ -210,6 +247,11 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         budgets: budgetRows.map(toBudget),
         goals: goalRows.map(toGoal),
         cardBillDates: cardBillDateRows.map(toCardBillDate),
+        // Drop payments whose paying account is gone (see liveAccountIds above) — the fatura
+        // reverts to unpaid so the balance, limit and projection stay consistent.
+        cardBillPayments: cardBillPaymentRows
+          .map(toCardBillPayment)
+          .filter((p): p is NonNullable<typeof p> => p !== null && liveAccountIds.has(p.accountId)),
       };
     });
   }
@@ -239,6 +281,13 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   async deleteAccount(userId: string, id: string): Promise<void> {
     await this.run(userId, async (tx) => {
       await tx.update(schema.accounts).set({ deletedAt: new Date() }).where(eq(schema.accounts.id, id));
+      // Accounts are soft-deleted, so the users.default_pay_account_id FK set-null never fires. If
+      // this was the auto-payments account, clear it and switch auto-pay off — otherwise auto-pay
+      // reads as "on" but books nothing, silently hiding the "atrasado" signal.
+      await tx
+        .update(schema.users)
+        .set({ defaultPayAccountId: null, autoPaymentsEnabled: false, updatedAt: new Date() })
+        .where(and(eq(schema.users.id, userId), eq(schema.users.defaultPayAccountId, id)));
     });
   }
 
@@ -419,7 +468,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     tx: RlsTransaction,
     userId: string,
     command: CreateTransactionCommand,
-  ): Promise<void> {
+  ): Promise<string[]> {
     let groupId: string | null = null;
     if (command.installmentGroup) {
       const group = one(
@@ -449,10 +498,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     if (splitValues.length > 0) {
       await tx.insert(schema.transactionSplits).values(splitValues);
     }
+    return inserted.map((row) => row.id);
   }
 
   async createTransaction(userId: string, command: CreateTransactionCommand): Promise<void> {
     await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+  }
+
+  async createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string> {
+    const ids = await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+    const id = ids[0];
+    if (id === undefined) throw new Error("createTransactionReturningId: nothing was inserted.");
+    return id;
   }
 
   async replaceWithInstallment(
@@ -478,6 +535,127 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .set({ rolledAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.transactions.id, originalId));
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    // Pool roll: zero the person's outstanding via a cash-less rollover settlement (no account →
+    // no cash moved) and create the new rolled-into debt, atomically. RLS scopes rows to the user.
+    await this.run(userId, async (tx) => {
+      await tx.insert(schema.settlements).values({
+        userId,
+        personId: settlement.personId,
+        amountCents: settlement.amountCents,
+        settledOn: settlement.date,
+        accountId: settlement.accountId ?? null,
+        note: settlement.note ?? null,
+      });
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async materializeRecurring(
+    userId: string,
+    through: IsoDate,
+    commands: readonly CreateTransactionCommand[],
+  ): Promise<number> {
+    return this.run(userId, async (tx) => {
+      // Claim the window first: the watermark only moves while it is still behind `through`, so a
+      // concurrent pass (app load racing the daily cron) finds no row to update and inserts nothing.
+      const claimed = await tx
+        .update(schema.users)
+        .set({ recurringMaterializedThrough: through, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.users.id, userId),
+            or(
+              isNull(schema.users.recurringMaterializedThrough),
+              lt(schema.users.recurringMaterializedThrough, through),
+            ),
+          ),
+        )
+        .returning({ id: schema.users.id });
+      if (claimed.length === 0) return 0;
+
+      // Each occurrence gets its own savepoint: a single poisoned rule (a card deleted under it, a
+      // constraint it violates) must not roll back the watermark, or the pass would recompute the
+      // same failure on every load and every cron run, wedging the user forever.
+      let inserted = 0;
+      for (const command of commands) {
+        try {
+          await tx.transaction(async (sp) => {
+            await this.insertCommand(sp, userId, command);
+          });
+          inserted++;
+        } catch {
+          // Reported by the caller as a skipped occurrence; the rest of the pass still lands.
+        }
+      }
+      return inserted;
+    });
+  }
+
+  async payTransaction(
+    userId: string,
+    id: string,
+    payment: { paidAt: IsoDate; paidAccountId: string; paidAmountCents: number },
+  ): Promise<void> {
+    // Record the payment on a deferred obligation: it debits the paying account on `paidAt`
+    // (the original occurred_on/amount stay intact for history). RLS scopes the row to the user.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({
+          paidAt: payment.paidAt,
+          paidAccountId: payment.paidAccountId,
+          paidAmountCents: payment.paidAmountCents,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async undoPayment(userId: string, id: string): Promise<void> {
+    // Revert a payment: clear the paid fields so the obligation is pending again.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ paidAt: null, paidAccountId: null, paidAmountCents: null, updatedAt: new Date() })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async receiveIncome(
+    userId: string,
+    id: string,
+    receipt: { receivedAt: IsoDate; receivedAccountId: string; receivedAmountCents: number },
+  ): Promise<void> {
+    // Record the receipt on a normal income: it credits the receiving account on `receivedAt` (the
+    // original occurred_on/amount stay intact for history). RLS scopes the row to the user.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({
+          receivedAt: receipt.receivedAt,
+          receivedAccountId: receipt.receivedAccountId,
+          receivedAmountCents: receipt.receivedAmountCents,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
+    });
+  }
+
+  async undoReceive(userId: string, id: string): Promise<void> {
+    // Revert a receipt: clear the received fields so the income is a pending receivable again.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.transactions)
+        .set({ receivedAt: null, receivedAccountId: null, receivedAmountCents: null, updatedAt: new Date() })
+        .where(and(eq(schema.transactions.id, id), isNull(schema.transactions.deletedAt)));
     });
   }
 
@@ -714,6 +892,47 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .update(schema.settlements)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.settlements.id, id));
+    });
+  }
+
+  async payCardBill(userId: string, input: CardBillPaymentData): Promise<void> {
+    // Upsert the one ACTIVE payment for (card, competence): soft-delete any existing active row
+    // (re-pay) then insert the new one — keeps the partial unique index satisfied. RLS-scoped.
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.cardBillPayments)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.cardBillPayments.cardId, input.cardId),
+            eq(schema.cardBillPayments.competenceMonth, input.competenceMonth),
+            isNull(schema.cardBillPayments.deletedAt),
+          ),
+        );
+      await tx.insert(schema.cardBillPayments).values({
+        userId,
+        cardId: input.cardId,
+        competenceMonth: input.competenceMonth,
+        amountCents: input.amountCents,
+        accountId: input.accountId,
+        paidOn: input.paidOn,
+        note: input.note ?? null,
+      });
+    });
+  }
+
+  async undoCardBillPayment(userId: string, cardId: string, competenceMonth: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx
+        .update(schema.cardBillPayments)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.cardBillPayments.cardId, cardId),
+            eq(schema.cardBillPayments.competenceMonth, competenceMonth),
+            isNull(schema.cardBillPayments.deletedAt),
+          ),
+        );
     });
   }
 }

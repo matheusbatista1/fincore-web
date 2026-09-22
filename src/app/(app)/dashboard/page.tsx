@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getReports } from "@/application/use-cases/get-reports";
-import { getTransactions } from "@/application/use-cases/get-transactions";
+import { getStatement } from "@/application/use-cases/get-statement";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
 import { getCurrentUser } from "@/infrastructure/auth/server";
@@ -38,7 +38,7 @@ export default async function DashboardPage({
   const cashflowDir: "forward" | "backward" = rawCf === "backward" ? "backward" : "forward";
   const chartFrom = cashflowDir === "backward" ? addMonths(month, -5) : month;
   const chartTo = cashflowDir === "backward" ? month : addMonths(month, 5);
-  const [dash, reports, transactions, workspace] = await Promise.all([
+  const [dash, reports, statement, workspace] = await Promise.all([
     getDashboard(financeRepository, user.id, month),
     // Bars: the 6-month cash-flow window (forward/backward). The donut stays pinned to the
     // browsed month via categoryFrom/categoryTo, so flipping the bars never moves it.
@@ -48,7 +48,7 @@ export default async function DashboardPage({
       categoryFrom: month,
       categoryTo: month,
     }),
-    getTransactions(financeRepository, user.id),
+    getStatement(financeRepository, user.id),
     getWorkspaceView(financeRepository, user.id),
   ]);
 
@@ -126,6 +126,12 @@ export default async function DashboardPage({
     projectedBalancePersonalCents: dash.projectedBalancePersonalCents,
     isPast: month < current,
     aReceberCents,
+    settlementNetCents: dash.settlementNetCents,
+    projectedIncomeCents: dash.projectedIncomeCents,
+    projectedExpenseCents: dash.projectedExpenseCents,
+    projectedIncomePersonalCents: dash.projectedIncomePersonalCents,
+    projectedExpensePersonalCents: dash.projectedExpensePersonalCents,
+    heldForOthersCents: dash.heldForOthersCents,
     investedCents: 0,
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
     personal: { incomeCents: dash.personal.incomeCents, expenseCents: dash.personal.expenseCents },
@@ -146,12 +152,15 @@ export default async function DashboardPage({
       product: c.product,
       themeKey: c.themeKey,
       billCents: c.billCents,
+      billCompetence: c.billCompetence,
+      billProjectedCents: c.billProjectedCents,
       outstandingCents: c.outstandingCents,
       limitCents: c.limitCents,
       dueDay: c.dueDay,
     })),
     debtors,
-    recent: collapseRowsByInstallments(transactions).slice(0, 6),
+    // The last executed cash movements (extrato) — the same source as Transações.
+    recent: collapseRowsByInstallments(statement.executed).slice(0, 10),
     accountsCount: workspace.accounts.length,
     today: todayInBrazil(),
     month,

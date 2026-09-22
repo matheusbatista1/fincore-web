@@ -6,13 +6,14 @@ import { useState } from "react";
 import {
   deleteSettlementAction,
   rollPersonDebtAction,
-  settlePersonAction,
-  updateSettlementAction,
+  rollPersonMonthDebtAction,
 } from "@/app/_actions/finance";
 import type { PersonMonthView } from "@/application/use-cases/get-people";
 import type { RollableDebt } from "@/application/use-cases/get-rollable-debts";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { cardBillMonth } from "@/domain/services/card-bill.calculator";
+import { addMonths, dateInMonth, dayOf } from "@/domain/value-objects/competence-month";
 import { PersonFormDialog } from "@/presentation/components/forms/person-form-dialog";
 import { type ReportData, ReportModal } from "@/presentation/components/reports/report-modal";
 import {
@@ -24,15 +25,16 @@ import { Avatar } from "@/presentation/components/ui/avatar";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
-import { settlementInputSchema } from "@/shared/schemas/transaction";
+import { type AccountOption, SettleBody } from "./settle-person-modal";
 
-/** A wallet/account option for the settle account picker. */
-interface AccountOption {
-  readonly id: string;
-  readonly label: string;
+/** A card option enriched with its billing cycle, so the roll modal can name the target fatura. */
+export interface CardOption extends AccountOption {
+  readonly closingDay: number;
+  readonly dueDay: number;
 }
 
 /** One open debt of a person (a shared expense not yet rolled) — the target of "Rolar dívida". */
@@ -43,6 +45,13 @@ interface DebtOption {
 }
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
+
+/** ISO date + n days (UTC-safe for the YYYY-MM-DD shape used across the app). */
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function todayIso(): string {
   const d = new Date();
@@ -68,7 +77,7 @@ export function PeopleView({
   people: PersonMonthView[];
   transactions: TransactionListItem[];
   accounts: AccountOption[];
-  cards: AccountOption[];
+  cards: CardOption[];
   rollableDebts: RollableDebt[];
   settlements: SettlementView[];
   today: string;
@@ -329,7 +338,14 @@ export function PeopleView({
         <Dialog open={settleTarget !== null} onOpenChange={(v) => !v && closeSettle()}>
           {settleTarget && (
             <SettleBody
-              person={settleTarget}
+              target={{
+                id: settleTarget.id,
+                name: settleTarget.name,
+                // Prefill the browsed-month net; cap at the displayed through-month total (so a
+                // future/"futura" loan parcela is settleable, matching the visible "no total").
+                prefillCents: settleTarget.monthBalanceCents,
+                capCents: settleTarget.totalBalanceCents,
+              }}
               accounts={accounts}
               editing={editSettlement}
               onDone={closeSettle}
@@ -342,6 +358,7 @@ export function PeopleView({
           {roll && (
             <RollDebtBody
               person={roll}
+              month={month}
               accounts={accounts}
               cards={cards}
               debts={rollDebts}
@@ -392,14 +409,20 @@ function ProfileBody({
   const monthBalanceCents = person.monthBalanceCents;
   const monthOwes = monthBalanceCents > 0;
   const monthOwed = monthBalanceCents < 0;
-  // Accumulated total (incl. projected) is the displayed "no total"; settling acts on the
-  // REAL booked debt only.
+  // The accumulated total THROUGH the browsed month (the displayed "no total") drives both the
+  // visible balance and the action buttons, so they never disagree. Gating on `realBalanceCents`
+  // (booked, "atual"-only, no future installments) used to hide the buttons for a person whose only
+  // outstanding is a future/"futura" loan parcela — the balance showed the debt but Cobrar/Rolar/
+  // Registrar pagamento vanished. `settleTarget` below caps the acerto at this same total.
   const totalCents = person.totalBalanceCents;
   const totalOwes = totalCents > 0;
-  const canSettle = person.realBalanceCents !== 0;
-  const realOwes = person.realBalanceCents > 0;
+  const canSettle = totalCents !== 0;
+  const realOwes = totalCents > 0;
+  // Match by BILL competence (card charges bill in a later month than their purchase date), so this
+  // list agrees with the competence-based month balance — e.g. Arthur's Airpods/Cobasi/Mercado
+  // parcelas all show under the month their fatura is due, not their scattered purchase dates.
   const involved = transactions.filter(
-    (t) => t.shares.some((s) => s.personId === person.id) && t.date.slice(0, 7) === month,
+    (t) => t.shares.some((s) => s.personId === person.id) && (t.billMonth ?? t.date.slice(0, 7)) === month,
   );
   const first = firstName(person.name);
 
@@ -447,7 +470,7 @@ function ProfileBody({
           )}
         </div>
         {canSettle && (
-          <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16 }}>
+          <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
             {realOwes && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRemind}>
                 <Icon name="bell" size={16} />
@@ -485,8 +508,26 @@ function ProfileBody({
       )}
       {involved.map((t) => {
         const share = t.shares.find((s) => s.personId === person.id)?.shareCents ?? Math.abs(t.amountCents);
+        // The row opens the full transaction detail (Editar / Excluir / mover de fatura): these
+        // used to be display-only, which left a mis-dated rolled debt with no way to fix it from
+        // the very screen where the user finds it. The abated ("Rolada") row opens too — its
+        // detail already hides Pagar.
+        const openDetail = () => openTxDetail(t);
         return (
-          <div className="lrow" key={t.id}>
+          <div
+            className="lrow"
+            key={t.id}
+            role="button"
+            tabIndex={0}
+            style={{ cursor: "pointer" }}
+            onClick={openDetail}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openDetail();
+              }
+            }}
+          >
             <span className="l-ic">
               <Icon name="receipt" size={18} />
             </span>
@@ -563,42 +604,103 @@ const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
   { id: "account", label: "Meu próprio dinheiro" },
 ];
 
+/** Instruments a POOL roll can target: debt instruments only — `account`/`overdraft` would debit
+ * real cash at roll time, but a pool roll moves no money (the debt just changes shape). */
+const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan");
+
 /** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
 function RollDebtBody({
   person,
+  month,
   accounts,
   cards,
   debts,
   onDone,
 }: {
   person: PersonMonthView;
+  /** The browsed competence month (`YYYY-MM`) — the pool being rolled. */
+  month: string;
   accounts: AccountOption[];
-  cards: AccountOption[];
+  cards: CardOption[];
   debts: DebtOption[];
   onDone: () => void;
 }) {
   const toast = useUIStore((s) => s.toast);
   const router = useRouter();
   const first = firstName(person.name);
+  // How the user manages debts in practice: by the MONTH'S POOL ("she owed 3.000, paid 2.600, I
+  // roll the 400") — so the pool mode is the default; rolling one specific lançamento remains
+  // available for the itemized case.
+  const [mode, setMode] = useState<"month" | "item">("month");
+  const monthOwed = Math.max(0, person.monthBalanceCents);
+  // A pool roll moves the debt to a DEBT instrument (no cash moves): card if there is one, else loan.
+  const poolDefaultInstrument: Instrument = cards.length > 0 ? "card" : "loan";
+  // The pool's new debt must land in the fatura/month AFTER the rolled one (the server enforces
+  // it — the rollover settlement covers the oldest buckets first). For a CARD that is the BILL
+  // month, not the calendar month: a September date after the closing day bills October. Walk
+  // forward from today and pick the first date whose fatura is the target; if the target fatura
+  // already closed, the earliest reachable one wins (the live label below tells the user which).
+  const defaultDueDate = (instr: Instrument, forCardId: string | null): string => {
+    const calendarNext = dateInMonth(addMonths(month, 1), dayOf(todayIso()));
+    const card = cards.find((c) => c.id === forCardId);
+    if (instr !== "card" || !card) return calendarNext;
+    const target = addMonths(month, 1);
+    let earliest: string | null = null;
+    for (let i = 1; i <= 70; i++) {
+      const candidate = addDaysIso(todayIso(), i);
+      const bill = cardBillMonth(candidate as never, card.closingDay, card.dueDay);
+      if (bill === target) return candidate;
+      if (earliest === null && bill > target) earliest = candidate;
+    }
+    return earliest ?? calendarNext;
+  };
+  const nextMonthDue = defaultDueDate(poolDefaultInstrument, cards[0]?.id ?? null);
   const [debtId, setDebtId] = useState<string | null>(debts[0]?.id ?? null);
-  const [principal, setPrincipal] = useState(debts[0]?.shareCents ?? 0);
+  const [principal, setPrincipal] = useState(monthOwed);
   const [juros, setJuros] = useState(0);
-  const [instrument, setInstrument] = useState<Instrument>("account");
+  const [instrument, setInstrument] = useState<Instrument>(poolDefaultInstrument);
   const [cardId, setCardId] = useState<string | null>(cards[0]?.id ?? null);
   const [acctId, setAcctId] = useState<string | null>(accounts[0]?.id ?? null);
+  // Pool roll: when the Pix no crédito's money really landed in an account (and covered the
+  // person's share), the rollover settlement is account-backed — it credits that account and
+  // counts as third-party money. "" = paper-only roll (no cash moved).
+  const [cashAcctId, setCashAcctId] = useState<string>("");
   const [installments, setInstallments] = useState(1);
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(nextMonthDue);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const canInstallment = instrument === "card" || instrument === "loan";
   const usesCard = instrument === "card";
+  // Live label: where the chosen date actually lands — the card's FATURA month, or the calendar
+  // month for the other instruments. Recomputed on every date/card change.
+  const selectedCard = cards.find((c) => c.id === cardId);
+  const dueLandsIn = date
+    ? usesCard && selectedCard
+      ? `fatura de ${monthLabel(cardBillMonth(date as never, selectedCard.closingDay, selectedCard.dueDay), { long: true })}`
+      : `${monthLabel(date.slice(0, 7), { long: true })}`
+    : null;
   const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
   const total = principal + juros;
   const valid =
-    debtId !== null &&
+    (mode === "month" || debtId !== null) &&
     principal > 0 &&
     (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+
+  const pickMode = (next: "month" | "item") => {
+    setMode(next);
+    // Each mode prefills its own principal/instrument/due date: the pool rolls the month's
+    // remainder onto a debt instrument due next month; item mode fronts a picked debt today.
+    if (next === "month") {
+      setPrincipal(monthOwed);
+      setInstrument(poolDefaultInstrument);
+      setDate(nextMonthDue);
+    } else {
+      setPrincipal(debts.find((d) => d.id === debtId)?.shareCents ?? 0);
+      setInstrument("account");
+      setDate(todayIso());
+    }
+  };
 
   // Picking a different debt prefills the principal with that debt's share.
   const pickDebt = (id: string) => {
@@ -608,12 +710,11 @@ function RollDebtBody({
   };
 
   async function confirm() {
-    if (!valid || submitting || debtId === null) return;
+    if (!valid || submitting) return;
     setError(null);
     setSubmitting(true);
-    const res = await rollPersonDebtAction({
+    const shared = {
       personId: person.id,
-      originalTransactionId: debtId,
       principalCents: principal,
       jurosCents: juros,
       date,
@@ -623,7 +724,11 @@ function RollDebtBody({
       linkedAccountId: instrument === "overdraft" || instrument === "loan" ? acctId : null,
       installments: canInstallment ? installments : 1,
       description: `Dívida de ${first}`,
-    });
+    };
+    const res =
+      mode === "month"
+        ? await rollPersonMonthDebtAction({ ...shared, month, cashAccountId: cashAcctId || null })
+        : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
       setError(res.error);
@@ -660,39 +765,71 @@ function RollDebtBody({
     <DialogModal title="Rolar dívida" maxWidth={460}>
       <div className="modal-body">
         <div style={{ textAlign: "center", marginBottom: 14, fontSize: 13.5, color: "var(--text-lo)" }}>
-          Você quita uma dívida de <b style={{ color: "var(--text-hi)" }}>{first}</b> e ela passa a te dever o
-          novo valor — a original fica marcada como rolada (mantida no histórico).
+          {mode === "month" ? (
+            <>
+              O que <b style={{ color: "var(--text-hi)" }}>{first}</b> ainda te deve vira uma nova dívida (com
+              juros, se houver) — o saldo antigo fica quitado, sem dinheiro trocando de mãos.
+            </>
+          ) : (
+            <>
+              Você quita uma dívida de <b style={{ color: "var(--text-hi)" }}>{first}</b> e ela passa a te
+              dever o novo valor — a original fica marcada como rolada (mantida no histórico).
+            </>
+          )}
         </div>
 
-        {debts.length === 0 ? (
-          <div style={{ color: "var(--text-lo)", fontSize: 13.5, padding: "8px 0 12px" }}>
-            {first} não tem dívidas em aberto para rolar.
-          </div>
-        ) : (
-          <>
-            <label
-              htmlFor="roll-debt"
-              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
-            >
-              Qual dívida você quitou?
-            </label>
-            <select
-              id="roll-debt"
-              className="input"
-              value={debtId ?? ""}
-              onChange={(e) => pickDebt(e.target.value)}
-              style={{ width: "100%", marginBottom: 12 }}
-            >
-              {debts.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+        <div className="chip-select" style={{ justifyContent: "center", marginBottom: 14 }}>
+          <button
+            type="button"
+            className={`person-chip${mode === "month" ? " on" : ""}`}
+            onClick={() => pickMode("month")}
+          >
+            O que falta do mês
+          </button>
+          <button
+            type="button"
+            className={`person-chip${mode === "item" ? " on" : ""}`}
+            onClick={() => pickMode("item")}
+          >
+            Um lançamento específico
+          </button>
+        </div>
 
-        {moneyField(principal, setPrincipal, "Valor abatido (dívida original)", "roll-principal")}
+        {mode === "item" &&
+          (debts.length === 0 ? (
+            <div style={{ color: "var(--text-lo)", fontSize: 13.5, padding: "8px 0 12px" }}>
+              {first} não tem dívidas em aberto para rolar.
+            </div>
+          ) : (
+            <>
+              <label
+                htmlFor="roll-debt"
+                style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+              >
+                Qual dívida você quitou?
+              </label>
+              <select
+                id="roll-debt"
+                className="input"
+                value={debtId ?? ""}
+                onChange={(e) => pickDebt(e.target.value)}
+                style={{ width: "100%", marginBottom: 12 }}
+              >
+                {debts.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          ))}
+
+        {moneyField(
+          principal,
+          setPrincipal,
+          mode === "month" ? "Valor rolado (o que falta do mês)" : "Valor abatido (dívida original)",
+          "roll-principal",
+        )}
         {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
 
         <label
@@ -705,10 +842,16 @@ function RollDebtBody({
           id="roll-instrument"
           className="input"
           value={instrument}
-          onChange={(e) => setInstrument(e.target.value as Instrument)}
+          onChange={(e) => {
+            const next = e.target.value as Instrument;
+            setInstrument(next);
+            // In pool mode the due date tracks the instrument: a card's "next month" is the next
+            // FATURA, whose date window differs from the plain calendar default.
+            if (mode === "month") setDate(defaultDueDate(next, cardId));
+          }}
           style={{ width: "100%", marginBottom: 12 }}
         >
-          {INSTRUMENTS.map((i) => (
+          {(mode === "month" ? POOL_INSTRUMENTS : INSTRUMENTS).map((i) => (
             <option key={i.id} value={i.id}>
               {i.label}
             </option>
@@ -720,7 +863,11 @@ function RollDebtBody({
             aria-label="Cartão"
             className="input"
             value={cardId ?? ""}
-            onChange={(e) => setCardId(e.target.value || null)}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              setCardId(id);
+              if (mode === "month" && usesCard) setDate(defaultDueDate("card", id));
+            }}
             style={{ width: "100%", marginBottom: 12 }}
           >
             {cards.length === 0 && <option value="">Nenhum cartão</option>}
@@ -747,6 +894,31 @@ function RollDebtBody({
               ))}
             </select>
           )
+        )}
+
+        {mode === "month" && (
+          <>
+            <label
+              htmlFor="roll-cash"
+              style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+            >
+              O dinheiro da rolagem entrou em alguma conta? (ex.: Pix no crédito que caiu na conta)
+            </label>
+            <select
+              id="roll-cash"
+              className="input"
+              value={cashAcctId}
+              onChange={(e) => setCashAcctId(e.target.value)}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              <option value="">Não — rolagem só no papel</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  Sim, entrou em {a.label}
+                </option>
+              ))}
+            </select>
+          </>
         )}
 
         <div className="row gap-3" style={{ marginBottom: 12 }}>
@@ -785,6 +957,15 @@ function RollDebtBody({
               onChange={(e) => setDate(e.target.value)}
               style={{ width: "100%" }}
             />
+            {/* A card debt counts in its FATURA, not in the date's own month — a September date
+                after the closing day bills October. Saying which fatura the chosen date lands in
+                is what keeps the roll from slipping one month past what the user meant. */}
+            {dueLandsIn && (
+              <div style={{ fontSize: 12, color: "var(--text-lo)", marginTop: 6 }}>
+                {usesCard ? "vai cair na " : "vai contar em "}
+                <b style={{ color: "var(--text-hi)" }}>{dueLandsIn}</b>
+              </div>
+            )}
           </div>
         </div>
 
@@ -794,6 +975,7 @@ function RollDebtBody({
             <span className="v" style={{ color: "var(--mint-500)" }}>
               {formatBRLAbsolute(total)}
               {canInstallment && installments > 1 ? ` em ${installments}x` : ""}
+              {dueLandsIn ? ` · ${dueLandsIn}` : ""}
             </span>
           </div>
           {error && (
@@ -822,185 +1004,6 @@ function RollDebtBody({
         >
           <Icon name="repeat" size={17} />
           Rolar dívida
-        </button>
-      </div>
-    </DialogModal>
-  );
-}
-
-function SettleBody({
-  person,
-  accounts,
-  editing,
-  onDone,
-}: {
-  person: PersonMonthView;
-  accounts: AccountOption[];
-  editing: SettlementView | null;
-  onDone: () => void;
-}) {
-  const toast = useUIStore((s) => s.toast);
-  const router = useRouter();
-  // Settle against the REAL booked balance (projected occurrences aren't settleable yet).
-  const owes = person.realBalanceCents > 0;
-  const max = Math.abs(person.realBalanceCents);
-  const first = firstName(person.name);
-  const [cents, setCents] = useState(editing ? editing.amountCents : max);
-  // The account the money moved through; default to the first wallet for a new acerto so
-  // the cash lands in the balance (keeps "fim do mês" consistent). "" = sem conta (perdão).
-  const [accountId, setAccountId] = useState<string | null>(
-    editing ? editing.accountId : (accounts[0]?.id ?? null),
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  // When editing, the amount is free (the booked balance already reflects this acerto).
-  const applied = editing ? cents : Math.min(cents, max);
-  const restante = Math.max(0, max - applied);
-  const valid = cents > 0;
-
-  async function confirm() {
-    if (!valid || submitting) return;
-    setError(null);
-    const parsed = settlementInputSchema.safeParse({
-      personId: person.id,
-      amountCents: applied,
-      date: editing ? editing.date : todayIso(),
-      accountId,
-    });
-    if (!parsed.success) {
-      setError("Revise o valor do acerto.");
-      return;
-    }
-    setSubmitting(true);
-    const res = editing
-      ? await updateSettlementAction(editing.id, parsed.data)
-      : await settlePersonAction(parsed.data);
-    setSubmitting(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    toast(editing ? "Acerto atualizado." : "Acerto registrado.");
-    router.refresh();
-    onDone();
-  }
-
-  return (
-    <DialogModal
-      title={editing ? "Editar acerto" : owes ? "Registrar pagamento" : "Marcar como pago"}
-      maxWidth={440}
-    >
-      <div className="modal-body">
-        <div style={{ textAlign: "center", marginBottom: 6, fontSize: 13.5, color: "var(--text-lo)" }}>
-          {owes ? (
-            <span>
-              <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(max)}. Quanto
-              recebeu?
-            </span>
-          ) : (
-            <span>
-              Você deve {formatBRLAbsolute(max)} a <b style={{ color: "var(--text-hi)" }}>{first}</b>. Quanto
-              pagou?
-            </span>
-          )}
-        </div>
-        <input
-          className="amount-input"
-          value={formatBRLAbsolute(cents)}
-          onChange={(e) => {
-            const digits = e.target.value.replace(/\D/g, "");
-            setCents(digits ? Number.parseInt(digits, 10) : 0);
-          }}
-          inputMode="numeric"
-          // biome-ignore lint/a11y/noAutofocus: amount is the primary field of the settle modal.
-          autoFocus
-          aria-label="Valor do acerto"
-          style={{ marginBottom: 14, color: owes ? "var(--mint-500)" : "var(--rose-500)" }}
-        />
-        {!editing && (
-          <div className="chip-select" style={{ justifyContent: "center", marginBottom: 16 }}>
-            <button type="button" className="person-chip" onClick={() => setCents(Math.round(max / 2))}>
-              Metade
-            </button>
-            <button type="button" className="person-chip" onClick={() => setCents(max)}>
-              Tudo ({formatBRLAbsolute(max)})
-            </button>
-          </div>
-        )}
-        <label
-          htmlFor="settle-account"
-          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
-        >
-          {owes ? "Entrou em qual conta?" : "Saiu de qual conta?"}
-        </label>
-        <select
-          id="settle-account"
-          className="input"
-          value={accountId ?? ""}
-          onChange={(e) => setAccountId(e.target.value === "" ? null : e.target.value)}
-          style={{ width: "100%", marginBottom: 16 }}
-        >
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}
-            </option>
-          ))}
-          <option value="">Sem conta (só baixa / perdão)</option>
-        </select>
-        <div className="summary-box">
-          <div className="sb-row">
-            <span className="k">{owes ? "Recebendo agora" : "Pagando agora"}</span>
-            <span className="v" style={{ color: owes ? "var(--mint-500)" : "var(--rose-500)" }}>
-              {formatBRLAbsolute(applied)}
-            </span>
-          </div>
-          <div className="sb-row total">
-            <span className="k">Continua pendente</span>
-            <span className="v">{formatBRLAbsolute(restante)}</span>
-          </div>
-          {restante === 0 && cents > 0 && (
-            <div
-              style={{
-                fontSize: 12.5,
-                color: "var(--mint-500)",
-                fontWeight: 600,
-                marginTop: 8,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <Icon name="check-circle" size={14} />
-              Quita tudo com {first}.
-            </div>
-          )}
-          {error && (
-            <div className="warn-text">
-              <Icon name="alert-triangle" size={14} />
-              {error}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="modal-foot">
-        <DialogClose asChild>
-          <button type="button" className="btn btn-ghost">
-            Cancelar
-          </button>
-        </DialogClose>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!valid || submitting}
-          style={{
-            opacity: valid && !submitting ? 1 : 0.45,
-            pointerEvents: valid && !submitting ? "auto" : "none",
-          }}
-          onClick={confirm}
-        >
-          <Icon name="check" size={17} />
-          Confirmar
         </button>
       </div>
     </DialogModal>
