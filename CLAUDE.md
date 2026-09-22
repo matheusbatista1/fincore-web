@@ -1,7 +1,9 @@
+<!-- ai-context-mode: personal -->
 # FinCore — Claude Working Agreement
 
 FinCore is a personal-finance web app (Brazilian context) rebuilt from an approved
-prototype into a production-grade product.
+prototype into a production-grade product. The prototype is frozen in the private
+repo `matheusbatista1/fincore-prototype`.
 
 ## 🟣 Golden rules (read first)
 
@@ -95,6 +97,9 @@ Person balance: `> 0` they owe you · `< 0` you owe them · `0` settled.
 ## Git workflow (GitHub Flow)
 
 - `main` is always deployable. Branch → PR → Vercel preview → squash-merge.
+- **Standing authorization (owner, 2026-07-20):** once CI is green, squash-merge without
+  waiting for the Vercel preview; the owner validates in production. Still confirm
+  migrations and production data repairs before running them.
 - Branch names: `feat|fix|chore|docs|refactor|perf|test/<kebab-slug>`.
 - Conventional Commits (enforced by commitlint). PR title must also be conventional.
 - Never push to `main` directly; never force-push shared branches.

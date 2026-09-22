@@ -2,9 +2,10 @@
 /**
  * PreToolUse(Bash) guard.
  *
- * Golden rule #1: the user is the SOLE author of every commit. This hook blocks
- * any `git commit` whose message credits Claude/Anthropic as author or co-author,
- * or that adds a "Generated with Claude" line.
+ * Golden rule #1: the user is the SOLE author of every commit and PR. This hook blocks
+ * any `git commit` (including `git -C dir commit`) and any `gh pr create|edit|merge`
+ * whose message or body credits Claude/Anthropic as author or co-author, or adds a
+ * "Generated with Claude" line.
  *
  * Receives the tool call as JSON on stdin; exits 2 to block (stderr is shown to
  * Claude), 0 to allow. Reads stdin via the async stream so it works on Windows.
@@ -19,13 +20,15 @@ const FORBIDDEN = [
   /🤖\s*generated\s+with/i,
 ];
 
+const TRIGGER = /\bgit\b[^|;&]*\bcommit\b|\bgh\s+pr\s+(create|edit|merge)\b/;
+
 function decide(command) {
-  if (typeof command !== "string" || !/\bgit\s+commit\b/.test(command)) return 0;
+  if (typeof command !== "string" || !TRIGGER.test(command)) return 0;
   if (FORBIDDEN.some((re) => re.test(command))) {
     console.error(
       "Blocked by .claude/hooks/block-coauthor.mjs:\n" +
-        "Commits must credit only the user. Remove any 'Co-Authored-By: Claude' or " +
-        "'Generated with Claude Code' line from the commit message (CLAUDE.md golden rule #1).",
+        "Commits and PRs must credit only the user. Remove any 'Co-Authored-By: Claude' or " +
+        "'Generated with Claude Code' line from the commit message or PR body (CLAUDE.md golden rule #1).",
     );
     return 2;
   }

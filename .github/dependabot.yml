@@ -10,6 +10,10 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # The runtime is Node 22 (.node-version); type definitions stay on their current major.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore"
       include: "scope"
