@@ -40,6 +40,9 @@ jobs:
       - name: Unit & component tests
         run: pnpm test:unit
 
+      - name: Domain tests with coverage gate
+        run: pnpm test:domain
+
       - name: Build
         run: pnpm build
         env:
