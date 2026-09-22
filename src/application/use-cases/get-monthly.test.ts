@@ -212,4 +212,84 @@ describe("getMonthly", () => {
     ]);
     expect((await getMonthly(repo, "u", "2026-06")).paidObligationFlows).toEqual([]);
   });
+
+  it("a projected occurrence of a PAID recurring obligation reads unpaid, at the rule's face amount", async () => {
+    // Aluguel: recurring boleto anchored (and paid, with a discount) in June. July's projected
+    // occurrence is a fresh instance — inheriting the anchor's paid state would badge it "pago"
+    // and total it at the discounted amount, and let Pagar/Desfazer settle June from July.
+    const repo = stubRepo([
+      expense({
+        id: "aluguel",
+        description: "Aluguel",
+        source: "boleto",
+        accountId: null,
+        date: "2026-06-03" as IsoDate,
+        amountCents: -46967,
+        myShareCents: 46967,
+        recurrence: { dayOfMonth: 3 },
+        paidAt: "2026-06-01" as IsoDate,
+        paidAccountId: "acc-1",
+        paidAmountCents: 40000, // paid with a discount
+      }),
+    ]);
+    const july = await getMonthly(repo, "u", "2026-07");
+    const proj = july.items.find((i) => i.projected);
+
+    expect(proj).toBeDefined();
+    expect(proj?.date).toBe("2026-07-03");
+    expect(proj?.isPaid).toBe(false);
+    expect(proj?.paidAt).toBeNull();
+    expect(proj?.paidAmountCents).toBeNull();
+    // Totals at face (469,67), NOT at June's settled 400,00.
+    expect(july.projectedTotals.expenseCents).toBe(46967);
+    // The rule is still reachable for editing/stopping via the anchor.
+    expect(proj?.anchor?.id).toBe("aluguel");
+  });
+});
+
+describe("usualPayAccountId — which wallet a monthly bill comes out of", () => {
+  it("carries the account that settled the rule's last occurrence", async () => {
+    // "Energia" is paid from Itaú every month. When August's occurrence comes due, the Pagar modal
+    // must offer Itaú — defaulting to the first account silently moved the bill to another wallet.
+    const july = expense({
+      id: "energia-jul",
+      description: "Energia",
+      source: "boleto",
+      accountId: null,
+      date: "2026-07-03" as IsoDate,
+      amountCents: -18672,
+      myShareCents: 18672,
+      recurrence: { dayOfMonth: 3 },
+      paidAt: "2026-07-01" as IsoDate,
+      paidAccountId: "itau",
+      paidAmountCents: 18672,
+    });
+    const august = expense({
+      id: "energia-ago",
+      description: "Energia",
+      source: "boleto",
+      accountId: null,
+      date: "2026-08-03" as IsoDate,
+      amountCents: -18672,
+      myShareCents: 18672,
+    });
+    const data = await getMonthly(stubRepo([july, august]), "u", "2026-08");
+    const row = data.items.find((i) => i.id === "energia-ago");
+
+    expect(row?.isPaid).toBe(false);
+    expect(row?.usualPayAccountId).toBe("itau");
+  });
+
+  it("is null for a rule that has never been paid", async () => {
+    const first = expense({
+      id: "novo",
+      description: "Boleto novo",
+      source: "boleto",
+      accountId: null,
+      date: "2026-06-10" as IsoDate,
+      myShareCents: 10000,
+    });
+    const data = await getMonthly(stubRepo([first]), "u", "2026-06");
+    expect(data.items.find((i) => i.id === "novo")?.usualPayAccountId).toBeNull();
+  });
 });

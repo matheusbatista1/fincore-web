@@ -3,6 +3,7 @@
 import { type CSSProperties, useState } from "react";
 import {
   deleteTransactionAction,
+  materializeOccurrenceAction,
   moveTransactionBillAction,
   undoPaymentAction,
   undoReceiveAction,
@@ -30,6 +31,9 @@ const SHARE_PA: CSSProperties = {
 /** Detalhe da transação — ported 1:1 from the prototype (extras.jsx TxDetailModal). */
 export function TxDetailModal({ today }: { today: string }) {
   const tx = useTxUIStore((s) => s.detail);
+  // Set when the open row is a projected occurrence: the rule's real anchor row, so the read-only
+  // detail can still offer "Editar fixo" / "Excluir fixo" without ever paying the wrong month.
+  const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
   const openDelete = useTxUIStore((s) => s.openDelete);
@@ -38,6 +42,7 @@ export function TxDetailModal({ today }: { today: string }) {
   const peopleOn = useModuleEnabled("people");
   const [moving, setMoving] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [booking, setBooking] = useState(false);
   // Synthetic rows (settlement / fatura payment / projected occurrence) carry a `type:id` id and
   // are NOT editable transactions — the statement/monthly views surface them for context only, so
   // the detail is read-only (no Excluir / Editar / Pagar, which would act on a non-existent tx).
@@ -80,6 +85,25 @@ export function TxDetailModal({ today }: { today: string }) {
     }
     toast(direction === "prev" ? "Movido para a fatura anterior." : "Movido para a fatura seguinte.");
     closeDetail();
+  }
+
+  /**
+   * Settle a forecast row. A previsto is not a transaction, so it is BOOKED first (server-side, on
+   * the occurrence's own date) and the Pagar/Receber modal then opens on the row that was created —
+   * never on the rule's anchor, whose own month must not be touched.
+   */
+  async function settleForecast(item: TransactionListItem, anchor: TransactionListItem) {
+    if (booking) return;
+    setBooking(true);
+    const result = await materializeOccurrenceAction({ anchorId: anchor.id, date: item.date });
+    setBooking(false);
+    if (!result.ok || !result.id) {
+      toast(result.ok ? "Não foi possível lançar." : result.error, "error");
+      return;
+    }
+    const booked: TransactionListItem = { ...item, id: result.id, projected: false };
+    if (anchor.isPayable) openPay(booked);
+    else openReceive(booked);
   }
 
   async function removeDirect(item: TransactionListItem) {
@@ -357,10 +381,46 @@ export function TxDetailModal({ today }: { today: string }) {
           </div>
 
           {synthetic ? (
-            <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-primary" onClick={closeDetail}>
-                Fechar
-              </button>
+            <div className="modal-foot" style={{ justifyContent: ruleAnchor ? "space-between" : "flex-end" }}>
+              {ruleAnchor && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-quiet"
+                    style={{ color: "var(--rose-500)" }}
+                    onClick={() => openDelete(ruleAnchor)}
+                  >
+                    <Icon name="trash-2" size={16} />
+                    Excluir fixo
+                  </button>
+                  <div className="row gap-2">
+                    {(ruleAnchor.isPayable || ruleAnchor.isReceivable) && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => settleForecast(tx, ruleAnchor)}
+                        disabled={booking}
+                        title="Lança este mês agora e abre o pagamento"
+                      >
+                        <Icon name={ruleAnchor.isPayable ? "wallet" : "hand-coins"} size={16} />
+                        {booking ? "Lançando…" : ruleAnchor.isPayable ? "Antecipar" : "Receber"}
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-ghost" onClick={() => openEdit(ruleAnchor)}>
+                      <Icon name="pencil" size={16} />
+                      Editar fixo
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                      Fechar
+                    </button>
+                  </div>
+                </>
+              )}
+              {!ruleAnchor && (
+                <button type="button" className="btn btn-primary" onClick={closeDetail}>
+                  Fechar
+                </button>
+              )}
             </div>
           ) : (
             <div className="modal-foot" style={{ justifyContent: "space-between" }}>
@@ -374,13 +434,13 @@ export function TxDetailModal({ today }: { today: string }) {
                 Excluir
               </button>
               <div className="row gap-2">
-                {tx.isPayable && !tx.isPaid && !tx.rolled && !tx.id.startsWith("proj:") && (
+                {tx.isPayable && !tx.isPaid && !tx.rolled && (
                   <button type="button" className="btn btn-ghost" onClick={() => openPay(tx)}>
                     <Icon name="wallet" size={16} />
                     Pagar
                   </button>
                 )}
-                {tx.isReceivable && !tx.isReceived && !tx.id.startsWith("proj:") && (
+                {tx.isReceivable && !tx.isReceived && (
                   <button type="button" className="btn btn-ghost" onClick={() => openReceive(tx)}>
                     <Icon name="hand-coins" size={16} />
                     Receber

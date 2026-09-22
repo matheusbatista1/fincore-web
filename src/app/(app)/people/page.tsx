@@ -37,7 +37,13 @@ export default async function PeoplePage({
       getRollableDebts(financeRepository, user.id, month),
     ]);
   const accounts = workspace.accounts.map((a) => ({ id: a.id, label: `${a.bank} · ${a.name}` }));
-  const cards = workspace.cards.map((c) => ({ id: c.id, label: `${c.bank} · ${c.product}` }));
+  const cards = workspace.cards.map((c) => ({
+    id: c.id,
+    label: `${c.bank} · ${c.product}`,
+    // The roll modal computes WHICH FATURA a chosen date lands in — it needs the card's cycle.
+    closingDay: c.closingDay,
+    dueDay: c.dueDay,
+  }));
 
   const reportData = buildReportData({
     dash,

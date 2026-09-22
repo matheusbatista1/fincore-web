@@ -6,6 +6,10 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/cron/materialize-recurring",
+      "schedule": "0 5 * * *"
+    },
+    {
       "path": "/api/cron/reconcile-payments",
       "schedule": "0 6 * * *"
     }

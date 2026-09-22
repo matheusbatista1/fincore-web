@@ -11,9 +11,11 @@ import {
   isPayableObligation,
   isReceivableIncome,
   isReceived,
+  isRolled,
   isTransfer,
 } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import { recurrenceIdentity } from "@/domain/services/recurring.projection";
 import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import { monthOf } from "@/domain/value-objects/competence-month";
 import { loadWorkspaceCached } from "../loaders";
@@ -92,6 +94,12 @@ export interface TransactionListItem {
   readonly paidAccountLabel: string | null;
   /** Amount actually paid, in cents; null when unpaid. */
   readonly paidAmountCents: number | null;
+  /**
+   * The account this bill is USUALLY paid from — the one that settled the most recent occurrence of
+   * the same recurring rule. Pre-selects the Pagar modal so a monthly bill keeps being paid from its
+   * own account instead of whichever account happens to come first in the list.
+   */
+  readonly usualPayAccountId: string | null;
   /** True when this is a normal income (not a card-credit estorno) — eligible for the Receber flow. */
   readonly isReceivable: boolean;
   /** True when a normal income's cash has been received (see receivedAt/receivedAccountId/amount). */
@@ -163,6 +171,21 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
   const firstName = (full: string): string => full.split(" ")[0] ?? full;
   // Card charges are filed under their bill's due month; everything else under its calendar month.
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
+  // The account each recurring bill was last settled from, so the Pagar modal can offer it again.
+  // Keyed by rule identity, keeping the most recent payment — a monthly bill paid from Itaú must
+  // not silently default to whichever account sorts first when it comes due again.
+  const lastPayAccount = new Map<string, { date: IsoDate; accountId: string }>();
+  for (const tx of ws.transactions) {
+    if (!isExpense(tx) || !isPayableObligation(tx) || isRolled(tx)) continue;
+    if (tx.paidAt == null || tx.paidAccountId == null) continue;
+    const key = recurrenceIdentity(tx);
+    const seen = lastPayAccount.get(key);
+    if (seen === undefined || tx.paidAt > seen.date) {
+      lastPayAccount.set(key, { date: tx.paidAt, accountId: tx.paidAccountId });
+    }
+  }
+  const usualPayAccountFor = (tx: Transaction): string | undefined =>
+    lastPayAccount.get(recurrenceIdentity(tx))?.accountId;
 
   return (tx: Transaction): TransactionListItem => {
     const base = {
@@ -189,6 +212,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
       paidAccountId: null,
       paidAccountLabel: null,
       paidAmountCents: null,
+      usualPayAccountId: null,
       isReceivable: false,
       isReceived: false,
       receivedAt: null,
@@ -249,6 +273,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         paidAccountId: tx.paidAccountId ?? null,
         paidAccountLabel: tx.paidAccountId ? (accountName.get(tx.paidAccountId) ?? null) : null,
         paidAmountCents: tx.paidAmountCents ?? null,
+        usualPayAccountId: isPayableObligation(tx) ? (usualPayAccountFor(tx) ?? null) : null,
         shares,
         myShareCents: tx.myShareCents,
       };

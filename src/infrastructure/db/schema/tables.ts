@@ -61,6 +61,11 @@ export const users = pgTable(
     /** The date auto-payments were turned on; reconciliation only books items due on/after it, so
      * enabling never retroactively books arbitrary past-due history. */
     autoPaymentsSince: date("auto_payments_since", { mode: "string" }),
+    /** The last date recurring rules ("lançamentos fixos") were materialised through: every
+     * occurrence dated after it and up to today is booked as a real transaction on the next pass.
+     * Also the optimistic lock that keeps concurrent passes (app load × cron) from double-booking.
+     * Null falls back to the start of the current month, so enabling never back-fills history. */
+    recurringMaterializedThrough: date("recurring_materialized_through", { mode: "string" }),
     /** Set when the user requested deletion; a cron purges the account 30 days later. Login clears it. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     ...timestamps,

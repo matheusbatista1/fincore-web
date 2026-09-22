@@ -52,3 +52,33 @@ describe("applyLens — monthly statement personal lens", () => {
     expect(applyLens(g, false).items.map((i) => i.id)).toEqual(["settle"]);
   });
 });
+
+describe("applyLens — forecast-review regressions", () => {
+  it("prices a differently-received income at what landed, matching the general header", () => {
+    const group: StmtGroup = {
+      key: "income",
+      name: "Receitas",
+      accent: "",
+      icon: "",
+      lens: "income",
+      totalCents: 0,
+      items: [item({ kind: "income", amountCents: 10000, isReceived: true, receivedAmountCents: 9000 })],
+    };
+    expect(applyLens(group, true).totalCents).toBe(9000);
+  });
+
+  it("nets the group's estornos in the personal recompute too", () => {
+    const group: StmtGroup = {
+      key: "card-1",
+      name: "Cartão",
+      accent: "",
+      icon: "",
+      lens: "expense",
+      totalCents: 8000, // general: 10000 charges − 2000 credits
+      creditsCents: 2000,
+      items: [item({ kind: "expense", amountCents: -10000, myShareCents: 10000 })],
+    };
+    // Personal share 10000 − credits 2000 = 8000: never HIGHER than the general tile.
+    expect(applyLens(group, true).totalCents).toBe(8000);
+  });
+});

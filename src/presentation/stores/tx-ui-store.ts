@@ -9,6 +9,12 @@ import type { SettleTarget } from "@/presentation/components/people/settle-perso
  */
 interface TxUIState {
   readonly detail: TransactionListItem | null;
+  /**
+   * The recurring rule behind `detail`, when the open row is a projected ("previsto") occurrence.
+   * The occurrence itself is not a persisted transaction, so the detail is read-only; this lets the
+   * modal still offer "Editar regra" / "Excluir regra", which act on the real anchor row.
+   */
+  readonly detailAnchor: TransactionListItem | null;
   readonly editing: TransactionListItem | null;
   readonly deleting: TransactionListItem | null;
   /** When set, the Pay modal settles this deferred obligation (boleto/loan/financing). */
@@ -20,7 +26,7 @@ interface TxUIState {
   readonly settling: SettleTarget | null;
   /** When set, the installment-group modal lists every parcela of this group. */
   readonly installmentGroupId: string | null;
-  openDetail: (item: TransactionListItem) => void;
+  openDetail: (item: TransactionListItem, anchor?: TransactionListItem) => void;
   openEdit: (item: TransactionListItem) => void;
   openDelete: (item: TransactionListItem) => void;
   openPay: (item: TransactionListItem) => void;
@@ -38,6 +44,7 @@ interface TxUIState {
 
 const CLOSED = {
   detail: null,
+  detailAnchor: null,
   editing: null,
   deleting: null,
   paying: null,
@@ -48,20 +55,21 @@ const CLOSED = {
 
 export const useTxUIStore = create<TxUIState>((set) => ({
   detail: null,
+  detailAnchor: null,
   editing: null,
   deleting: null,
   paying: null,
   receiving: null,
   settling: null,
   installmentGroupId: null,
-  openDetail: (item) => set({ ...CLOSED, detail: item }),
+  openDetail: (item, anchor) => set({ ...CLOSED, detail: item, detailAnchor: anchor ?? null }),
   openEdit: (item) => set({ ...CLOSED, editing: item }),
   openDelete: (item) => set({ ...CLOSED, deleting: item }),
   openPay: (item) => set({ ...CLOSED, paying: item }),
   openReceive: (item) => set({ ...CLOSED, receiving: item }),
   openSettle: (target) => set({ ...CLOSED, settling: target }),
   openInstallmentGroup: (groupId) => set({ ...CLOSED, installmentGroupId: groupId }),
-  closeDetail: () => set({ detail: null }),
+  closeDetail: () => set({ detail: null, detailAnchor: null }),
   closeEdit: () => set({ editing: null }),
   closeDelete: () => set({ deleting: null }),
   closePay: () => set({ paying: null }),
@@ -70,8 +78,9 @@ export const useTxUIStore = create<TxUIState>((set) => ({
   closeInstallmentGroup: () => set({ installmentGroupId: null }),
 }));
 
-/** Imperative helper for row components. */
-export const openTxDetail = (item: TransactionListItem): void => useTxUIStore.getState().openDetail(item);
+/** Imperative helper for row components. Projected rows pass their rule's anchor as `anchor`. */
+export const openTxDetail = (item: TransactionListItem, anchor?: TransactionListItem): void =>
+  useTxUIStore.getState().openDetail(item, anchor);
 
 /** Imperative helper to open the Pay modal for a deferred obligation (boleto/loan/financing). */
 export const openPayObligation = (item: TransactionListItem): void => useTxUIStore.getState().openPay(item);

@@ -34,11 +34,12 @@ export function PayModal({ accounts, today }: { accounts: TxFormAccount[]; today
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the target row changes.
   useEffect(() => {
     if (!tx) return;
-    const preferred =
-      tx.linkedAccountId && accounts.some((a) => a.id === tx.linkedAccountId)
-        ? tx.linkedAccountId
-        : (accounts[0]?.id ?? "");
-    setAccountId(preferred);
+    // Offer the account this bill actually comes out of: the one that settled its last occurrence,
+    // then its linked bank, then whatever exists. Falling straight to the first account silently
+    // moved a monthly bill to another wallet whenever it was re-paid.
+    const known = [tx.usualPayAccountId, tx.linkedAccountId, tx.accountId];
+    const preferred = known.find((id) => id != null && accounts.some((a) => a.id === id));
+    setAccountId(preferred ?? accounts[0]?.id ?? "");
     setPaidAt(today);
     setCents(Math.abs(tx.amountCents));
   }, [tx?.id]);

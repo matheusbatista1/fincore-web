@@ -36,6 +36,12 @@ export interface StmtGroup {
   readonly receivables?: readonly ReceivableRow[] | undefined;
   /** Set for a credit-card group — enables the "Pagar fatura" / "Fatura paga" affordance. */
   readonly cardId?: string;
+  /** Real estornos netted out of `totalCents` — carried so the personal-lens recompute can net
+   * them too (credits are income rows, invisible to the share-based recompute). */
+  readonly creditsCents?: number;
+  /** Projected ("previsto") slice inside `totalCents` — called out so the tile never reads as a
+   * closed figure while forecasts are still part of it. */
+  readonly projectedCents?: number;
   /** The full (general-lens) fatura total for a card group, independent of the lens recompute —
    * so "Pagar fatura" always offers the whole bill even under "Apenas meu". */
   readonly faturaCents?: number;
@@ -56,11 +62,12 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
       : ""
     : (item.sourceLabel ?? (cat ? cat.name : ""));
 
-  // A projected ("previsto") row opens its real anchor so the rule can be edited/deleted. Every row
-  // opens the detail modal — which offers Pagar (with a custom amount), Editar and Excluir — so any
-  // obligation is editable and payable directly (not only after it's paid).
-  const target = item.anchor ?? item;
-  const open = () => openTxDetail(target);
+  // Every row opens the detail modal — which offers Pagar (with a custom amount), Editar and
+  // Excluir — so any obligation is editable and payable directly (not only after it's paid).
+  // A projected ("previsto") row opens ITSELF (a `proj:` id → read-only detail) and carries its
+  // rule's anchor: opening the anchor instead would let Pagar/Desfazer settle the anchor's OWN
+  // month (paying August's projected aluguel would rewrite July's payment).
+  const open = () => openTxDetail(item, item.anchor ?? undefined);
 
   return (
     <div
@@ -98,6 +105,18 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
             >
               <Icon name="repeat" size={11} />
               fixo
+            </span>
+          )}
+          {item.source === "overdraft" && (
+            // Overdraft debits its account the moment it happens — there is nothing to "pay"
+            // later, unlike the boletos/parcelas sharing this group. The badge says why.
+            <span
+              className="parc-badge"
+              style={{ marginLeft: 8, background: "var(--amber-soft)", color: "var(--amber-500)" }}
+              title="Cheque especial: o valor já saiu direto da conta — não há nada a pagar."
+            >
+              <Icon name="landmark" size={11} />
+              cheque especial
             </span>
           )}
           {item.projected && (
@@ -170,10 +189,16 @@ export function StmtCard({
   // so the card header adds them back to match the on-screen "Entradas" total.
   const displayTotal = group.totalCents + recvTotal;
   const itemsText = `${group.items.length} ${group.items.length === 1 ? "lançamento" : "lançamentos"}`;
+  // A card tile's total anticipates the previstos still to charge — the subtitle owns up to it,
+  // so the figure never reads as a closed fatura while forecasts are part of it.
+  const projectedNote =
+    (group.projectedCents ?? 0) > 0
+      ? ` · inclui ${formatBRLAbsolute(group.projectedCents ?? 0)} previstos`
+      : "";
   const subtitle =
     receivables.length > 0
       ? `${group.items.length > 0 ? `${group.items.length} ${group.items.length === 1 ? "entrada" : "entradas"} · ` : ""}${receivables.length} a receber`
-      : (group.countText ?? `${group.sub ? `${group.sub} · ` : ""}${itemsText}`);
+      : `${group.countText ?? `${group.sub ? `${group.sub} · ` : ""}${itemsText}`}${projectedNote}`;
 
   // Credit-card group: is this month's fatura already paid? (matched by card + competence).
   const isCard = group.cardId != null;
@@ -229,7 +254,8 @@ export function StmtCard({
           <small>{subtitle}</small>
         </div>
         <span className="sh-tot" style={group.key === "income" ? { color: group.accent } : undefined}>
-          <Money cents={displayTotal} withSign={false} />
+          {/* Signed: a fatura with more estornos than charges is a CREDIT and must read as one. */}
+          <Money cents={displayTotal} withSign={displayTotal < 0} />
         </span>
         <Icon name="chevron-right" size={18} style={{ color: "var(--text-lo)", flex: "none" }} />
       </div>
@@ -261,15 +287,26 @@ export function StmtCard({
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ width: "100%", justifyContent: "center", marginBottom: 16 }}
-                    onClick={payFatura}
-                  >
-                    <Icon name="hand-coins" size={16} />
-                    Pagar fatura · {formatBRLAbsolute(faturaCents)}
-                  </button>
+                  <div style={{ marginBottom: 16 }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: "100%", justifyContent: "center" }}
+                      onClick={payFatura}
+                    >
+                      <Icon name="hand-coins" size={16} />
+                      Pagar fatura · {formatBRLAbsolute(faturaCents)}
+                    </button>
+                    {(group.projectedCents ?? 0) > 0 && (
+                      // The payable amount is the booked part; this explains why it is smaller
+                      // than the tile's total while previstos are still to charge.
+                      <div
+                        style={{ fontSize: 12, color: "var(--text-lo)", textAlign: "center", marginTop: 8 }}
+                      >
+                        + {formatBRLAbsolute(group.projectedCents ?? 0)} previstos ainda vão cair nesta fatura
+                      </div>
+                    )}
+                  </div>
                 ))}
 
               {group.items.map((item) => (

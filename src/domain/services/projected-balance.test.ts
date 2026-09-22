@@ -283,6 +283,27 @@ describe("obligationsDueThrough", () => {
     ).toBe(8000);
   });
 
+  it("still projects future occurrences of a recurring obligation whose anchor was PAID", () => {
+    // Recurring rent boleto day 10 anchored July, PAID July 10. The July debit already landed in
+    // the balance (debitLanded → excluded here), but Aug/Sep's projected occurrences are fresh,
+    // unpaid instances — paying THIS month's aluguel must not erase NEXT months' bills from the
+    // projection (they vanished before, overstating "fim do mês" by the whole recurring total).
+    const rec: ExpenseTransaction = {
+      ...cardExpense(-20000, "2026-07-10"),
+      source: "boleto",
+      cardId: null,
+      recurrence: { dayOfMonth: 10 },
+      paidAt: "2026-07-10",
+      paidAccountId: "acc-1",
+    };
+    expect(obligationsDueThrough([rec], "2026-07", "2026-08", calendar, "general", "2026-07").cents).toBe(
+      20000,
+    );
+    expect(obligationsDueThrough([rec], "2026-07", "2026-09", calendar, "general", "2026-07").cents).toBe(
+      40000,
+    );
+  });
+
   it("does not project a non-recurring card charge", () => {
     const txs: Transaction[] = [cardExpense(-30000, "2026-06-10")]; // due July, not recurring
     expect(obligationsDueThrough(txs, "2026-06", "2026-08", competenceOf, "general", "2026-06").cents).toBe(
@@ -451,6 +472,22 @@ describe("obligationsDueThrough", () => {
     const rec: ExpenseTransaction = { ...overdraft, recurrence: { dayOfMonth: 3 } };
     expect(obligationsDueThrough([rec], "2026-06", "2026-09", competenceOf, "general", "2026-06").cents).toBe(
       0,
+    );
+  });
+});
+
+describe("obligationsDueThrough — recurring charge billing into the CURRENT month", () => {
+  it("counts a subscription charged last month whose bill falls due this month", () => {
+    // Closes 24, due 2 → a charge on the 4th bills the NEXT month. Browsing August, the July
+    // occurrence is the one on August's fatura; asking by calendar month missed it entirely,
+    // overstating "fim do mês" by every recurring card charge due in the current month.
+    const competenceOf = billingCompetence([card]);
+    const sub: ExpenseTransaction = {
+      ...cardExpense(-1990, "2026-06-04"),
+      recurrence: { dayOfMonth: 4 },
+    };
+    expect(obligationsDueThrough([sub], "2026-08", "2026-08", competenceOf, "general", "2026-08").cents).toBe(
+      1990,
     );
   });
 });

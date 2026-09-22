@@ -4,20 +4,20 @@ import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   cardUtilization,
+  computeCardBillForecast,
   computeCardBillsForMonth,
   computeCardOpenBills,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
-import { computePersonBalances, computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
+import { computePersonMonthNetsAndSettledCash } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
-import { transactionsForMonth } from "@/domain/services/recurring.projection";
+import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
   type CompetenceMonth,
   compareMonths,
   dateInMonth,
-  monthOf,
 } from "@/domain/value-objects/competence-month";
 import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
@@ -38,8 +38,17 @@ export interface CardSummary {
   readonly product: string;
   readonly themeKey: string;
   readonly limitCents: number;
-  /** Fatura shown for the view: the open bill on the current month, else the browsed month's. */
+  /** Fatura shown for the view: on the current month the bill you owe NEXT (the one that just
+   * closed while unpaid, else the cycle still accumulating); on another month, that month's own. */
   readonly billCents: number;
+  /** The competence `billCents` refers to, so the UI can say which fatura it is showing. */
+  readonly billCompetence: CompetenceMonth;
+  /**
+   * The projected ("previsto") portion still expected to charge into that same fatura — recurring
+   * occurrences whose day hasn't come. Screens show `billCents + billProjectedCents` as the bill's
+   * expected total, calling this slice out; it NEVER enters a payable amount.
+   */
+  readonly billProjectedCents: number;
   /** Total committed against the limit: open + future bills − estornos ("limite utilizado"). */
   readonly outstandingCents: number;
   readonly dueDay: number;
@@ -95,14 +104,31 @@ export interface DashboardData {
   /** Sum of the month's negative person nets, as a positive figure (you owe this month). */
   readonly aPagarCents: number;
   /**
-   * Net cash from account-backed settlements dated in the browsed month (a person paying you back
-   * is +, you paying them is −). The GENERAL "economia" counts other people's shares as expense, so
-   * it must also count the cash that settled them; the personal lens drops it (a reimbursement, not
-   * your money). Mirrors how the monthly view reflects settlements as entradas/saídas.
+   * Account-backed settlement cash attributed to the browsed month by the COMPETENCE of the debts
+   * it covered (a person paying you back is +, you paying them is −) — not by the settlement's own
+   * date, so a pre-payment credits the month its fatura counts as expense, not the month the money
+   * arrived. The GENERAL "economia" counts other people's shares as expense, so it must also count
+   * the cash that settled them; the personal lens drops it (a reimbursement, not your money).
    */
   readonly settlementNetCents: number;
+  /**
+   * Cash sitting in the accounts that belongs to OTHER people: advances received (acertos and
+   * reimbursement income) minus their shares the user already fronted via paid faturas/expenses.
+   * Derived as max(0, general − personal live totals) — the lens difference IS that float.
+   */
+  readonly heldForOthersCents: number;
   readonly general: ViewTotalsDto;
   readonly personal: ViewTotalsDto;
+  /**
+   * The browsed CURRENT month's projected ("previsto") occurrences still to come, as view totals —
+   * zero for past months (nothing left) and future months (already inside `general`/`personal`).
+   * Feeds the chips' reconciliation line against the Visão mensal, which counts forecasts.
+   */
+  readonly projectedIncomeCents: number;
+  readonly projectedExpenseCents: number;
+  /** The same still-to-come slice through the personal lens (only the user's own shares). */
+  readonly projectedIncomePersonalCents: number;
+  readonly projectedExpensePersonalCents: number;
   /** Trailing 6-month cumulative balance for the hero sparkline. */
   readonly trend: TrendPoint[];
 }
@@ -147,9 +173,20 @@ export async function getDashboard(
   // one to pay); when browsing another month show that month's own fatura. The "limite
   // utilizado" is the all-open total (today onward), independent of the browsed month.
   const isCurrentView = compareMonths(month, currentMonth) === 0;
-  const bills = isCurrentView
-    ? computeCardOpenBills(ws.creditCards, ws.transactions, today, competenceOf, ws.cardBillDates)
-    : computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf);
+  const bills: Map<string, { amount: Money; competence: CompetenceMonth }> = isCurrentView
+    ? computeCardOpenBills(
+        ws.creditCards,
+        ws.transactions,
+        today,
+        competenceOf,
+        ws.cardBillDates,
+        ws.cardBillPayments,
+      )
+    : new Map(
+        [...computeCardBillsForMonth(ws.creditCards, ws.transactions, month, competenceOf)].map(
+          ([id, amount]) => [id, { amount, competence: month }],
+        ),
+      );
   const outstandings = computeCardOutstandings(
     ws.creditCards,
     ws.transactions,
@@ -161,16 +198,36 @@ export async function getDashboard(
   // (settlement before the debt's competence) re-buckets onto the debt's month, so the
   // month slices stay consistent when summed (a per-month re-call would lock each month at
   // its own horizon and miss a later settlement that retroactively clears an earlier debt).
-  const monthNets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, month, competenceOf);
+  // The same walk also yields the settlement CASH per covered-debt month (see below).
+  const { nets: monthNets, settledCashByMonth } = computePersonMonthNetsAndSettledCash(
+    ws.people,
+    ws.transactions,
+    ws.settlements,
+    month,
+    competenceOf,
+  );
   const personNetFor = (personId: string, m: CompetenceMonth): number => monthNets.get(personId)?.get(m) ?? 0;
   // The month's set: real movements always, plus the projected ("previsto") recurring
   // occurrences for FUTURE months — so browsing months ahead shows expected income and
   // spending. Past/current stay real-only (history/actuals unchanged).
   const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
+  // Each projection counts as a fresh instance at its occurrence date: taking the anchor row
+  // instead would total it at the anchor's settled amount and on the anchor's own date.
   const monthSet =
-    compareMonths(month, currentMonth) <= 0 ? real : [...real, ...projected.map((p) => p.source)];
+    compareMonths(month, currentMonth) <= 0
+      ? real
+      : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
   const general = computeViewTotals(monthSet, "general");
   const personal = computeViewTotals(monthSet, "personal");
+  // The month's still-to-come slice, for the chips' reconciliation line: what the Visão mensal
+  // (which counts forecasts) shows on top of the realized figures. Zero when browsing the future
+  // (the projections are already inside monthSet there) or the past (nothing left to come).
+  const stillToCome =
+    compareMonths(month, currentMonth) === 0 ? projected.map((p) => freshOccurrence(p.source, p.date)) : [];
+  const projectedTotals = computeViewTotals(stillToCome, "general");
+  // The same slice through the personal lens (only the user's own share of shared forecasts) —
+  // the "Sobra real · com previstos" chip must not mix other people's shares into a personal figure.
+  const projectedTotalsPersonal = computeViewTotals(stillToCome, "personal");
 
   const accounts = ws.accounts.map((account) => ({
     id: account.id,
@@ -181,7 +238,7 @@ export async function getDashboard(
   }));
 
   const cards = ws.creditCards.map((card) => {
-    const bill = bills.get(card.id) ?? Money.zero();
+    const bill = bills.get(card.id);
     const outstanding = outstandings.get(card.id) ?? Money.zero();
     return {
       id: card.id,
@@ -189,7 +246,15 @@ export async function getDashboard(
       product: card.product,
       themeKey: card.themeKey,
       limitCents: card.limitCents,
-      billCents: bill.cents,
+      billCents: (bill?.amount ?? Money.zero()).cents,
+      /** Which fatura `billCents` is — the one closed and due now, or the cycle still open. */
+      billCompetence: bill?.competence ?? month,
+      billProjectedCents: computeCardBillForecast(
+        card.id,
+        ws.transactions,
+        bill?.competence ?? month,
+        competenceOf,
+      ).cents,
       outstandingCents: outstanding.cents,
       dueDay: card.dueDay,
       // Utilization is the committed total (open + future), not just this month's bill.
@@ -210,22 +275,20 @@ export async function getDashboard(
   const aReceberCents = people.reduce((sum, p) => (p.balanceCents > 0 ? sum + p.balanceCents : sum), 0);
   const aPagarCents = people.reduce((sum, p) => (p.balanceCents < 0 ? sum - p.balanceCents : sum), 0);
 
-  // Account-backed settlements dated in the browsed month move real cash. Their direction follows
-  // the person's transaction-derived (gross) balance sign — a person who owed you paying back is an
-  // entrada (+), you paying someone you owed is a saída (−). Summed here so the general "economia"
-  // can credit the cash that reimbursed other people's shares (which it already counts as expense).
-  const grossPersonBalances = computePersonBalances([], ws.transactions, []);
-  let settlementNetCents = 0;
-  for (const s of ws.settlements) {
-    if (s.accountId === null || monthOf(s.date) !== month) continue;
-    const owedToYou = !(grossPersonBalances.get(s.personId) ?? Money.zero()).isNegative();
-    settlementNetCents += owedToYou ? s.amountCents : -s.amountCents;
-  }
+  // Account-backed settlement cash, attributed to the browsed month by the COMPETENCE of the
+  // debts it covered (not the settlement's own date) — the general "economia" then credits a
+  // reimbursement in the same month the covered expense counts. A person pre-paying next month's
+  // fatura no longer books phantom surplus in the month the money arrived, and the fatura month
+  // gets its matching credit. + = they paid you (entrada), − = you paid them (saída).
+  const settlementNetCents = settledCashByMonth.get(month) ?? 0;
 
   const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
   // Personal-lens total: only the user's own share of shared account/overdraft expenses.
   let totalBalancePersonalCents = 0;
   for (const value of balancesPersonal.values()) totalBalancePersonalCents += value.cents;
+  // Cash in the accounts that belongs to other people: advances received (acertos/reembolsos)
+  // minus their shares the user already fronted — exactly the general−personal lens difference.
+  const heldForOthersCents = Math.max(0, totalBalanceCents - totalBalancePersonalCents);
 
   // Overdue payable obligations (boleto/empréstimo/financiamento) still UNPAID with competence BEFORE
   // the current month never debited a balance and fall outside the [currentMonth…] projection window,
@@ -332,6 +395,11 @@ export async function getDashboard(
     aReceberCents,
     aPagarCents,
     settlementNetCents,
+    heldForOthersCents,
+    projectedIncomeCents: projectedTotals.income.cents,
+    projectedExpenseCents: projectedTotals.expense.cents,
+    projectedIncomePersonalCents: projectedTotalsPersonal.income.cents,
+    projectedExpensePersonalCents: projectedTotalsPersonal.expense.cents,
     trend,
     general: {
       incomeCents: general.income.cents,

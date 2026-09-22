@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   CardBillPaymentData,
   CreateTransactionCommand,
@@ -112,6 +112,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
             autoPaymentsEnabled: schema.users.autoPaymentsEnabled,
             defaultPayAccountId: schema.users.defaultPayAccountId,
             autoPaymentsSince: schema.users.autoPaymentsSince,
+            recurringMaterializedThrough: schema.users.recurringMaterializedThrough,
           })
           .from(schema.users)
           .where(eq(schema.users.id, userId)),
@@ -467,7 +468,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     tx: RlsTransaction,
     userId: string,
     command: CreateTransactionCommand,
-  ): Promise<void> {
+  ): Promise<string[]> {
     let groupId: string | null = null;
     if (command.installmentGroup) {
       const group = one(
@@ -497,10 +498,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     if (splitValues.length > 0) {
       await tx.insert(schema.transactionSplits).values(splitValues);
     }
+    return inserted.map((row) => row.id);
   }
 
   async createTransaction(userId: string, command: CreateTransactionCommand): Promise<void> {
     await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+  }
+
+  async createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string> {
+    const ids = await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+    const id = ids[0];
+    if (id === undefined) throw new Error("createTransactionReturningId: nothing was inserted.");
+    return id;
   }
 
   async replaceWithInstallment(
@@ -526,6 +535,67 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .set({ rolledAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.transactions.id, originalId));
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    // Pool roll: zero the person's outstanding via a cash-less rollover settlement (no account →
+    // no cash moved) and create the new rolled-into debt, atomically. RLS scopes rows to the user.
+    await this.run(userId, async (tx) => {
+      await tx.insert(schema.settlements).values({
+        userId,
+        personId: settlement.personId,
+        amountCents: settlement.amountCents,
+        settledOn: settlement.date,
+        accountId: settlement.accountId ?? null,
+        note: settlement.note ?? null,
+      });
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async materializeRecurring(
+    userId: string,
+    through: IsoDate,
+    commands: readonly CreateTransactionCommand[],
+  ): Promise<number> {
+    return this.run(userId, async (tx) => {
+      // Claim the window first: the watermark only moves while it is still behind `through`, so a
+      // concurrent pass (app load racing the daily cron) finds no row to update and inserts nothing.
+      const claimed = await tx
+        .update(schema.users)
+        .set({ recurringMaterializedThrough: through, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.users.id, userId),
+            or(
+              isNull(schema.users.recurringMaterializedThrough),
+              lt(schema.users.recurringMaterializedThrough, through),
+            ),
+          ),
+        )
+        .returning({ id: schema.users.id });
+      if (claimed.length === 0) return 0;
+
+      // Each occurrence gets its own savepoint: a single poisoned rule (a card deleted under it, a
+      // constraint it violates) must not roll back the watermark, or the pass would recompute the
+      // same failure on every load and every cron run, wedging the user forever.
+      let inserted = 0;
+      for (const command of commands) {
+        try {
+          await tx.transaction(async (sp) => {
+            await this.insertCommand(sp, userId, command);
+          });
+          inserted++;
+        } catch {
+          // Reported by the caller as a skipped occurrence; the rest of the pass still lands.
+        }
+      }
+      return inserted;
     });
   }
 

@@ -399,8 +399,19 @@ export function CardsView({
                   Fecha dia {card.closingDay} · vence dia {card.dueDay}
                 </div>
               </div>
-              <div className="l-amt">
-                <AnimatedMoney cents={card.billCents} withSign={false} />
+              <div style={{ textAlign: "right" }}>
+                {/* Expected total (booked + previstos to come); paying always uses the real part. */}
+                <div className="l-amt">
+                  <AnimatedMoney
+                    cents={card.billCents + card.billProjectedCents}
+                    withSign={card.billCents + card.billProjectedCents < 0}
+                  />
+                </div>
+                {card.billProjectedCents > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--text-lo)" }}>
+                    inclui <Money cents={card.billProjectedCents} withSign={false} /> previstos
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -496,8 +507,15 @@ export function CardsView({
                       color: "var(--text-hi)",
                     }}
                   >
-                    <AnimatedMoney cents={faturaMes} withSign={false} />
+                    <AnimatedMoney cents={faturaMes} withSign={faturaMes < 0} />
                   </div>
+                  {faturaMes !== faturaMesReal && (
+                    // The header total anticipates the previstos still to charge; the payable
+                    // button below sticks to the booked part — this line explains the gap.
+                    <div style={{ fontSize: 11, color: "var(--text-lo)" }}>
+                      inclui <Money cents={faturaMes - faturaMesReal} withSign={false} /> previstos
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -508,11 +526,11 @@ export function CardsView({
               {compras.map((t) => {
                 const cat = t.category;
                 const isCredit = t.kind === "income";
-                // A projected ("previsto") row opens its real anchor so the recurring rule
-                // can be edited/stopped — mirrors the Mensal statement.
-                const target: TransactionListItem = "anchor" in t ? t.anchor : t;
+                // A projected ("previsto") row opens ITSELF (read-only detail) carrying its rule's
+                // anchor, so the rule can be edited/stopped without any action landing on the
+                // anchor's own month — mirrors the Mensal statement.
                 const isProjected = "anchor" in t;
-                const open = () => openTxDetail(target);
+                const open = () => openTxDetail(t, isProjected ? t.anchor : undefined);
                 return (
                   <div
                     role="button"

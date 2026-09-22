@@ -37,6 +37,9 @@ export interface UserProfile {
   readonly defaultPayAccountId: string | null;
   /** The date auto-payments were turned on (`YYYY-MM-DD`); reconciliation only books from here on. */
   readonly autoPaymentsSince: string | null;
+  /** The date recurring rules were materialised through (`YYYY-MM-DD`); the next pass books every
+   * occurrence dated after it, up to today. Null = start from the beginning of the current month. */
+  readonly recurringMaterializedThrough: string | null;
 }
 
 /**
@@ -232,6 +235,33 @@ export interface FinanceRepository {
    * calculations) and persist `command` (the new debt on the chosen instrument), atomically.
    */
   rollPersonDebt(userId: string, originalId: string, command: CreateTransactionCommand): Promise<void>;
+  /**
+   * "Rolar o saldo do mês" (pool roll): zero the person's outstanding via a cash-less rollover
+   * settlement and persist `command` (the new debt on the chosen instrument), atomically. No
+   * transaction is abated — the settlement's zero-clamp covers the oldest open debts first.
+   */
+  rollPersonMonthDebt(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
+  /**
+   * Persist a single-entry command and return the new transaction's id — for flows that must act
+   * on the row right after creating it (paying a recurring occurrence ahead of its day).
+   */
+  createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string>;
+  /**
+   * Book the materialised occurrences of the user's recurring rules and advance the watermark to
+   * `through`, atomically. The watermark doubles as an OPTIMISTIC LOCK: the update only applies
+   * while the stored value is still behind `through`, so a second pass racing the first (app load
+   * × cron) writes nothing and the rows cannot be double-booked. Returns how many were inserted
+   * (0 when the lock was lost).
+   */
+  materializeRecurring(
+    userId: string,
+    through: IsoDate,
+    commands: readonly CreateTransactionCommand[],
+  ): Promise<number>;
   /**
    * Mark a deferred obligation (boleto/loan/financing) as PAID: it debits `paidAccountId` by
    * `paidAmountCents` on `paidAt`, while its original due date and amount stay intact for history.

@@ -4,11 +4,14 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
+import { materializeOccurrence } from "@/application/use-cases/materialize-occurrence";
+import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
 import { moveTransactionBill } from "@/application/use-cases/move-transaction-bill";
 import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
+import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -27,11 +30,13 @@ import { importStatementSchema } from "@/shared/schemas/import";
 import {
   createTransactionSchema,
   deleteTransactionSchema,
+  materializeOccurrenceSchema,
   moveBillSchema,
   payCardBillSchema,
   payTransactionSchema,
   receiveIncomeSchema,
   rollDebtSchema,
+  rollMonthDebtSchema,
   settlementInputSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
@@ -235,6 +240,35 @@ export async function reconcileAutoPaymentsAction(): Promise<ActionState> {
   return { ok: true, count };
 }
 
+/**
+ * Materialise the recurring rules whose day has arrived into real transactions. Idempotent (the
+ * watermark short-circuits a pass that already ran, and the write claims it as a lock), so it is
+ * safe on every app load. Revalidates only when something was actually booked.
+ */
+export async function materializeRecurringAction(): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const { created } = await materializeRecurring(financeRepository, userId);
+  if (created > 0) revalidatePath("/", "layout");
+  return { ok: true, count: created };
+}
+
+/**
+ * Book one occurrence of a recurring rule on demand, so a "previsto" can be paid/received before
+ * its automatic day. Returns the new (or already existing) transaction id, which the Pagar/Receber
+ * modal then settles — never the rule's anchor, whose own month must not be touched.
+ */
+export async function materializeOccurrenceAction(raw: unknown): Promise<ActionState & { id?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = materializeOccurrenceSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await materializeOccurrence(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, id: result.value.id };
+}
+
 export async function importTransactionsAction(raw: unknown): Promise<ActionState> {
   const userId = await currentUserId();
   if (!userId) return UNAUTHORIZED;
@@ -315,6 +349,22 @@ export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   if (!command.ok) return { ok: false, error: command.error.message };
 
   await financeRepository.rollPersonDebt(userId, r.originalTransactionId, command.value);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * "Rolar o saldo do mês" (pool roll): no specific transaction is abated. The use-case validates the
+ * person's BOOKED outstanding (never trust the client), zeroes it via a cash-less rollover
+ * settlement and creates the new debt (principal + juros) on a debt instrument, atomically.
+ */
+export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = rollMonthDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await rollPersonMonthDebt(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
 }

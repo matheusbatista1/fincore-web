@@ -44,8 +44,16 @@ export default async function MonthlyPage({
   const incomes = data.items.filter((e) => e.kind === "income" && e.cardId === null);
   const expenses = data.items.filter((e) => e.kind === "expense");
   const transfers = data.items.filter((e) => e.kind === "transfer");
-  const totIn = incomes.reduce((s, e) => s + e.amountCents, 0);
+  // An income counts at what actually LANDED when it was received for a different value —
+  // mirroring the dashboard's settledIncomeCents, so the two screens' bases agree.
+  const incomeCents = (e: MonthlyItem): number =>
+    e.isReceived && e.receivedAmountCents != null ? e.receivedAmountCents : e.amountCents;
+  const totIn = incomes.reduce((s, e) => s + incomeCents(e), 0);
   const totOut = expenses.reduce((s, e) => s + settledItemCents(e), 0);
+  // The projected ("previsto") slice inside each header total, called out so the statement's
+  // forward-looking numbers never read as already-realized figures.
+  const totInProjected = incomes.filter((e) => e.projected).reduce((s, e) => s + incomeCents(e), 0);
+  const totOutProjected = expenses.filter((e) => e.projected).reduce((s, e) => s + settledItemCents(e), 0);
 
   // People who owe you this month ("a receber") — shown inside the income group under
   // the general lens (the same month-scoped, projection-aware value the dashboard uses).
@@ -66,20 +74,30 @@ export default async function MonthlyPage({
       // charged. Estornos are card-bound incomes; they're excluded from the group's row list
       // (shown on the Cards screen) but must still net down the amount to pay.
       const credits = data.items
-        .filter((e) => e.kind === "income" && e.cardId === c.id)
+        .filter((e) => e.kind === "income" && e.cardId === c.id && !e.projected)
         .reduce((s, e) => s + e.amountCents, 0);
+      // A projected ("previsto") charge is a forecast, not something the bank will bill: the
+      // payable fatura counts REAL charges only, matching what the server computes on payment
+      // (and what the Cards screen offers) — otherwise "Pagar fatura · R$X" overshoots.
+      const faturaBase = sumAbs(items.filter((e) => !e.projected));
+      const projectedCents = total - faturaBase;
       return {
         key: `card-${c.id}`,
         name: `${c.bank} · ${c.product}`,
         accent,
         icon: "credit-card",
         items,
-        totalCents: total,
+        // The tile shows the fatura's expected TOTAL: booked + previstos, net of estornos —
+        // the same figure the Cards screen calls "Total".
+        totalCents: total - credits,
+        // The previsto slice inside totalCents, so the tile/modal can call it out.
+        projectedCents,
+        creditsCents: credits,
         lens: "expense" as const,
         cardId: c.id,
         // Full (general) fatura total — kept independent of the personal-lens recompute so
         // "Pagar fatura" always offers the whole bill.
-        faturaCents: Math.max(0, total - credits),
+        faturaCents: Math.max(0, faturaBase - credits),
       };
     })
     .filter((g) => g.items.length > 0);
@@ -169,6 +187,8 @@ export default async function MonthlyPage({
       exportGroups={exportGroups}
       totInCents={totIn}
       totOutCents={totOut}
+      totInProjectedCents={totInProjected}
+      totOutProjectedCents={totOutProjected}
       itemCount={data.items.length}
       accounts={workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name }))}
       cardBillPayments={workspace.cardBillPayments}

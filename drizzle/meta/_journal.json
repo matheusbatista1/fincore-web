@@ -120,6 +120,13 @@
       "when": 1783040450008,
       "tag": "0016_first_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785802341090,
+      "tag": "0017_pretty_thunderbolt",
+      "breakpoints": true
     }
   ]
 }
