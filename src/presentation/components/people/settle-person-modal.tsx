@@ -46,7 +46,9 @@ function todayIso(): string {
 /**
  * Register (or edit) an acerto — a person paying you back, or you paying them. Reused by the People
  * profile and the Visão mensal "a receber" rows. Settle against `target.capCents` (the outstanding the
- * screen shows), prefilling `target.prefillCents` (what the user clicked) clamped to the cap.
+ * screen shows), prefilling `target.prefillCents` (what the user clicked) clamped to the cap. The
+ * acerto carries the date it really happened (default today): a payment for August made in
+ * September must be able to say so, since the ledger covers the oldest open months by date.
  */
 export function SettleBody({
   target,
@@ -71,6 +73,8 @@ export function SettleBody({
   // the user consciously picks where the cash landed (no silent default to the first wallet).
   // ACCOUNT_NONE = "sem conta" (baixa/perdão, no cash movement).
   const [accountSel, setAccountSel] = useState<string>(editing ? (editing.accountId ?? ACCOUNT_NONE) : "");
+  const today = todayIso();
+  const [date, setDate] = useState<string>(editing ? editing.date : today);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -90,7 +94,7 @@ export function SettleBody({
     const parsed = settlementInputSchema.safeParse({
       personId: target.id,
       amountCents: applied,
-      date: editing ? editing.date : todayIso(),
+      date,
       accountId,
     });
     if (!parsed.success) {
@@ -176,6 +180,21 @@ export function SettleBody({
           ))}
           <option value={ACCOUNT_NONE}>Sem conta (só baixa / perdão)</option>
         </select>
+        <label
+          htmlFor="settle-date"
+          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+        >
+          Quando foi?
+        </label>
+        <input
+          id="settle-date"
+          className="input"
+          type="date"
+          value={date}
+          max={today}
+          onChange={(e) => setDate(e.target.value || today)}
+          style={{ width: "100%", marginBottom: 16 }}
+        />
         <div className="summary-box">
           <div className="sb-row">
             <span className="k">{owes ? "Recebendo agora" : "Pagando agora"}</span>
