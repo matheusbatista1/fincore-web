@@ -117,6 +117,38 @@ describe("getDashboard — projected end-of-month balance", () => {
     expect(withOverdue.projectedBalanceCents).toBe(base.projectedBalanceCents - 8000);
   });
 
+  it("credits a person's pending share from BEFORE the current month (symmetric with the overdue term)", async () => {
+    // A May loan parcela (competence < current June), still unpaid and fully owed by Ana. The overdue
+    // term subtracts the whole R$80, so the R$80 she still owes must come back as a receivable — the
+    // general figure assumes she pays her part. It used to credit only the [current, browsed] window,
+    // reading the stale receivable as absorbed by the user; taking the share over then changed nothing.
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const parcela = {
+      id: "loan-may",
+      source: "loan" as const,
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -8000,
+      recurrence: null,
+    };
+    const owedByAna = expense({
+      ...parcela,
+      myShareCents: 0,
+      splits: [{ personId: "p1", shareCents: 8000 }],
+    });
+    const assumedByMe = expense({ ...parcela, myShareCents: 8000, splits: [] });
+    const base = await getDashboard(stubRepo([]), "u", "2026-06");
+    const shared = await getDashboard(stubRepo([owedByAna], [], [ana]), "u", "2026-06");
+    const mine = await getDashboard(stubRepo([assumedByMe], [], [ana]), "u", "2026-06");
+    // General: −8000 (overdue obligation) + 8000 (her receivable) = unchanged; after taking it over,
+    // the obligation stays and the receivable is gone.
+    expect(shared.projectedBalanceCents).toBe(base.projectedBalanceCents);
+    expect(mine.projectedBalanceCents).toBe(base.projectedBalanceCents - 8000);
+    // The personal lens already told this story: none of it was my share, then all of it is.
+    expect(shared.projectedBalancePersonalCents).toBe(base.projectedBalancePersonalCents);
+    expect(mine.projectedBalancePersonalCents).toBe(base.projectedBalancePersonalCents - 8000);
+  });
+
   it("does NOT subtract an old card charge with no payment record (fatura presumed paid)", async () => {
     // A pre-current card charge whose fatura has no CardBillPayment must stay presumed-paid — the
     // overdue term is boleto/loan/financing only, never card charges (guards the reviewed regression).
@@ -223,7 +255,8 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     const data = await getDashboard(stubRepo([shared], [], [ana]), "u", "2026-06");
     // Account holds the full −30000 (real); June's a-receber is 0 (the expense is May).
     expect(data.aReceberCents).toBe(0);
-    expect(data.projectedBalanceCents).toBe(70000); // 100000 − 30000
+    // General still expects Ana's R$200 from May (pending through month-end): 100000 − 30000 + 20000.
+    expect(data.projectedBalanceCents).toBe(90000);
     // Personal debits only my share (10000) → 90000.
     expect(data.projectedBalancePersonalCents).toBe(90000);
   });
