@@ -13,7 +13,8 @@ Contents:
   `Person`, `Category`, `Budget`, `Goal`.
 - `value-objects/` — `Share`, `Installment`, `Recurrence`, `CompetenceMonth`, …
 - `services/` — calculators: balance, card bill, split, installment generation,
-  person ledger, recurring projection, personal-vs-general, budgets, goals.
+  person ledger, debt assumption, recurring projection, personal-vs-general,
+  budgets, goals.
 
 Rules:
 

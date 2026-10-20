@@ -294,3 +294,17 @@ export const rollMonthDebtSchema = z.object({
   description: z.string().trim().max(120).default(""),
 });
 export type RollMonthDebtInput = z.infer<typeof rollMonthDebtSchema>;
+
+/**
+ * "Assumir dívida": take over what the person still owes — their booked shares move onto the user
+ * (no cash moves, nothing is forgiven off-ledger: the expense simply becomes the user's). `scope`
+ * picks the browsed month's pending only, or everything pending through it; the server caps
+ * `amountCents` at that BOOKED pending (never trust the client — a forecast has no row to move).
+ */
+export const assumeDebtSchema = z.object({
+  personId: idSchema,
+  month: competenceMonthSchema,
+  amountCents: centsSchema.positive("Informe o valor a assumir."),
+  scope: z.enum(["month", "all"]).default("month"),
+});
+export type AssumeDebtInput = z.infer<typeof assumeDebtSchema>;

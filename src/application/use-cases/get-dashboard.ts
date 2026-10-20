@@ -86,7 +86,8 @@ export interface DashboardData {
   /**
    * Projected total balance at the END of the browsed month (general lens): real
    * movements up to month-end, plus the recurring ('previsto') occurrences, minus
-   * the card bills due, PLUS what people owe you this month (− what you owe).
+   * the card bills due, PLUS what people still owe you through month-end (− what
+   * you owe them) — every pending month, not just the browsed one.
    */
   readonly projectedBalanceCents: number;
   /**
@@ -332,12 +333,16 @@ export async function getDashboard(
     ws.cardBillPayments,
   ).cents;
   projectedBalanceCents -= overdueGeneralCents; // overdue boleto/loan/financing before this month
-  // General "fim do mês" also reflects the receivables/payables with people. Obligations above are
-  // summed cumulatively (currentMonth → browsed month), so the people net must be cumulative over the
-  // same window too — otherwise a past month's obligation gets subtracted without crediting that
-  // month's receivable.
-  for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
-    for (const person of ws.people) projectedBalanceCents += personNetFor(person.id, m);
+  // General "fim do mês" also reflects the receivables/payables with people — through the browsed
+  // month, EVERY pending month (Σ_{m ≤ month} net(m) is the outstanding as of that month-end). The
+  // overdue term above subtracts an unpaid obligation from before the current month in full, so the
+  // shares other people owe on it must be credited back the same way; limiting the credit to the
+  // [currentMonth, month] window read a stale receivable as if the user had absorbed it — and moving
+  // its responsibility to the user then changed nothing in this lens.
+  for (const person of ws.people) {
+    for (const net of (monthNets.get(person.id) ?? new Map<CompetenceMonth, number>()).values()) {
+      projectedBalanceCents += net;
+    }
   }
 
   // Personal projection: accounts count only the user's share + drop reimbursements;
