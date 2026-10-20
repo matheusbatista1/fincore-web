@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
+import { assumePersonDebt } from "@/application/use-cases/assume-person-debt";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { materializeOccurrence } from "@/application/use-cases/materialize-occurrence";
@@ -28,6 +29,7 @@ import {
 } from "@/shared/schemas/entities";
 import { importStatementSchema } from "@/shared/schemas/import";
 import {
+  assumeDebtSchema,
   createTransactionSchema,
   deleteTransactionSchema,
   materializeOccurrenceSchema,
@@ -367,6 +369,21 @@ export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionSta
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/**
+ * "Assumir dívida": the use-case validates the person's BOOKED pending (never trust the client) and
+ * moves their shares onto the user — no cash, no acerto; the expense becomes the user's.
+ */
+export async function assumePersonDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = assumeDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await assumePersonDebt(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, count: result.value };
 }
 
 // --- accounts ---

@@ -47,6 +47,16 @@ function one<T>(rows: T[]): T {
   return row;
 }
 
+/** The edit form caps a note at 280 chars: keep an assumption trail without breaking later edits. */
+const NOTE_MAX_LENGTH = 280;
+function appendNote(existing: string | null, suffix: string): string {
+  if (!existing) return suffix.slice(0, NOTE_MAX_LENGTH);
+  const joined = `${existing} · ${suffix}`;
+  if (joined.length <= NOTE_MAX_LENGTH) return joined;
+  const room = NOTE_MAX_LENGTH - suffix.length - 4; // "… · " between the clipped note and the trail
+  return room > 0 ? `${existing.slice(0, room)}… · ${suffix}` : suffix.slice(0, NOTE_MAX_LENGTH);
+}
+
 /** Maps a domain entry to a transactions insert payload for the given user. */
 function toTransactionValues(userId: string, entry: NewTransactionEntry, installmentGroupId: string | null) {
   return {
@@ -555,6 +565,59 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         note: settlement.note ?? null,
       });
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async assumePersonShares(
+    userId: string,
+    items: ReadonlyArray<{ transactionId: string; personId: string; assumeCents: number }>,
+    note: string,
+  ): Promise<number> {
+    if (items.length === 0) return 0;
+    // Each share shrinks by what the user takes over (and goes when fully taken), the row's own share
+    // grows by the same cents and the note keeps the trail — all or nothing. RLS scopes rows to the user.
+    return this.run(userId, async (tx) => {
+      for (const item of items) {
+        const split = one(
+          await tx
+            .select({ id: schema.transactionSplits.id, shareCents: schema.transactionSplits.shareCents })
+            .from(schema.transactionSplits)
+            .where(
+              and(
+                eq(schema.transactionSplits.transactionId, item.transactionId),
+                eq(schema.transactionSplits.personId, item.personId),
+              ),
+            ),
+        );
+        if (item.assumeCents <= 0 || item.assumeCents > split.shareCents) {
+          throw new Error("Assumed amount exceeds the person's share");
+        }
+        const row = one(
+          await tx
+            .select({ myShareCents: schema.transactions.myShareCents, note: schema.transactions.note })
+            .from(schema.transactions)
+            .where(
+              and(eq(schema.transactions.id, item.transactionId), isNull(schema.transactions.deletedAt)),
+            ),
+        );
+        if (item.assumeCents === split.shareCents) {
+          await tx.delete(schema.transactionSplits).where(eq(schema.transactionSplits.id, split.id));
+        } else {
+          await tx
+            .update(schema.transactionSplits)
+            .set({ shareCents: split.shareCents - item.assumeCents })
+            .where(eq(schema.transactionSplits.id, split.id));
+        }
+        await tx
+          .update(schema.transactions)
+          .set({
+            myShareCents: (row.myShareCents ?? 0) + item.assumeCents,
+            note: appendNote(row.note, note),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.transactions.id, item.transactionId));
+      }
+      return items.length;
     });
   }
 

@@ -246,6 +246,17 @@ export interface FinanceRepository {
     command: CreateTransactionCommand,
   ): Promise<void>;
   /**
+   * "Assumir dívida": move part of a person's shares onto the user. Each item lowers that person's
+   * split on the transaction by `assumeCents` (deleting it when fully taken) and raises the row's
+   * `myShareCents` by the same amount, appending `note` to the row — atomically, no cash moved.
+   * Returns the number of rows touched.
+   */
+  assumePersonShares(
+    userId: string,
+    items: ReadonlyArray<{ transactionId: string; personId: string; assumeCents: number }>,
+    note: string,
+  ): Promise<number>;
+  /**
    * Persist a single-entry command and return the new transaction's id — for flows that must act
    * on the row right after creating it (paying a recurring occurrence ahead of its day).
    */
