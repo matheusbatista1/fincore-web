@@ -62,6 +62,15 @@ export interface LedgerMovement {
   readonly balanceAfterCents: number;
 }
 
+/**
+ * Tuning for a ledger replay. `projected` (default `true`) folds the "previsto" recurring
+ * occurrences into the horizon; `false` replays only BOOKED rows — the figure an operation that
+ * acts on real rows (settle, roll, assume) must validate against, since a forecast has no row.
+ */
+export interface LedgerOptions {
+  readonly projected?: boolean;
+}
+
 /** A transaction stamped with the date/competence/projected flag to emit on its movements. */
 interface StampedTransaction {
   readonly tx: Transaction;
@@ -239,9 +248,16 @@ export function computePersonMonthNets(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): Map<string, Map<CompetenceMonth, number>> {
-  return computePersonMonthNetsAndSettledCash(people, transactions, settlements, throughMonth, competenceOf)
-    .nets;
+  return computePersonMonthNetsAndSettledCash(
+    people,
+    transactions,
+    settlements,
+    throughMonth,
+    competenceOf,
+    options,
+  ).nets;
 }
 
 /**
@@ -270,11 +286,19 @@ export function computePersonMonthNetsAndSettledCash(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): {
   nets: Map<string, Map<CompetenceMonth, number>>;
   settledCashByMonth: Map<CompetenceMonth, number>;
 } {
-  const { movements } = computePersonLedger(people, transactions, settlements, throughMonth, competenceOf);
+  const { movements } = computePersonLedger(
+    people,
+    transactions,
+    settlements,
+    throughMonth,
+    competenceOf,
+    options,
+  );
 
   const byPerson = new Map<string, LedgerMovement[]>();
   for (const mv of movements) {
@@ -375,6 +399,7 @@ export function computePersonLedger(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): { balances: Map<string, Money>; movements: LedgerMovement[] } {
   // A received income abates a person's debt on its RECEIPT date, which may differ from its booked
   // date (you record an expected payment for next month, then receive it early). Bucket such a row by
@@ -404,7 +429,7 @@ export function computePersonLedger(
   }
 
   const projected: StampedTransaction[] = [];
-  if (earliest !== null) {
+  if (earliest !== null && (options.projected ?? true)) {
     for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m, competenceOf)) {
         // `projectRecurring` resolves each occurrence through the SAME competence resolver as real

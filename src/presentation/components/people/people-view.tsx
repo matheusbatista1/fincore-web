@@ -29,6 +29,7 @@ import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
+import { AssumeDebtBody } from "./assume-debt-modal";
 import { type AccountOption, SettleBody } from "./settle-person-modal";
 
 /** A card option enriched with its billing cycle, so the roll modal can name the target fatura. */
@@ -93,6 +94,7 @@ export function PeopleView({
   const [settleId, setSettleId] = useState<string | null>(null);
   const [editSettlement, setEditSettlement] = useState<SettlementView | null>(null);
   const [rollId, setRollId] = useState<string | null>(null);
+  const [assumeId, setAssumeId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
   // List + totals are the browsed month's nets (projection-aware for future months).
@@ -102,6 +104,7 @@ export function PeopleView({
 
   const open = people.find((p) => p.id === openId) ?? null;
   const roll = people.find((p) => p.id === rollId) ?? null;
+  const assume = people.find((p) => p.id === assumeId) ?? null;
   // The person's open debts in the BROWSED MONTH (their share of a shared expense whose
   // competence is this month and is not yet rolled) — what "Rolar dívida" acts on. Scoping
   // to the month means rolling abates the parcela that actually weighs on the month's
@@ -319,6 +322,10 @@ export function PeopleView({
                   setOpenId(null);
                   setRollId(open.id);
                 }}
+                onAssume={() => {
+                  setOpenId(null);
+                  setAssumeId(open.id);
+                }}
                 onEditSettlement={(s) => {
                   setOpenId(null);
                   setEditSettlement(s);
@@ -367,6 +374,23 @@ export function PeopleView({
           )}
         </Dialog>
 
+        {/* Assumir dívida */}
+        <Dialog open={assume !== null} onOpenChange={(v) => !v && setAssumeId(null)}>
+          {assume && (
+            <AssumeDebtBody
+              target={{
+                id: assume.id,
+                name: assume.name,
+                // The figures the profile shows; the server caps at the BOOKED pending.
+                monthPendingCents: assume.monthBalanceCents,
+                totalPendingCents: assume.totalBalanceCents,
+              }}
+              month={month}
+              onDone={() => setAssumeId(null)}
+            />
+          )}
+        </Dialog>
+
         {/* Relatório por pessoa */}
         {reportId && (
           <ReportModal
@@ -389,6 +413,7 @@ function ProfileBody({
   settlements,
   onSettle,
   onRoll,
+  onAssume,
   onEditSettlement,
   onDeleteSettlement,
   onRemind,
@@ -401,6 +426,7 @@ function ProfileBody({
   settlements: SettlementView[];
   onSettle: () => void;
   onRoll: () => void;
+  onAssume: () => void;
   onEditSettlement: (s: SettlementView) => void;
   onDeleteSettlement: (id: string) => void;
   onRemind: () => void;
@@ -481,6 +507,12 @@ function ProfileBody({
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRoll}>
                 <Icon name="repeat" size={16} />
                 Rolar dívida
+              </button>
+            )}
+            {realOwes && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onAssume}>
+                <Icon name="handshake" size={16} />
+                Assumir dívida
               </button>
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={onSettle}>
