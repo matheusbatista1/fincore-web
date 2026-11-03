@@ -15,6 +15,8 @@ import { Money } from "../money/money";
 import { billingCompetence } from "./card-bill.calculator";
 import {
   applySettlement,
+  computePersonAdvances,
+  computePersonAdvancesThrough,
   computePersonBalances,
   computePersonBalancesForMonth,
   computePersonBalancesThrough,
@@ -1090,5 +1092,178 @@ describe("computePersonBookedBalancesThrough", () => {
     expect(
       computePersonBookedBalancesThrough(people, [debt, late], setts, "2026-09", calOf).get("p-a")?.cents,
     ).toBe(5000); // − 40,00 once received
+  });
+});
+
+// =============================================================================
+// computePersonAdvances — the excess an account-backed acerto parks (the clamp's complement).
+// =============================================================================
+
+describe("computePersonAdvances — what a person has advanced", () => {
+  const people = [person("p-a")];
+  const bank = (over: Partial<Settlement>): Settlement => ({
+    id: "sb",
+    personId: "p-a",
+    amountCents: 0,
+    date: "2026-06-20",
+    accountId: "nu",
+    ...over,
+  });
+  const share = (id: string, date: string, shareCents: number): ExpenseTransaction =>
+    expense({ id, date, splits: [{ personId: "p-a", shareCents }] });
+  const advancesThrough = (txs: readonly Transaction[], setts: readonly Settlement[], horizon: string) =>
+    computePersonAdvancesThrough(people, txs, setts, horizon, calOf).get("p-a") ?? 0;
+  const balanceThrough = (txs: readonly Transaction[], setts: readonly Settlement[], horizon: string) =>
+    computePersonBalancesThrough(people, txs, setts, horizon, calOf).get("p-a")?.cents ?? 0;
+
+  it("parks the excess of an account-backed acerto above the debt (the balance stays clamped at zero)", () => {
+    const txs = [share("e1", "2026-06-05", 59_640)];
+    const setts = [bank({ amountCents: 60_000 })];
+    expect(balanceThrough(txs, setts, "2026-06")).toBe(0);
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(360);
+  });
+
+  it("a 'sem conta' acerto above the debt parks nothing — a write-off, not money held", () => {
+    const txs = [share("e1", "2026-06-05", 59_640)];
+    expect(advancesThrough(txs, [bank({ amountCents: 60_000, accountId: null })], "2026-06")).toBe(0);
+  });
+
+  it("an exact or partial acerto parks nothing", () => {
+    const txs = [share("e1", "2026-06-05", 10_000)];
+    expect(advancesThrough(txs, [bank({ amountCents: 10_000 })], "2026-06")).toBe(0);
+    expect(advancesThrough(txs, [bank({ amountCents: 4_000 })], "2026-06")).toBe(0);
+  });
+
+  it("seeds every known person at zero", () => {
+    const two = [person("p-a"), person("p-b")];
+    const out = computePersonAdvancesThrough(two, [], [], "2026-06", calOf);
+    expect(out.get("p-a")).toBe(0);
+    expect(out.get("p-b")).toBe(0);
+  });
+
+  it("paying a person YOU owe above the debt parks the excess on your side (negative)", () => {
+    // They paid you 100,00 with no share behind it → you owe them; you then pay 150,00 back.
+    const txs: Transaction[] = [income({ id: "i1", amountCents: 10_000, fromPersonId: "p-a" })];
+    const setts = [bank({ amountCents: 15_000 })];
+    expect(balanceThrough(txs, setts, "2026-06")).toBe(0);
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(-5_000);
+  });
+
+  it("an acerto landing on a zero balance takes the sign of the raw accrual (shares → they advanced)", () => {
+    const txs = [share("e1", "2026-06-05", 10_000)];
+    const setts = [
+      bank({ id: "s1", amountCents: 10_000, date: "2026-06-10" }), // settles exactly
+      bank({ id: "s2", amountCents: 2_000, date: "2026-06-20" }), // nothing left to cover
+    ];
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(2_000);
+  });
+
+  it("an acerto with no accrual at all counts as their advance", () => {
+    expect(advancesThrough([], [bank({ amountCents: 2_000 })], "2026-06")).toBe(2_000);
+  });
+
+  it("an acerto landing on zero after YOUR debt was paid off parks on your side", () => {
+    const txs: Transaction[] = [income({ id: "i1", amountCents: 10_000, fromPersonId: "p-a" })];
+    const setts = [
+      bank({ id: "s1", amountCents: 10_000, date: "2026-06-10" }),
+      bank({ id: "s2", amountCents: 500, date: "2026-06-20" }),
+    ];
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(-500);
+  });
+
+  it("sums the excess of several acertos", () => {
+    const txs = [share("e1", "2026-06-05", 10_000)];
+    const setts = [
+      bank({ id: "s1", amountCents: 7_000, date: "2026-06-10" }),
+      bank({ id: "s2", amountCents: 5_000, date: "2026-06-15" }), // 3.000 applied, 2.000 parked
+      bank({ id: "s3", amountCents: 1_000, date: "2026-06-20" }), // all parked
+    ];
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(3_000);
+  });
+
+  it("a later share consumes the parked excess as the horizon moves", () => {
+    const june = share("e1", "2026-06-05", 1_000);
+    const setts = [bank({ amountCents: 1_500 })];
+    expect(advancesThrough([june], setts, "2026-06")).toBe(500);
+    // A July share bigger than the excess absorbs all of it; the remainder stays owed.
+    const july = share("e2", "2026-07-05", 800);
+    expect(advancesThrough([june, july], setts, "2026-07")).toBe(0);
+    expect(balanceThrough([june, july], setts, "2026-07")).toBe(300);
+    // A July share smaller than the excess leaves part of it parked.
+    const small = share("e2", "2026-07-05", 300);
+    expect(advancesThrough([june, small], setts, "2026-07")).toBe(200);
+    expect(balanceThrough([june, small], setts, "2026-07")).toBe(0);
+  });
+
+  it("only the account-backed acerto parks when mixed with a perdão", () => {
+    const txs = [share("e1", "2026-06-05", 10_000)];
+    const setts = [
+      bank({ id: "s1", amountCents: 6_000, date: "2026-06-10", accountId: null }), // forgives 6.000
+      bank({ id: "s2", amountCents: 5_000, date: "2026-06-15" }), // 4.000 applied, 1.000 parked
+    ];
+    expect(advancesThrough(txs, setts, "2026-06")).toBe(1_000);
+  });
+
+  it("is the clamp's complement: advance === max(0, Σ acertos − Σ shares) (property)", () => {
+    const monthArb = fc.constantFrom("2026-01", "2026-02", "2026-03", "2026-04", "2026-05");
+    const shareArb = fc.record({ month: monthArb, shareCents: fc.integer({ min: 1, max: 100_000 }) });
+    const settArb = fc.record({ month: monthArb, amountCents: fc.integer({ min: 1, max: 120_000 }) });
+    fc.assert(
+      fc.property(
+        fc.array(shareArb, { maxLength: 10 }),
+        fc.array(settArb, { maxLength: 6 }),
+        monthArb,
+        (shares, setts, horizon) => {
+          const txs = shares.map((s, i) => share(`e${i}`, `${s.month}-10`, s.shareCents));
+          const acertos = setts.map((s, i) =>
+            bank({ id: `s${i}`, amountCents: s.amountCents, date: `${s.month}-12` }),
+          );
+          const inRange = (m: string) => m <= horizon;
+          const sumShares = shares.filter((s) => inRange(s.month)).reduce((a, s) => a + s.shareCents, 0);
+          const sumSetts = setts.filter((s) => inRange(s.month)).reduce((a, s) => a + s.amountCents, 0);
+          const balance = balanceThrough(txs, acertos, horizon);
+          const advance = advancesThrough(txs, acertos, horizon);
+          expect(balance).toBe(Math.max(0, sumShares - sumSetts));
+          expect(advance).toBe(Math.max(0, sumSetts - sumShares));
+          expect(balance - advance).toBe(sumShares - sumSetts);
+        },
+      ),
+    );
+  });
+
+  it("mirrors on your side: advance === −max(0, Σ acertos − Σ payments received) (property)", () => {
+    const monthArb = fc.constantFrom("2026-01", "2026-02", "2026-03");
+    const payArb = fc.record({ month: monthArb, amountCents: fc.integer({ min: 1, max: 50_000 }) });
+    const settArb = fc.record({ month: monthArb, amountCents: fc.integer({ min: 1, max: 60_000 }) });
+    fc.assert(
+      fc.property(
+        fc.array(payArb, { maxLength: 6 }),
+        fc.array(settArb, { maxLength: 6 }),
+        monthArb,
+        (pays, setts, horizon) => {
+          const txs: Transaction[] = pays.map((p, i) =>
+            income({ id: `i${i}`, date: `${p.month}-10`, amountCents: p.amountCents, fromPersonId: "p-a" }),
+          );
+          const acertos = setts.map((s, i) =>
+            bank({ id: `s${i}`, amountCents: s.amountCents, date: `${s.month}-12` }),
+          );
+          const inRange = (m: string) => m <= horizon;
+          const sumPays = pays.filter((p) => inRange(p.month)).reduce((a, p) => a + p.amountCents, 0);
+          const sumSetts = setts.filter((s) => inRange(s.month)).reduce((a, s) => a + s.amountCents, 0);
+          // With nothing received in range the raw accrual is zero, and the tie-break calls the
+          // excess THEIR advance (the account-cash rule treats a zero raw balance as "owed to you").
+          const expected = sumPays > 0 ? 0 - Math.max(0, sumSetts - sumPays) : sumSetts; // 0 - x: never -0
+          expect(advancesThrough(txs, acertos, horizon)).toBe(expected);
+        },
+      ),
+    );
+  });
+
+  it("computePersonAdvancesThrough is computePersonAdvances over the through-ledger's movements", () => {
+    const txs = [share("e1", "2026-06-05", 1_000), share("e2", "2026-07-05", 300)];
+    const setts = [bank({ amountCents: 1_500 })];
+    const { movements } = computePersonLedger(people, txs, setts, "2026-07", calOf);
+    expect(computePersonAdvances(people, movements).get("p-a")).toBe(200);
+    expect(advancesThrough(txs, setts, "2026-07")).toBe(200);
   });
 });

@@ -259,7 +259,15 @@ export function PeopleView({
                     <div className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}>
                       {settled ? "—" : <Money cents={Math.abs(bal)} withSign={false} />}
                     </div>
-                    <div className="l-sub">{owes ? "te deve" : owed ? "você deve" : "em dia"}</div>
+                    <div className="l-sub">
+                      {owes ? "te deve" : owed ? "você deve" : "em dia"}
+                      {p.advanceCents > 0 && (
+                        <>
+                          {" · "}
+                          <Money cents={p.advanceCents} withSign={false} /> de crédito
+                        </>
+                      )}
+                    </div>
                   </div>
                   <Icon
                     name="chevron-right"
@@ -495,6 +503,29 @@ function ProfileBody({
             </>
           )}
         </div>
+        {person.advanceCents !== 0 && (
+          // The excess of an account-backed acerto: the total above clamps at zero, so a person who
+          // paid more than they owed reads "quitado" here and the parked amount is told apart.
+          <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 4 }}>
+            {person.advanceCents > 0 ? (
+              <>
+                {first} tem{" "}
+                <b style={{ color: "var(--sky-500)" }}>
+                  <Money cents={person.advanceCents} withSign={false} />
+                </b>{" "}
+                de crédito · abate a próxima cota
+              </>
+            ) : (
+              <>
+                Você tem{" "}
+                <b style={{ color: "var(--sky-500)" }}>
+                  <Money cents={-person.advanceCents} withSign={false} />
+                </b>{" "}
+                de crédito com {first}
+              </>
+            )}
+          </div>
+        )}
         {canSettle && (
           <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
             {realOwes && (
