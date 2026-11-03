@@ -494,25 +494,61 @@ export function computePersonBookedBalancesThrough(
   return accumulateWithMovements(people, real, settsThrough, true).balances;
 }
 
+/** A ledger movement annotated with the money it really moved — the figure a lay reader expects. */
+export interface CashMovement extends LedgerMovement {
+  /**
+   * The unclamped delta. Shares and payments: `signedDeltaCents` (they never clamp). An
+   * account-backed acerto: the full amount paid, `< 0` when they paid you and `> 0` when you paid
+   * them — including the part the zero-clamp parked. A "sem conta" acerto (baixa/perdão): the
+   * applied delta, because a write-off beyond the debt forgives nothing.
+   */
+  readonly cashDeltaCents: number;
+}
+
+/**
+ * The cash a single movement moved (see {@link CashMovement}). `rawAccrualCents` is the person's
+ * accrual in the replay (shares − payments) and only orients an acerto that landed on a ZERO
+ * balance (applied delta 0): `≥ 0` → they paid you, mirroring the account-cash direction rule in
+ * balance.calculator. That rule reads the all-time, horizon-free accrual, so the two can disagree
+ * for a zero-balance acerto whose only share lies beyond the horizon: an edge of an edge,
+ * documented rather than fixed.
+ */
+export function cashDeltaCents(mv: LedgerMovement, rawAccrualCents: number): number {
+  if (mv.source.type !== "settlement") return mv.signedDeltaCents;
+  const { settlement } = mv.source;
+  if (settlement.accountId === null) return mv.signedDeltaCents;
+  const theyPaid = mv.signedDeltaCents < 0 || (mv.signedDeltaCents === 0 && rawAccrualCents >= 0);
+  const amount = Math.abs(settlement.amountCents);
+  return theyPaid ? -amount : amount;
+}
+
+/**
+ * Annotate a replay's movements with their cash deltas. Expects the list exactly as
+ * {@link computePersonLedger} emits it (transactions first, then settlements): each person's raw
+ * accrual is read off the non-settlement movements seen so far. Length and order are preserved.
+ */
+export function withCashDeltas(movements: readonly LedgerMovement[]): CashMovement[] {
+  const raw = new Map<string, number>();
+  return movements.map((mv) => {
+    if (mv.source.type !== "settlement") {
+      raw.set(mv.personId, (raw.get(mv.personId) ?? 0) + mv.signedDeltaCents);
+      return { ...mv, cashDeltaCents: mv.signedDeltaCents };
+    }
+    return { ...mv, cashDeltaCents: cashDeltaCents(mv, raw.get(mv.personId) ?? 0) };
+  });
+}
+
 /**
  * What each person has ADVANCED through a replayed ledger: the part of their account-backed acertos
- * that found no debt to cover (`|amount| − |applied delta|`) — money held for them that the replay
- * applies to the next share they owe. Convention: `> 0` their money parked with you (abates their
- * next share); `< 0` yours parked with them (you paid back more than you owed). Every `people` id
- * is present, defaulting to 0.
- *
- * Only an account-backed acerto parks anything: a "sem conta" settlement is a baixa/perdão, and a
- * write-off beyond the debt is not money held. The side follows the balance the acerto hit — a
- * negative applied delta (they paid you) parks `+excess`, a positive one (you paid them) parks
- * `−excess` — and an acerto that lands on a zero balance (applied delta 0) takes the sign of the
- * person's raw accrual in this replay (shares − payments, `≥ 0` → they advanced), mirroring the
- * account-cash direction rule in balance.calculator. That rule reads the all-time, horizon-free
- * accrual, so the two can disagree for a zero-balance acerto whose only share lies beyond the
- * horizon: an edge of an edge, documented rather than fixed.
+ * that found no debt to cover — money held for them that the replay applies to the next share they
+ * owe. Per acerto it is `applied − cash` (see {@link cashDeltaCents}): `> 0` their money parked with
+ * you (abates their next share), `< 0` yours parked with them (you paid back more than you owed).
+ * Every `people` id is present, defaulting to 0. Only an account-backed acerto parks anything: a
+ * "sem conta" settlement is a baixa/perdão, and a write-off beyond the debt is not money held.
  *
  * Derived from {@link computePersonLedger}'s movements, so nets, settled cash and the clamp itself
- * stay untouched: this is the complement the clamp drops. Whenever every acerto is account-backed,
- * `balanceThrough − advance` equals the unclamped `raw − Σ acertos`.
+ * stay untouched: this is the complement the clamp drops, and the identity
+ * `balanceThrough − advance === Σ cashDeltaCents` holds for every replay.
  */
 export function computePersonAdvances(
   people: readonly Person[],
@@ -520,21 +556,11 @@ export function computePersonAdvances(
 ): Map<string, number> {
   const advances = new Map<string, number>();
   for (const person of people) advances.set(person.id, 0);
-  // Movements come transactions-first, so a person's raw accrual (shares − payments) is complete by
-  // the time their first settlement movement is seen.
-  const raw = new Map<string, number>();
-  for (const mv of movements) {
-    if (mv.source.type !== "settlement") {
-      raw.set(mv.personId, (raw.get(mv.personId) ?? 0) + mv.signedDeltaCents);
-      continue;
-    }
-    const { settlement } = mv.source;
-    if (settlement.accountId === null) continue;
-    const excess = Math.abs(settlement.amountCents) - Math.abs(mv.signedDeltaCents);
-    if (excess <= 0) continue;
-    const theyAdvanced =
-      mv.signedDeltaCents < 0 || (mv.signedDeltaCents === 0 && (raw.get(mv.personId) ?? 0) >= 0);
-    advances.set(mv.personId, (advances.get(mv.personId) ?? 0) + (theyAdvanced ? excess : -excess));
+  for (const mv of withCashDeltas(movements)) {
+    if (mv.source.type !== "settlement" || mv.source.settlement.accountId === null) continue;
+    const parked = mv.signedDeltaCents - mv.cashDeltaCents;
+    if (parked === 0) continue;
+    advances.set(mv.personId, (advances.get(mv.personId) ?? 0) + parked);
   }
   return advances;
 }

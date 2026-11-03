@@ -25,6 +25,7 @@ import {
   computePersonMonthNets,
   computePersonMonthNetsAndSettledCash,
   type LedgerMovement,
+  withCashDeltas,
 } from "./person-ledger.calculator";
 
 /** Calendar competence (month of the transaction's date) for the month-scoped tests. */
@@ -1265,5 +1266,143 @@ describe("computePersonAdvances — what a person has advanced", () => {
     const { movements } = computePersonLedger(people, txs, setts, "2026-07", calOf);
     expect(computePersonAdvances(people, movements).get("p-a")).toBe(200);
     expect(advancesThrough(txs, setts, "2026-07")).toBe(200);
+  });
+});
+
+// =============================================================================
+// cashDeltaCents / withCashDeltas — the money a movement really moved (the reader view).
+// =============================================================================
+
+describe("withCashDeltas — the money a movement really moved", () => {
+  const people = [person("p-a")];
+  const bank = (over: Partial<Settlement>): Settlement => ({
+    id: "sb",
+    personId: "p-a",
+    amountCents: 0,
+    date: "2026-06-20",
+    accountId: "nu",
+    ...over,
+  });
+  const share = (id: string, date: string, shareCents: number): ExpenseTransaction =>
+    expense({ id, date, splits: [{ personId: "p-a", shareCents }] });
+  const cashOf = (txs: readonly Transaction[], setts: readonly Settlement[], horizon: string) =>
+    withCashDeltas(computePersonLedger(people, txs, setts, horizon, calOf).movements);
+  const settlementCash = (txs: readonly Transaction[], setts: readonly Settlement[], horizon: string) =>
+    cashOf(txs, setts, horizon)
+      .filter((m) => m.source.type === "settlement")
+      .map((m) => m.cashDeltaCents);
+
+  it("shares and payments move exactly their applied delta", () => {
+    const txs = [
+      share("e1", "2026-06-05", 10_000),
+      income({ id: "i1", amountCents: 3_000, fromPersonId: "p-a" }),
+    ];
+    const cash = cashOf(txs, [], "2026-06");
+    expect(cash.map((m) => m.cashDeltaCents)).toEqual([10_000, -3_000]);
+    for (const m of cash) expect(m.cashDeltaCents).toBe(m.signedDeltaCents);
+  });
+
+  it("a partial receipt moves what actually landed", () => {
+    const txs = [
+      share("e1", "2026-06-05", 10_000),
+      income({
+        id: "i1",
+        amountCents: 3_000,
+        fromPersonId: "p-a",
+        receivedAt: "2026-06-12",
+        receivedAccountId: "nu",
+        receivedAmountCents: 2_500,
+      }),
+    ];
+    expect(cashOf(txs, [], "2026-06").map((m) => m.cashDeltaCents)).toEqual([10_000, -2_500]);
+  });
+
+  it("an account-backed acerto moves its full amount, even above the debt (they paid you)", () => {
+    const txs = [share("e1", "2026-06-05", 59_640)];
+    expect(settlementCash(txs, [bank({ amountCents: 50_000 })], "2026-06")).toEqual([-50_000]);
+    const above = cashOf(txs, [bank({ amountCents: 60_000 })], "2026-06").find(
+      (m) => m.source.type === "settlement",
+    );
+    expect(above?.cashDeltaCents).toBe(-60_000);
+    expect(above?.signedDeltaCents).toBe(-59_640); // the clamp still applies to the ledger figure
+  });
+
+  it("paying a person YOU owe moves the full amount the other way", () => {
+    const youOwe = [income({ id: "i1", amountCents: 10_000, fromPersonId: "p-a" })]; // you owe 100,00
+    expect(settlementCash(youOwe, [bank({ amountCents: 4_000 })], "2026-06")).toEqual([4_000]);
+    expect(settlementCash(youOwe, [bank({ amountCents: 15_000 })], "2026-06")).toEqual([15_000]);
+  });
+
+  it("an acerto landing on a zero balance is oriented by the raw accrual", () => {
+    const setts = [
+      bank({ id: "s1", amountCents: 10_000, date: "2026-06-10" }),
+      bank({ id: "s2", amountCents: 2_000, date: "2026-06-20" }), // lands on zero
+    ];
+    const paidOff = [share("e1", "2026-06-05", 10_000)];
+    expect(settlementCash(paidOff, setts, "2026-06")).toEqual([-10_000, -2_000]);
+    const youOwed = [income({ id: "i1", amountCents: 10_000, fromPersonId: "p-a" })];
+    expect(settlementCash(youOwed, setts, "2026-06")).toEqual([10_000, 2_000]);
+    // No accrual at all: their payment (the account-cash rule reads a zero raw balance as "owed to you").
+    expect(settlementCash([], [bank({ amountCents: 2_000 })], "2026-06")).toEqual([-2_000]);
+  });
+
+  it("a 'sem conta' acerto moves only what it forgave", () => {
+    const txs = [share("e1", "2026-06-05", 10_000)];
+    expect(settlementCash(txs, [bank({ amountCents: 15_000, accountId: null })], "2026-06")).toEqual([
+      -10_000,
+    ]);
+    expect(settlementCash([], [bank({ amountCents: 2_000, accountId: null })], "2026-06")).toEqual([0]);
+  });
+
+  it("is the clamp's complement: Σ(applied − cash) === the advance, and balance − advance === Σ cash (property)", () => {
+    const monthArb = fc.constantFrom("2026-01", "2026-02", "2026-03", "2026-04");
+    const shareArb = fc.record({ month: monthArb, cents: fc.integer({ min: 1, max: 80_000 }) });
+    const payArb = fc.record({ month: monthArb, cents: fc.integer({ min: 1, max: 40_000 }) });
+    const settArb = fc.record({
+      month: monthArb,
+      cents: fc.integer({ min: 1, max: 100_000 }),
+      withAccount: fc.boolean(),
+    });
+    fc.assert(
+      fc.property(
+        fc.array(shareArb, { maxLength: 8 }),
+        fc.array(payArb, { maxLength: 4 }),
+        fc.array(settArb, { maxLength: 6 }),
+        monthArb,
+        (shares, pays, setts, horizon) => {
+          const txs: Transaction[] = [
+            ...shares.map((s, i) => share(`e${i}`, `${s.month}-10`, s.cents)),
+            ...pays.map((p, i) =>
+              income({ id: `i${i}`, date: `${p.month}-08`, amountCents: p.cents, fromPersonId: "p-a" }),
+            ),
+          ];
+          const acertos = setts.map((s, i) =>
+            bank({
+              id: `s${i}`,
+              amountCents: s.cents,
+              date: `${s.month}-12`,
+              accountId: s.withAccount ? "nu" : null,
+            }),
+          );
+          const { movements, balances } = computePersonLedger(people, txs, acertos, horizon, calOf);
+          const cash = withCashDeltas(movements);
+          expect(cash.length).toBe(movements.length);
+          let parked = 0;
+          let sumCash = 0;
+          cash.forEach((m, i) => {
+            expect(m.source).toBe(movements[i]?.source);
+            sumCash += m.cashDeltaCents;
+            if (m.source.type === "settlement" && m.source.settlement.accountId !== null) {
+              parked += m.signedDeltaCents - m.cashDeltaCents;
+            } else {
+              expect(m.cashDeltaCents).toBe(m.signedDeltaCents);
+            }
+          });
+          const advance = computePersonAdvances(people, movements).get("p-a") ?? 0;
+          expect(parked).toBe(advance);
+          expect((balances.get("p-a")?.cents ?? 0) - advance).toBe(sumCash);
+        },
+      ),
+    );
   });
 });
