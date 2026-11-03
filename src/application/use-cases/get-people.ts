@@ -1,8 +1,9 @@
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import {
+  computePersonAdvances,
   computePersonBalances,
-  computePersonBalancesThrough,
+  computePersonLedger,
   computePersonMonthNets,
 } from "@/domain/services/person-ledger.calculator";
 import { type CompetenceMonth, compareMonths } from "@/domain/value-objects/competence-month";
@@ -29,6 +30,13 @@ export interface PersonMonthView {
   readonly totalBalanceCents: number;
   /** Real (booked) all-time balance — the settleable amount (no projection). */
   readonly realBalanceCents: number;
+  /**
+   * What the person has ADVANCED through the same horizon: the part of an account-backed acerto
+   * that found no debt to cover (`> 0` their money parked with you, which abates their next share;
+   * `< 0` yours parked with them). `totalBalanceCents` clamps settlements at zero, so this is the
+   * only place that excess shows — a "crédito" line next to a settled balance.
+   */
+  readonly advanceCents: number;
 }
 
 /**
@@ -53,13 +61,10 @@ export async function getPeople(
   // Per-month nets through the horizon: a later settlement is re-bucketed onto the oldest open
   // months, so the browsed month's slice already reflects payments made after it.
   const monthNets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, horizon, competenceOf);
-  const totalLedger = computePersonBalancesThrough(
-    ws.people,
-    ws.transactions,
-    ws.settlements,
-    horizon,
-    competenceOf,
-  );
+  // One through-ledger replay gives both the accumulated total (its balances) and the parked excess
+  // of account-backed acertos (its movements).
+  const ledger = computePersonLedger(ws.people, ws.transactions, ws.settlements, horizon, competenceOf);
+  const advances = computePersonAdvances(ws.people, ledger.movements);
   // Real booked balance (no projection) — what the settle flow can act on.
   const realLedger = computePersonBalances(ws.people, ws.transactions, ws.settlements);
 
@@ -69,7 +74,8 @@ export async function getPeople(
     relationship: p.relationship,
     color: p.color,
     monthBalanceCents: monthNets.get(p.id)?.get(month) ?? 0,
-    totalBalanceCents: (totalLedger.get(p.id) ?? Money.zero()).cents,
+    totalBalanceCents: (ledger.balances.get(p.id) ?? Money.zero()).cents,
     realBalanceCents: (realLedger.get(p.id) ?? Money.zero()).cents,
+    advanceCents: advances.get(p.id) ?? 0,
   }));
 }

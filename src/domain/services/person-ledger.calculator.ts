@@ -495,6 +495,69 @@ export function computePersonBookedBalancesThrough(
 }
 
 /**
+ * What each person has ADVANCED through a replayed ledger: the part of their account-backed acertos
+ * that found no debt to cover (`|amount| − |applied delta|`) — money held for them that the replay
+ * applies to the next share they owe. Convention: `> 0` their money parked with you (abates their
+ * next share); `< 0` yours parked with them (you paid back more than you owed). Every `people` id
+ * is present, defaulting to 0.
+ *
+ * Only an account-backed acerto parks anything: a "sem conta" settlement is a baixa/perdão, and a
+ * write-off beyond the debt is not money held. The side follows the balance the acerto hit — a
+ * negative applied delta (they paid you) parks `+excess`, a positive one (you paid them) parks
+ * `−excess` — and an acerto that lands on a zero balance (applied delta 0) takes the sign of the
+ * person's raw accrual in this replay (shares − payments, `≥ 0` → they advanced), mirroring the
+ * account-cash direction rule in balance.calculator. That rule reads the all-time, horizon-free
+ * accrual, so the two can disagree for a zero-balance acerto whose only share lies beyond the
+ * horizon: an edge of an edge, documented rather than fixed.
+ *
+ * Derived from {@link computePersonLedger}'s movements, so nets, settled cash and the clamp itself
+ * stay untouched: this is the complement the clamp drops. Whenever every acerto is account-backed,
+ * `balanceThrough − advance` equals the unclamped `raw − Σ acertos`.
+ */
+export function computePersonAdvances(
+  people: readonly Person[],
+  movements: readonly LedgerMovement[],
+): Map<string, number> {
+  const advances = new Map<string, number>();
+  for (const person of people) advances.set(person.id, 0);
+  // Movements come transactions-first, so a person's raw accrual (shares − payments) is complete by
+  // the time their first settlement movement is seen.
+  const raw = new Map<string, number>();
+  for (const mv of movements) {
+    if (mv.source.type !== "settlement") {
+      raw.set(mv.personId, (raw.get(mv.personId) ?? 0) + mv.signedDeltaCents);
+      continue;
+    }
+    const { settlement } = mv.source;
+    if (settlement.accountId === null) continue;
+    const excess = Math.abs(settlement.amountCents) - Math.abs(mv.signedDeltaCents);
+    if (excess <= 0) continue;
+    const theyAdvanced =
+      mv.signedDeltaCents < 0 || (mv.signedDeltaCents === 0 && (raw.get(mv.personId) ?? 0) >= 0);
+    advances.set(mv.personId, (advances.get(mv.personId) ?? 0) + (theyAdvanced ? excess : -excess));
+  }
+  return advances;
+}
+
+/**
+ * {@link computePersonAdvances} over the through-ledger of `throughMonth` — the same replay (and
+ * `options`) as {@link computePersonLedger}, so it pairs with {@link computePersonBalancesThrough}.
+ */
+export function computePersonAdvancesThrough(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
+): Map<string, number> {
+  return computePersonAdvances(
+    people,
+    computePersonLedger(people, transactions, settlements, throughMonth, competenceOf, options).movements,
+  );
+}
+
+/**
  * Apply a settle of `amountCents` against `currentBalance`, ported EXACTLY from
  * the prototype's `applySettle`:
  *

@@ -86,3 +86,38 @@ describe("getPeople — a future month keeps its projections", () => {
     expect(person?.realBalanceCents).toBe(5000); // booked only
   });
 });
+
+describe("getPeople — what a person has advanced (crédito)", () => {
+  const bank = (over: Partial<Settlement> = {}): Settlement => ({
+    id: "s1",
+    personId: "p1",
+    amountCents: 5360,
+    date: "2026-08-20",
+    accountId: "acc-1",
+    ...over,
+  });
+
+  it("an account-backed acerto above the share parks the excess as the person's credit", async () => {
+    const [person] = await getPeople(stubRepo([shared()], [bank()]), "u", "2026-08");
+    expect(person?.monthBalanceCents).toBe(0);
+    expect(person?.totalBalanceCents).toBe(0); // the clamp hides the excess from the total…
+    expect(person?.advanceCents).toBe(360); // …and this is where it shows
+  });
+
+  it("a later share consumes the credit (the ledger applies it to the next debt)", async () => {
+    const september = shared({
+      id: "e2",
+      date: "2026-09-10",
+      splits: [{ personId: "p1", shareCents: 1000 }],
+    });
+    const [person] = await getPeople(stubRepo([shared(), september], [bank()]), "u", "2026-08");
+    expect(person?.totalBalanceCents).toBe(640); // 50,00 + 10,00 − 53,60, as of today
+    expect(person?.advanceCents).toBe(0);
+  });
+
+  it("a 'sem conta' acerto above the share parks nothing (a write-off, not money held)", async () => {
+    const [person] = await getPeople(stubRepo([shared()], [bank({ accountId: null })]), "u", "2026-08");
+    expect(person?.totalBalanceCents).toBe(0);
+    expect(person?.advanceCents).toBe(0);
+  });
+});
