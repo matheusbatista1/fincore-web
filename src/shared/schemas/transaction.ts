@@ -243,6 +243,19 @@ export const settlementInputSchema = z.object({
 export type SettlementInput = z.infer<typeof settlementInputSchema>;
 
 /**
+ * "Registrar pagamento" with the rule for a payment ABOVE the pending: `surplus` says what the
+ * server does with the excess — `tip` (booked as income of the user) or `credit` (kept inside the
+ * acerto as credit of the person); with none the server refuses and returns the figures so the
+ * client can ask. `throughMonth` is the browsed month: the pending is measured through it or today,
+ * whichever is later — the same figure the People profile shows.
+ */
+export const settlePersonSchema = settlementInputSchema.extend({
+  surplus: z.enum(["tip", "credit"]).optional(),
+  throughMonth: competenceMonthSchema.optional(),
+});
+export type SettlePersonInput = z.infer<typeof settlePersonSchema>;
+
+/**
  * "Rolar dívida": close the person's current debt and open a new one paid via the chosen
  * instrument (card / loan / overdraft / own account), for principal + juros, on a new date.
  * Card and loan can be installmented. The server zeroes the old debt (a rollover settlement)

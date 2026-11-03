@@ -305,6 +305,15 @@ export interface FinanceRepository {
   setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
+  /**
+   * Persist a settlement and a transaction atomically — an acerto capped at the pending plus the
+   * surplus booked as income of the user (a gorjeta). Both rows land or neither does.
+   */
+  createSettlementWithTransaction(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
   /** Edit a settlement (amount, date, account, note) in place. An omitted `note` keeps the stored one. */
   updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
   /** Soft-delete a settlement (revert a person payment). */

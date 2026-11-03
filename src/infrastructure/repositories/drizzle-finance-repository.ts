@@ -556,15 +556,33 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     // Pool roll: zero the person's outstanding via a cash-less rollover settlement (no account →
     // no cash moved) and create the new rolled-into debt, atomically. RLS scopes rows to the user.
     await this.run(userId, async (tx) => {
-      await tx.insert(schema.settlements).values({
-        userId,
-        personId: settlement.personId,
-        amountCents: settlement.amountCents,
-        settledOn: settlement.date,
-        accountId: settlement.accountId ?? null,
-        note: settlement.note ?? null,
-      });
+      await this.insertSettlement(tx, userId, settlement);
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async createSettlementWithTransaction(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    // An acerto capped at the pending plus the surplus as the user's own income (gorjeta): one
+    // transaction, so the cash never lands without its explanation, nor the other way round.
+    await this.run(userId, async (tx) => {
+      await this.insertSettlement(tx, userId, settlement);
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  /** The settlements insert every acerto write shares (plain, pool roll, acerto + gorjeta). */
+  private async insertSettlement(tx: RlsTransaction, userId: string, input: SettlementData): Promise<void> {
+    await tx.insert(schema.settlements).values({
+      userId,
+      personId: input.personId,
+      amountCents: input.amountCents,
+      settledOn: input.date,
+      accountId: input.accountId ?? null,
+      note: input.note ?? null,
     });
   }
 
@@ -920,16 +938,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   }
 
   async createSettlement(userId: string, input: SettlementData): Promise<void> {
-    await this.run(userId, async (tx) => {
-      await tx.insert(schema.settlements).values({
-        userId,
-        personId: input.personId,
-        amountCents: input.amountCents,
-        settledOn: input.date,
-        accountId: input.accountId ?? null,
-        note: input.note ?? null,
-      });
-    });
+    await this.run(userId, (tx) => this.insertSettlement(tx, userId, input));
   }
 
   async updateSettlement(userId: string, id: string, input: SettlementData): Promise<void> {
