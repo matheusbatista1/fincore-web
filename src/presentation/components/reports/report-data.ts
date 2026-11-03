@@ -3,6 +3,7 @@ import type { PersonStatement } from "@/application/use-cases/get-person-stateme
 import type { ReportsData } from "@/application/use-cases/get-reports";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { WorkspaceView } from "@/application/use-cases/get-workspace-view";
+import { nameFromEmail } from "@/shared/formatting/profile-name";
 import type { ReportData } from "./report-modal";
 
 /** Assemble the serializable ReportModal payload from the existing use-case outputs. */
@@ -13,6 +14,7 @@ export function buildReportData({
   transactions,
   personStatements,
   today,
+  profile = null,
 }: {
   dash: DashboardData;
   reports: ReportsData;
@@ -20,7 +22,11 @@ export function buildReportData({
   transactions: TransactionListItem[];
   personStatements: PersonStatement[];
   today: string;
+  /** The signed-in user's profile, for the person statement's copy; omitted → no name in the copy. */
+  profile?: { readonly displayName: string | null; readonly email: string } | null;
 }): ReportData {
+  const issuerName = profile ? (profile.displayName ?? nameFromEmail(profile.email)) : null;
+  const issuerFirstName = issuerName ? (issuerName.split(" ")[0] ?? issuerName) : null;
   const iconById = new Map(workspace.categories.map((c) => [c.id, c.icon]));
   const sumMonths = (
     rows: ReadonlyArray<{ incomeCents: number; expenseCents: number; netCents: number }>,
@@ -60,6 +66,7 @@ export function buildReportData({
     })),
     transactions,
     today,
+    issuerFirstName,
     includesProjected: reports.includesProjected,
     projectedLabel: reports.projectedLabel,
     rangeLabel: reports.rangeLabel,

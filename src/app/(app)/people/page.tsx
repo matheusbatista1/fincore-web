@@ -1,3 +1,4 @@
+import { getProfileCached } from "@/application/loaders";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getPeople } from "@/application/use-cases/get-people";
 import { getPersonStatements } from "@/application/use-cases/get-person-statements";
@@ -25,17 +26,28 @@ export default async function PeoplePage({
   const current = currentMonthInBrazil();
   const month = raw && isValidCompetenceMonth(raw) ? raw : current;
   const today = todayInBrazil();
-  const [people, workspace, transactions, dash, reports, personStatements, settlements, rollableDebts] =
-    await Promise.all([
-      getPeople(financeRepository, user.id, month),
-      getWorkspaceView(financeRepository, user.id),
-      getTransactions(financeRepository, user.id),
-      getDashboard(financeRepository, user.id, month),
-      getReports(financeRepository, user.id, { from: month, to: month }),
-      getPersonStatements(financeRepository, user.id, { from: month, to: month }),
-      getSettlements(financeRepository, user.id),
-      getRollableDebts(financeRepository, user.id, month),
-    ]);
+  const [
+    people,
+    workspace,
+    transactions,
+    dash,
+    reports,
+    personStatements,
+    settlements,
+    rollableDebts,
+    profile,
+  ] = await Promise.all([
+    getPeople(financeRepository, user.id, month),
+    getWorkspaceView(financeRepository, user.id),
+    getTransactions(financeRepository, user.id),
+    getDashboard(financeRepository, user.id, month),
+    getReports(financeRepository, user.id, { from: month, to: month }),
+    // `asOf` lets a past month's statement also say how things stand today.
+    getPersonStatements(financeRepository, user.id, { from: month, to: month, asOf: current }),
+    getSettlements(financeRepository, user.id),
+    getRollableDebts(financeRepository, user.id, month),
+    getProfileCached(financeRepository, user.id),
+  ]);
   const accounts = workspace.accounts.map((a) => ({ id: a.id, label: `${a.bank} · ${a.name}` }));
   const cards = workspace.cards.map((c) => ({
     id: c.id,
@@ -52,6 +64,7 @@ export default async function PeoplePage({
     transactions,
     personStatements,
     today,
+    profile,
   });
 
   return (
