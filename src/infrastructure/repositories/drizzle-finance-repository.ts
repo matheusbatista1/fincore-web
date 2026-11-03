@@ -942,7 +942,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           amountCents: input.amountCents,
           settledOn: input.date,
           accountId: input.accountId ?? null,
-          note: input.note ?? null,
+          ...(input.note !== undefined ? { note: input.note || null } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.settlements.id, id));
