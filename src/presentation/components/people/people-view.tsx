@@ -235,6 +235,9 @@ export function PeopleView({
               const owes = bal > 0;
               const owed = bal < 0;
               const settled = bal === 0;
+              // A settled person with money parked shows the credit AS the row's figure (sky, labelled
+              // "crédito"): a longer sub-label would widen the right column and squeeze the name on phones.
+              const credit = settled && p.advanceCents > 0;
               return (
                 <div
                   role="button"
@@ -256,17 +259,20 @@ export function PeopleView({
                     <div className="l-sub">{p.relationship}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}>
-                      {settled ? "—" : <Money cents={Math.abs(bal)} withSign={false} />}
+                    <div
+                      className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}
+                      style={credit ? { color: "var(--sky-500)" } : undefined}
+                    >
+                      {credit ? (
+                        <Money cents={p.advanceCents} withSign={false} />
+                      ) : settled ? (
+                        "—"
+                      ) : (
+                        <Money cents={Math.abs(bal)} withSign={false} />
+                      )}
                     </div>
                     <div className="l-sub">
-                      {owes ? "te deve" : owed ? "você deve" : "em dia"}
-                      {p.advanceCents > 0 && (
-                        <>
-                          {" · "}
-                          <Money cents={p.advanceCents} withSign={false} /> de crédito
-                        </>
-                      )}
+                      {owes ? "te deve" : owed ? "você deve" : credit ? "crédito" : "em dia"}
                     </div>
                   </div>
                   <Icon
@@ -633,6 +639,13 @@ function ProfileBody({
                 <div className="l-sub">
                   {relativeDateLabel(s.date, today)} · {s.accountLabel ?? "sem conta"}
                 </div>
+                {s.note && (
+                  // The trail the app writes on an acerto ("Rolagem — …", "Acerto · R$ X de crédito",
+                  // "Recebeu R$ X · R$ Y de gorjeta") explains an amount that differs from what was paid.
+                  <div className="l-sub" style={{ marginTop: 2, whiteSpace: "normal" }}>
+                    {s.note}
+                  </div>
+                )}
               </div>
               <div className="row gap-2">
                 <button
