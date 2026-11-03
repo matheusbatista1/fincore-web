@@ -132,6 +132,7 @@ export interface SettlementData {
   readonly amountCents: number;
   readonly date: IsoDate;
   readonly accountId?: string | null;
+  /** On create: `undefined` stores no note. On update: `undefined` keeps the stored note. */
   readonly note?: string;
 }
 
@@ -304,7 +305,7 @@ export interface FinanceRepository {
   setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
-  /** Edit a settlement (amount, date, account, note) in place. */
+  /** Edit a settlement (amount, date, account, note) in place. An omitted `note` keeps the stored one. */
   updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
   /** Soft-delete a settlement (revert a person payment). */
   deleteSettlement(userId: string, id: string): Promise<void>;
