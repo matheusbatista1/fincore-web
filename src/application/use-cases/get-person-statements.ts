@@ -1,55 +1,162 @@
+import { isExpense } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
-import { computePersonLedger, type LedgerMovement } from "@/domain/services/person-ledger.calculator";
-import { type CompetenceMonth, compareMonths } from "@/domain/value-objects/competence-month";
+import {
+  type CashMovement,
+  computePersonLedger,
+  withCashDeltas,
+} from "@/domain/services/person-ledger.calculator";
+import { type CompetenceMonth, compareMonths, type IsoDate } from "@/domain/value-objects/competence-month";
+import { DEFAULT_CATEGORY_COLOR } from "@/shared/theme/category-colors";
 import { loadWorkspaceCached } from "../loaders";
-import type { FinanceRepository } from "../ports/finance-repository";
+import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 import { createTransactionMapper } from "./get-transactions";
 
-/** One line of a person's account statement, with the running balance after it. */
-export interface PersonLedgerEntry {
-  readonly date: string;
+/**
+ * What a statement row is, from the person's point of view:
+ *  - `purchase`: their part of a shared expense (adds to what they owe);
+ *  - `payment`: money they paid you (a received income from them, or an account-backed acerto);
+ *  - `refund`: money you paid them back (an account-backed acerto against a balance in their favour);
+ *  - `writeoff`: a "sem conta" acerto — a baixa/perdão (usually reduces what they owe; a positive
+ *    one abates credit they had).
+ */
+export type PersonStatementRowKind = "purchase" | "payment" | "refund" | "writeoff";
+
+/** One line of a person's statement, with the running figure after it. */
+export interface PersonStatementRow {
+  readonly date: IsoDate;
+  /** The month the row is filed under: a card charge's fatura month, otherwise its calendar month. */
+  readonly competence: CompetenceMonth;
+  readonly kind: PersonStatementRowKind;
   readonly description: string;
-  /** Where it came from — card/account label, or "Acerto" for a settlement. */
-  readonly origin: string;
-  /** A debit increases what they owe you; a credit (payment/settlement) reduces it. */
-  readonly kind: "debit" | "credit";
-  /** Positive magnitude of this movement. */
-  readonly amountCents: number;
-  /** Running balance after this entry (> 0 they owe you). */
-  readonly balanceCents: number;
+  /** The acerto's note (the app writes "Acerto · R$ X de crédito", "Rolagem — …") or the expense note. */
+  readonly note: string | null;
+  /** "Cartão Nubank", "Itaú · Conta", "Boleto", … or "sem conta" for a baixa/perdão. */
+  readonly originLabel: string;
+  readonly categoryName: string | null;
+  readonly categoryColor: string | null;
+  /** Which parcela this row is and how many still come after it (`total − number`). */
+  readonly parcela: { readonly number: number; readonly total: number; readonly remaining: number } | null;
+  /** The whole expense (this parcela) the person's part came from; null for non-purchase rows. */
+  readonly purchaseTotalCents: number | null;
+  /** For an installment: the whole purchase (Σ parcelas), the person's part of it and the parcela count. */
+  readonly groupTotalCents: number | null;
+  readonly groupShareCents: number | null;
+  readonly groupCount: number | null;
+  /** The money the row really moved: `> 0` adds to what they owe, `< 0` reduces it. */
+  readonly cashCents: number;
+  /** Running reader balance after the row (`> 0` they still owe, `< 0` credit in their favour). */
+  readonly runningCents: number;
   /** Projected ("previsto") — a recurring occurrence or a not-yet-charged parcela. */
   readonly projected: boolean;
 }
 
-/** A per-person account-receivable statement over a [from, to] window. */
+/**
+ * A person's statement over `[from, to]`, in the money view a lay reader expects: every row moves
+ * the cash it really moved (an acerto above the debt is NOT clamped away), so
+ * `opening + purchases + refunds − payments + writeoffs === closing`, and `closing` is the profile's
+ * "no total" minus its "crédito" line (`ledgerClosingCents − advance`).
+ */
 export interface PersonStatement {
   readonly id: string;
   readonly name: string;
   readonly relationship: string;
   readonly color: string;
-  /** Balance carried in from before the window (accumulated pre-period movements). */
+  readonly from: CompetenceMonth;
+  readonly to: CompetenceMonth;
+  /** Carried in from before the window: `> 0` they already owed, `< 0` credit they already had. */
   readonly openingCents: number;
-  readonly entries: PersonLedgerEntry[];
-  readonly debitTotalCents: number;
-  readonly creditTotalCents: number;
-  /** Closing balance — equals openingCents + debitTotal - creditTotal, and reconciles
-   * with `computePersonBalancesThrough(to)` (the figure shown on the People page). */
+  readonly rows: PersonStatementRow[];
+  /** Σ of purchase rows (their part of shared expenses in the window). */
+  readonly purchasesCents: number;
+  /** Σ of what they paid in the window (positive magnitude). */
+  readonly paymentsCents: number;
+  /** Σ of what you paid them back in the window (positive magnitude). */
+  readonly refundsCents: number;
+  /** Σ of baixa/perdão rows, signed (usually ≤ 0: a discount on what they owed). */
+  readonly writeoffsCents: number;
+  /** `> 0` they still owe, `< 0` credit in their favour, 0 all settled. */
   readonly closingCents: number;
+  /** The clamped ledger figure (`computePersonBalancesThrough(to)`), kept for reconciliation. */
+  readonly ledgerClosingCents: number;
+  readonly projectedCount: number;
+  readonly projectedCents: number;
+  /** The latest payment they made before the window (the "you already paid R$ X on dd/mm" line). */
+  readonly lastPaymentBefore: { readonly date: IsoDate; readonly amountCents: number } | null;
+  /** First and last row dates, to say "lançamentos de dd/mm a dd/mm" next to the competence label. */
+  readonly rowsDateSpan: { readonly first: IsoDate; readonly last: IsoDate } | null;
+  /** Purchases grouped by category, largest first, "Sem categoria" last. */
+  readonly byCategory: ReadonlyArray<{
+    readonly name: string;
+    readonly color: string;
+    readonly count: number;
+    readonly totalCents: number;
+  }>;
+  /**
+   * The same closing figure read through a later month (`asOf`), when the window is in the past:
+   * a payment made after `to` shows up here, so a past statement can still say "hoje: tudo pago".
+   * Null when `asOf` is absent or not after `to`.
+   */
+  readonly asOf: { readonly month: CompetenceMonth; readonly closingCents: number } | null;
 }
 
 export interface GetPersonStatementsRange {
   readonly from: CompetenceMonth;
   readonly to: CompetenceMonth;
+  /** The current month, when the caller wants the "situação hoje" figure for a past window. */
+  readonly asOf?: CompetenceMonth;
 }
 
+export const NO_CATEGORY_LABEL = "Sem categoria";
+
+interface InstallmentGroupTotals {
+  totalCents: number;
+  count: number;
+  readonly shareByPerson: Map<string, number>;
+}
+
+/** Σ |amount| over every parcela of each installment group, and each person's part of it. */
+function installmentGroupTotals(ws: Workspace): Map<string, InstallmentGroupTotals> {
+  const groups = new Map<string, InstallmentGroupTotals>();
+  for (const tx of ws.transactions) {
+    if (!isExpense(tx) || !tx.installment) continue;
+    const group = groups.get(tx.installment.groupId) ?? { totalCents: 0, count: 0, shareByPerson: new Map() };
+    group.totalCents += Math.abs(tx.amountCents);
+    group.count += 1;
+    for (const split of tx.splits) {
+      group.shareByPerson.set(
+        split.personId,
+        (group.shareByPerson.get(split.personId) ?? 0) + split.shareCents,
+      );
+    }
+    groups.set(tx.installment.groupId, group);
+  }
+  return groups;
+}
+
+const EMPTY_PURCHASE = {
+  categoryName: null,
+  categoryColor: null,
+  parcela: null,
+  purchaseTotalCents: null,
+  groupTotalCents: null,
+  groupShareCents: null,
+  groupCount: null,
+} as const;
+
 /**
- * Build an accountant-grade "conta corrente" per person for the window `[from, to]`:
- * a carried-in opening balance, the chronological shared-expense debits and
- * payment/settlement credits (with a running balance), and a closing balance.
+ * Build a person's statement for the window `[from, to]` in plain-reader terms: what was carried
+ * in, each purchase (their part), each payment, and what is still open after every line.
  *
- * Reconciliation is structural: the closing balance and every running balance come
- * from a single {@link computePersonLedger} replay through `to`, so
- * `opening + Σ(debits − credits) === closing === computePersonBalancesThrough(to)`.
+ * One {@link computePersonLedger} replay through `to` (so the figures agree with the People page's
+ * ledger), annotated with {@link withCashDeltas}: the clamp that keeps the LEDGER at zero never
+ * hides a payment here — a pre-payment reads as credit carried in, and an acerto above the debt
+ * shows the full amount paid. Rows are windowed by COMPETENCE (a card charge belongs to its fatura
+ * month) and listed by date, so an October purchase appears in November's statement with its
+ * October date and `competence` says why.
+ *
+ * Caveat kept from the ledger: a "sem conta" acerto and an acerto landing on a zero balance read the
+ * horizon, so `opening(from)` need not equal `closing(from − 1)`; within one statement the arithmetic
+ * is always exact.
  */
 export async function getPersonStatements(
   repo: FinanceRepository,
@@ -60,88 +167,182 @@ export async function getPersonStatements(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const [from, to] =
     compareMonths(range.from, range.to) <= 0 ? [range.from, range.to] : [range.to, range.from];
+  const asOfMonth = range.asOf !== undefined && compareMonths(range.asOf, to) > 0 ? range.asOf : null;
 
-  const { balances, movements } = computePersonLedger(
-    ws.people,
-    ws.transactions,
-    ws.settlements,
-    to,
-    competenceOf,
-  );
+  const ledger = computePersonLedger(ws.people, ws.transactions, ws.settlements, to, competenceOf);
+  const movements = withCashDeltas(ledger.movements);
+  // "Situação hoje": the same reader figure read through a later month (payments after `to` count).
+  const asOfMovements = asOfMonth
+    ? withCashDeltas(
+        computePersonLedger(ws.people, ws.transactions, ws.settlements, asOfMonth, competenceOf).movements,
+      )
+    : null;
 
   const mapTx = createTransactionMapper(ws);
   const accountName = new Map(ws.accounts.map((a) => [a.id, `${a.bank} · ${a.name}`]));
+  const groups = installmentGroupTotals(ws);
 
-  const originOf = (mv: LedgerMovement): string => {
-    if (mv.source.type === "settlement") {
-      const acc = mv.source.settlement.accountId;
-      return (acc ? accountName.get(acc) : undefined) ?? "Acerto";
-    }
-    return mapTx(mv.source.tx).sourceLabel ?? "Outros";
-  };
-  const descriptionOf = (mv: LedgerMovement): string =>
-    mv.source.type === "settlement" ? (mv.source.settlement.note ?? "Acerto") : mv.source.tx.description;
-
-  // Group movements by person once.
-  const byPerson = new Map<string, LedgerMovement[]>();
+  const byPerson = new Map<string, CashMovement[]>();
   for (const mv of movements) {
     const list = byPerson.get(mv.personId);
     if (list) list.push(mv);
     else byPerson.set(mv.personId, [mv]);
   }
+  const asOfCashByPerson = new Map<string, number>();
+  for (const mv of asOfMovements ?? []) {
+    asOfCashByPerson.set(mv.personId, (asOfCashByPerson.get(mv.personId) ?? 0) + mv.cashDeltaCents);
+  }
+
+  const isPayment = (mv: CashMovement): boolean =>
+    mv.cashDeltaCents < 0 &&
+    (mv.source.type === "payment" ||
+      (mv.source.type === "settlement" && mv.source.settlement.accountId !== null));
+
+  const toRow = (personId: string, mv: CashMovement, runningCents: number): PersonStatementRow => {
+    const base = { date: mv.date, competence: mv.competence, cashCents: mv.cashDeltaCents, runningCents };
+    if (mv.source.type === "settlement") {
+      const s = mv.source.settlement;
+      const kind: PersonStatementRowKind =
+        s.accountId === null ? "writeoff" : mv.cashDeltaCents < 0 ? "payment" : "refund";
+      const description =
+        kind === "payment"
+          ? "Pagamento"
+          : kind === "refund"
+            ? "Devolução"
+            : mv.cashDeltaCents < 0
+              ? "Desconto"
+              : "Crédito abatido";
+      return {
+        ...base,
+        ...EMPTY_PURCHASE,
+        kind,
+        description,
+        note: s.note ?? null,
+        originLabel: (s.accountId ? accountName.get(s.accountId) : undefined) ?? "sem conta",
+        projected: false,
+      };
+    }
+    const item = mapTx(mv.source.tx);
+    if (mv.source.type === "payment") {
+      return {
+        ...base,
+        ...EMPTY_PURCHASE,
+        kind: "payment",
+        description: item.description,
+        note: item.note,
+        originLabel: item.sourceLabel ?? "Outros",
+        projected: mv.projected,
+      };
+    }
+    const tx = mv.source.tx;
+    const expenseTx = isExpense(tx) ? tx : null; // a share always comes from an expense
+    const installment = expenseTx?.installment ?? null;
+    const group = installment ? groups.get(installment.groupId) : undefined;
+    return {
+      ...base,
+      kind: "purchase",
+      description: item.description,
+      note: item.note,
+      originLabel: item.sourceLabel ?? "Outros",
+      categoryName: item.category?.name ?? null,
+      categoryColor: item.category?.color ?? null,
+      parcela: installment
+        ? {
+            number: installment.number,
+            total: installment.total,
+            remaining: Math.max(0, installment.total - installment.number),
+          }
+        : null,
+      purchaseTotalCents: expenseTx ? Math.abs(expenseTx.amountCents) : null,
+      groupTotalCents: group?.totalCents ?? null,
+      groupShareCents: group ? (group.shareByPerson.get(personId) ?? 0) : null,
+      groupCount: group?.count ?? null,
+      projected: mv.projected,
+    };
+  };
 
   return ws.people.map((p) => {
     const mvs = byPerson.get(p.id) ?? [];
     let openingCents = 0;
-    const period: LedgerMovement[] = [];
+    let lastPaymentBefore: PersonStatement["lastPaymentBefore"] = null;
+    const period: CashMovement[] = [];
     for (const mv of mvs) {
-      // Movements before the window fold into the opening; the rest are the period.
-      if (compareMonths(mv.competence, from) < 0) openingCents += mv.signedDeltaCents;
-      else if (compareMonths(mv.competence, to) <= 0) period.push(mv);
+      if (compareMonths(mv.competence, from) < 0) {
+        openingCents += mv.cashDeltaCents;
+        if (isPayment(mv) && (lastPaymentBefore === null || mv.date >= lastPaymentBefore.date)) {
+          lastPaymentBefore = { date: mv.date, amountCents: -mv.cashDeltaCents };
+        }
+      } else if (compareMonths(mv.competence, to) <= 0) {
+        period.push(mv);
+      }
     }
-    // Chronological display order. The applied deltas are fixed (accumulation order:
-    // all charges, then settlements with the zero-clamp), so summing them from the opening
-    // always lands exactly on the closing balance — the closing/totals always reconcile.
-    // (Caveat: an overpaying settlement dated before the charge it offsets can show a
-    // slightly off INTERMEDIATE running balance; the closing is still exact. We keep the
-    // accumulation-order deltas because a chronological re-clamp could diverge from the
-    // authoritative computePersonBalancesThrough figure shown elsewhere.)
+    // Chronological display order (stable: shares and payments stay ahead of same-day acertos).
     period.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     let running = openingCents;
-    let debitTotalCents = 0;
-    let creditTotalCents = 0;
-    const entries: PersonLedgerEntry[] = [];
+    let purchasesCents = 0;
+    let paymentsCents = 0;
+    let refundsCents = 0;
+    let writeoffsCents = 0;
+    let projectedCount = 0;
+    let projectedCents = 0;
+    const rows: PersonStatementRow[] = [];
+    const categories = new Map<string, { color: string; count: number; totalCents: number }>();
     for (const mv of period) {
-      running += mv.signedDeltaCents;
-      // A zero-delta movement (e.g. a settlement against an already-zero balance) has no
-      // ledger effect — advance the running balance but skip the phantom "R$ 0,00" row.
-      if (mv.signedDeltaCents === 0) continue;
-      const isDebit = mv.signedDeltaCents > 0;
-      const amountCents = Math.abs(mv.signedDeltaCents);
-      if (isDebit) debitTotalCents += amountCents;
-      else creditTotalCents += amountCents;
-      entries.push({
-        date: mv.date,
-        description: descriptionOf(mv),
-        origin: originOf(mv),
-        kind: isDebit ? "debit" : "credit",
-        amountCents,
-        balanceCents: running,
-        projected: mv.projected,
-      });
+      // A movement that moved no money (a baixa against nothing) has no line to show.
+      if (mv.cashDeltaCents === 0) continue;
+      running += mv.cashDeltaCents;
+      const row = toRow(p.id, mv, running);
+      rows.push(row);
+      if (row.kind === "purchase") purchasesCents += row.cashCents;
+      else if (row.kind === "payment") paymentsCents -= row.cashCents;
+      else if (row.kind === "refund") refundsCents += row.cashCents;
+      else writeoffsCents += row.cashCents;
+      if (row.projected) {
+        projectedCount += 1;
+        projectedCents += row.cashCents;
+      }
+      if (row.kind === "purchase") {
+        const name = row.categoryName ?? NO_CATEGORY_LABEL;
+        const bucket = categories.get(name) ?? {
+          color: row.categoryColor ?? DEFAULT_CATEGORY_COLOR,
+          count: 0,
+          totalCents: 0,
+        };
+        bucket.count += 1;
+        bucket.totalCents += row.cashCents;
+        categories.set(name, bucket);
+      }
     }
+    const byCategory = [...categories.entries()]
+      .map(([name, c]) => ({ name, ...c }))
+      .sort((a, b) =>
+        a.name === NO_CATEGORY_LABEL ? 1 : b.name === NO_CATEGORY_LABEL ? -1 : b.totalCents - a.totalCents,
+      );
+    const first = rows[0];
+    const last = rows[rows.length - 1];
 
     return {
       id: p.id,
       name: p.name,
       relationship: p.relationship,
       color: p.color,
+      from,
+      to,
       openingCents,
-      entries,
-      debitTotalCents,
-      creditTotalCents,
-      closingCents: balances.get(p.id)?.cents ?? 0,
+      rows,
+      purchasesCents,
+      paymentsCents,
+      refundsCents,
+      writeoffsCents,
+      closingCents: running,
+      ledgerClosingCents: ledger.balances.get(p.id)?.cents ?? 0,
+      projectedCount,
+      projectedCents,
+      lastPaymentBefore,
+      rowsDateSpan: first && last ? { first: first.date, last: last.date } : null,
+      byCategory,
+      asOf: asOfMonth ? { month: asOfMonth, closingCents: asOfCashByPerson.get(p.id) ?? 0 } : null,
     };
   });
 }
