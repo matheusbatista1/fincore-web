@@ -13,6 +13,7 @@ import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
 import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
+import { settlePerson } from "@/application/use-cases/settle-person";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -40,6 +41,7 @@ import {
   rollDebtSchema,
   rollMonthDebtSchema,
   settlementInputSchema,
+  settlePersonSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
   undoPaymentSchema,
@@ -281,16 +283,34 @@ export async function importTransactionsAction(raw: unknown): Promise<ActionStat
   return { ok: true };
 }
 
-export async function settlePersonAction(raw: unknown): Promise<ActionState> {
-  return withParsed(settlementInputSchema, raw, (userId, input) =>
-    financeRepository.createSettlement(userId, {
-      personId: input.personId,
-      amountCents: input.amountCents,
-      date: input.date,
-      accountId: input.accountId,
-      ...(input.note !== undefined ? { note: input.note } : {}),
-    }),
-  );
+/**
+ * The settle action's state: when the payment exceeds the pending and the client sent no decision,
+ * the error carries the figures so the modal can ask ("gorjeta ou crédito?") with the server's numbers.
+ */
+export type SettleActionState = ActionState & {
+  surplus?: { owedCents: number; surplusCents: number };
+};
+
+/**
+ * "Registrar pagamento": the use-case measures the person's pending (never trust the client) and
+ * refuses to clip a payment above it — the surplus is either the user's gorjeta (an own income,
+ * atomic with the acerto) or the person's credit (kept inside the acerto).
+ */
+export async function settlePersonAction(raw: unknown): Promise<SettleActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = settlePersonSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await settlePerson(financeRepository, userId, parsed.data);
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error.message,
+      ...(result.error.surplus ? { surplus: result.error.surplus } : {}),
+    };
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function updateSettlementAction(id: string, raw: unknown): Promise<ActionState> {

@@ -17,6 +17,12 @@ export interface ReceivableRow {
   readonly id: string;
   readonly name: string;
   readonly amountCents: number;
+  /**
+   * The person total through today (the People profile figure), when the caller has it. The settle
+   * flow caps at it instead of the month snapshot: paying more than the month but within the total
+   * is not a sobra.
+   */
+  readonly totalBalanceCents?: number;
 }
 
 export interface StmtGroup {
@@ -320,7 +326,8 @@ export function StmtCard({
                     id: r.id,
                     name: r.name,
                     prefillCents: r.amountCents,
-                    capCents: r.amountCents,
+                    capCents: r.totalBalanceCents ?? r.amountCents,
+                    throughMonth: month,
                   });
                 return (
                   <div

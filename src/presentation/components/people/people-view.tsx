@@ -360,6 +360,7 @@ export function PeopleView({
                 // future/"futura" loan parcela is settleable, matching the visible "no total").
                 prefillCents: settleTarget.monthBalanceCents,
                 capCents: settleTarget.totalBalanceCents,
+                throughMonth: month,
               }}
               accounts={accounts}
               editing={editSettlement}
