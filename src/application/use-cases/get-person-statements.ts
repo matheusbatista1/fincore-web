@@ -102,7 +102,11 @@ export interface PersonStatement {
 export interface GetPersonStatementsRange {
   readonly from: CompetenceMonth;
   readonly to: CompetenceMonth;
-  /** The current month, when the caller wants the "situação hoje" figure for a past window. */
+  /**
+   * The current month. Two uses: the "situação hoje" figure for a past window, and telling a
+   * parcela already billed from one still ahead (a parcela's stored status is a snapshot taken at
+   * creation — "futura" never flips to "atual" when the month turns — so the calendar decides).
+   */
   readonly asOf?: CompetenceMonth;
 }
 
@@ -167,7 +171,12 @@ export async function getPersonStatements(
   const competenceOf = billingCompetence(ws.creditCards, ws.cardBillDates);
   const [from, to] =
     compareMonths(range.from, range.to) <= 0 ? [range.from, range.to] : [range.to, range.from];
-  const asOfMonth = range.asOf !== undefined && compareMonths(range.asOf, to) > 0 ? range.asOf : null;
+  const current = range.asOf ?? null;
+  const asOfMonth = current !== null && compareMonths(current, to) > 0 ? current : null;
+  // A real parcela is a forecast only while its fatura month is still ahead of today; the ledger
+  // flags every stored-"futura" parcela, which goes stale once that month arrives.
+  const stillAhead = (competence: CompetenceMonth): boolean =>
+    current === null || compareMonths(competence, current) > 0;
 
   const ledger = computePersonLedger(ws.people, ws.transactions, ws.settlements, to, competenceOf);
   const movements = withCashDeltas(ledger.movements);
@@ -257,7 +266,7 @@ export async function getPersonStatements(
       groupTotalCents: group?.totalCents ?? null,
       groupShareCents: group ? (group.shareByPerson.get(personId) ?? 0) : null,
       groupCount: group?.count ?? null,
-      projected: mv.projected,
+      projected: installment ? mv.projected && stillAhead(mv.competence) : mv.projected,
     };
   };
 
