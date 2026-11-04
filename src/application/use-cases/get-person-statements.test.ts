@@ -303,6 +303,51 @@ describe("getPersonStatements — the reader view", () => {
     expect(row?.groupCount).toBe(3);
   });
 
+  it("a parcela already billed is not 'previsto', whatever its stored status says", async () => {
+    // Registered in October with parcela 1 current: parcela 2 was stored "futura" and nothing updates
+    // it when November arrives. The owner's real PDF showed a 13/10 charge billed in November as
+    // "previsto". The calendar (the current month the pages pass) decides, not the snapshot.
+    const parcela = (number: number, status: "paga" | "atual" | "futura", date: string) =>
+      expense({
+        description: "Fone",
+        date,
+        source: "card",
+        cardId: "c-nu",
+        accountId: null,
+        amountCents: -15_499,
+        splits: [{ personId: "p", shareCents: 15_499 }],
+        installment: { groupId: "g2", number, total: 3, status },
+      });
+    const repo = stubRepo(
+      [person("p")],
+      [
+        parcela(1, "atual", "2026-09-13"),
+        parcela(2, "futura", "2026-10-13"),
+        parcela(3, "futura", "2026-11-13"),
+      ],
+      [],
+      { creditCards: [nubank] },
+    );
+    // Parcela 2 (charged 13/10) bills November; in November it is a real charge, not a forecast.
+    const [november] = await getPersonStatements(repo, "u", {
+      from: "2026-11",
+      to: "2026-11",
+      asOf: "2026-11",
+    });
+    expect(november?.rows.map((r) => [r.parcela?.number, r.projected])).toEqual([[2, false]]);
+    expect(november?.projectedCount).toBe(0);
+    // Parcela 3 (charged 13/11) bills December: browsing December in November, it is still ahead.
+    const [december] = await getPersonStatements(repo, "u", {
+      from: "2026-12",
+      to: "2026-12",
+      asOf: "2026-11",
+    });
+    expect(december?.rows.map((r) => [r.parcela?.number, r.projected])).toEqual([[3, true]]);
+    // Without the current month the ledger's stored-status flag stands (legacy callers).
+    const [legacy] = await getPersonStatements(repo, "u", { from: "2026-11", to: "2026-11" });
+    expect(legacy?.rows[0]?.projected).toBe(true);
+  });
+
   it("buckets purchases by category, largest first and 'Sem categoria' last", async () => {
     const repo = stubRepo(
       [person("p")],
