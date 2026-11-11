@@ -76,9 +76,11 @@ function affectsBalance(tx: Transaction): boolean {
  *
  * The `lens` defaults to `"general"` (real money movement — the live balance
  * everywhere). The `"personal"` lens estimates "what's really mine": a shared
- * expense debits only `myShareCents` (the rest is owed back by others) and
- * reimbursement income is ignored (it's a refund, not your money). Card/linked
- * expenses still never touch an account balance in either lens.
+ * expense debits only `myShareCents` (the rest is owed back by others), a paid
+ * shared obligation debits what was paid minus the others' shares (a discount or
+ * interest on the payment is the user's), and reimbursement income is ignored
+ * (it's a refund, not your money). Card/linked expenses still never touch an
+ * account balance in either lens.
  */
 export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<string, Money> {
   const deltas = new Map<string, Money>();
@@ -127,12 +129,14 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
     const paidAccountId = tx.paidAccountId ?? null;
     if (isPaid(tx) && isPayableObligation(tx) && paidAccountId !== null) {
       const paidCents = tx.paidAmountCents ?? Math.abs(tx.amountCents);
-      // Personal debits only the user's own share when the obligation is shared; otherwise the
-      // full amount paid (loans/financing/taxes are essentially never split).
+      // Personal: what the payment cost the user — the amount paid minus what the others owe.
+      // They owe their shares in full whatever was paid (the person ledger charges exactly that),
+      // so the discount of an early payoff is the user's, and so is any interest. Paid at face
+      // value this is the user's own share; with nobody sharing, the whole payment. It can be
+      // negative: an obligation that is all someone else's, settled for less than they owe.
+      const othersCents = tx.splits.reduce((sum, split) => sum + split.shareCents, 0);
       const magnitude =
-        lens === "personal" && tx.splits.length > 0
-          ? Money.fromCents(tx.myShareCents)
-          : Money.fromCents(paidCents);
+        lens === "personal" ? Money.fromCents(paidCents - othersCents) : Money.fromCents(paidCents);
       credit(paidAccountId, magnitude.negate());
       return deltas;
     }

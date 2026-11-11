@@ -447,7 +447,7 @@ describe("explainMonthEndGap — paid faturas", () => {
 });
 
 describe("explainMonthEndGap — shares and costs that do not pair", () => {
-  it("a shared boleto paid with a discount", () => {
+  it("a shared boleto paid with a discount opens no gap: the discount is the user's in both lenses", () => {
     const r = explain([
       expense({
         source: "boleto",
@@ -460,14 +460,34 @@ describe("explainMonthEndGap — shares and costs that do not pair", () => {
         paidAmountCents: 18_000,
       }),
     ]);
-    expect(r.gapCents).toBe(2_000);
+    // General: −180,00 + 100,00 she owes. Personal: 180,00 − 100,00 = −80,00.
+    expect(r.general.totalCents).toBe(92_000);
+    expect(r.personal.totalCents).toBe(92_000);
+    expect(r.items).toEqual([]);
+  });
+
+  it("a share split with someone who is no longer among the people", () => {
+    // Ana owes R$ 40,00 and Zed (removed) R$ 20,00: the general lens paid for both, the ledger
+    // only charges Ana.
+    const r = explain([
+      expense({
+        amountCents: -10_000,
+        myShareCents: 4_000,
+        splits: [
+          { personId: "ana", shareCents: 4_000 },
+          { personId: "zed", shareCents: 2_000 },
+        ],
+      }),
+    ]);
+    expect(r.gapCents).toBe(-2_000);
     expect(r.items).toMatchObject([
       {
         subject: "expense",
         reason: "share-cost-mismatch",
-        cents: 2_000,
-        costCents: 8_000,
-        ledgerCents: 10_000,
+        cents: -2_000,
+        costCents: 6_000,
+        ledgerCents: 4_000,
+        personIds: ["ana"],
       },
     ]);
   });
