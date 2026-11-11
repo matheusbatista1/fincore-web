@@ -35,6 +35,7 @@ import {
   computeCardBillForMonth,
   computeCardOutstanding,
 } from "@/domain/services/card-bill.calculator";
+import { explainMonthEndGap } from "@/domain/services/month-end-gap.explainer";
 import {
   computePersonBalances,
   computePersonBalancesForMonth,
@@ -446,42 +447,32 @@ async function main() {
   // ------------------------------------------------------------- fim do mês
   hr(`DASHBOARD "FIM DO MÊS" — sweep both lenses across months (current=${currentMonth})`);
 
-  // Faithful replica of get-dashboard's projected-balance math for one (month, lens).
+  // The dashboard's own figures for one (month, lens): the gap explainer computes them with the
+  // same calculators and is pinned to getDashboard by a test, so this sweep cannot drift from the
+  // hero again (it used to leave out the overdue term and the receivables of earlier months).
   function projectedFor(month: CompetenceMonth, lens: "general" | "personal") {
-    const eom = projectedMonthEndBalances(
-      ws.accounts,
-      ws.transactions,
+    const figure = explainMonthEndGap({
+      accounts: ws.accounts,
+      people: ws.people,
+      transactions: ws.transactions,
+      settlements: ws.settlements,
+      cardBillPayments: ws.cardBillPayments,
       month,
+      currentMonth,
       competenceOf,
-      currentMonth,
-      lens,
-      ws.settlements,
-      ws.cardBillPayments,
-    );
-    let eomSum = 0;
-    for (const v of eom.values()) eomSum += v.cents;
-    const obligations = obligationsDueThrough(
-      ws.transactions,
-      currentMonth,
-      month,
-      competenceOf,
-      lens,
-      currentMonth,
-      ws.cardBillPayments,
-    ).cents;
-    let peopleNet = 0;
-    if (lens === "general") {
-      // Single pass (horizon = browsed month) so a pre-payment re-buckets onto its debt
-      // month — mirrors get-dashboard (a per-month re-call would miss it).
-      const nets = computePersonMonthNets(ws.people, ws.transactions, ws.settlements, month, competenceOf);
-      for (let m = currentMonth; compareMonths(m, month) <= 0; m = addMonths(m, 1)) {
-        for (const person of ws.people) peopleNet += nets.get(person.id)?.get(m) ?? 0;
-      }
-    }
-    return { eomSum, obligations, peopleNet, total: eomSum - obligations + peopleNet };
+    })[lens];
+    return {
+      eomSum: figure.accountsCents,
+      obligations: figure.obligationsCents,
+      overdue: figure.overdueCents,
+      peopleNet: figure.peopleCents,
+      total: figure.totalCents,
+    };
   }
 
-  console.log("  month     | lens     |   (A) contas  −  (B) obrig.  +  (C) pessoas  =  FIM DO MÊS");
+  console.log(
+    "  month     | lens     |   (A) contas  −  (B) obrig.  −  (V) vencidas  +  (C) pessoas  =  FIM DO MÊS",
+  );
   for (let i = 0; i <= 6; i++) {
     const month = addMonths(currentMonth, i) as CompetenceMonth;
     for (const lens of ["general", "personal"] as const) {
@@ -491,10 +482,11 @@ async function main() {
           ? "  <<< 133,58!"
           : "";
       console.log(
-        `  ${month} | ${lens.padEnd(8)} | ${brl(r.eomSum).padStart(13)}  ${brl(r.obligations).padStart(11)}  ${brl(r.peopleNet).padStart(12)}  = ${brl(r.total).padStart(12)}${flag}`,
+        `  ${month} | ${lens.padEnd(8)} | ${brl(r.eomSum).padStart(13)}  ${brl(r.obligations).padStart(11)}  ${brl(r.overdue).padStart(11)}  ${brl(r.peopleNet).padStart(12)}  = ${brl(r.total).padStart(12)}${flag}`,
       );
     }
   }
+  console.log("  (por que as duas visões diferem, linha a linha: scripts/diagnose-balances.ts)");
 
   // ----------------------------------------------- sobra real / resultado
   hr(`"SOBRA REAL" (dashboard) = "RESULTADO" (visão mensal) — month flow, both lenses`);

@@ -5,6 +5,8 @@ import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import { explainMonthEndGap } from "@/domain/services/month-end-gap.explainer";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
 // Freeze "today" so the live-vs-projected split is deterministic.
@@ -445,5 +447,125 @@ describe("getDashboard — saldo pessoal com fatura paga compartilhada", () => {
     expect(data.totalBalanceCents).toBe(70000);
     // Personal: opening 100000 − 12000 (only my slice of the paid fatura) = 88000.
     expect(data.totalBalancePersonalCents).toBe(88000);
+  });
+});
+
+describe("getDashboard — the gap explainer reads the same 'fim do mês' (today = 2026-06-14)", () => {
+  // The explainer (domain) recomputes both figures to break their difference down row by row; it is
+  // only worth trusting while it lands on the very numbers the hero shows. One workspace with every
+  // kind of row the two lenses treat differently, browsed across past, current and future months.
+  const ana: Person = { id: "ana", name: "Ana", relationship: "Amiga", color: "#000000" };
+  const bia: Person = { id: "bia", name: "Bia", relationship: "Amiga", color: "#000000" };
+  const cardCharge = (date: string, total: number, personId: string, share: number, id: string) =>
+    expense({
+      id,
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date,
+      amountCents: -total,
+      myShareCents: total - share,
+      splits: [{ personId, shareCents: share }],
+      recurrence: null,
+    });
+  const transactions = [
+    // Shared on the account, once and every month (anchored in May).
+    expense({
+      id: "market",
+      date: "2026-06-05",
+      amountCents: -10000,
+      myShareCents: 4000,
+      splits: [{ personId: "ana", shareCents: 6000 }],
+      recurrence: null,
+    }),
+    expense({
+      id: "rent",
+      date: "2026-05-10",
+      amountCents: -20000,
+      myShareCents: 8000,
+      splits: [{ personId: "ana", shareCents: 12000 }],
+    }),
+    // Card: an old fatura with no payment, the paid June one (with an estorno), the open July one.
+    cardCharge("2026-04-10", 5000, "ana", 5000, "old-bill"),
+    cardCharge("2026-05-12", 40000, "ana", 30000, "june-bill"),
+    income({ id: "estorno", accountId: null, cardId: "card-1", amountCents: 4000, date: "2026-05-15" }),
+    cardCharge("2026-06-10", 9000, "bia", 4500, "july-bill"),
+    // An overdue shared boleto, a recurring salary, a payment still to be received.
+    expense({
+      id: "boleto",
+      source: "boleto",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -8000,
+      myShareCents: 3000,
+      splits: [{ personId: "bia", shareCents: 5000 }],
+      recurrence: null,
+    }),
+    income({ id: "salary", date: "2026-05-20", recurrence: { dayOfMonth: 20 } }),
+    income({
+      id: "pending",
+      date: "2026-06-25",
+      amountCents: 6000,
+      fromPersonId: "ana",
+      isReimbursement: true,
+      receivedAt: null,
+    }),
+  ];
+  const settlements: Settlement[] = [
+    { id: "s-above", personId: "ana", amountCents: 60000, date: "2026-06-12", accountId: "acc-1" },
+    { id: "s-writeoff", personId: "bia", amountCents: 2000, date: "2026-06-13", accountId: null },
+  ];
+  const payments: CardBillPayment[] = [
+    {
+      id: "pay-june",
+      cardId: "card-1",
+      competence: "2026-06",
+      amountCents: 36000,
+      accountId: "acc-1",
+      date: "2026-06-02",
+    },
+  ];
+
+  it.each(["2026-04", "2026-05", "2026-06", "2026-07", "2026-09"] as const)("month %s", async (month) => {
+    const repo = stubRepo(transactions, [card], [ana, bia], settlements, payments);
+    const data = await getDashboard(repo, "u", month);
+    const report = explainMonthEndGap({
+      accounts: [account],
+      people: [ana, bia],
+      transactions,
+      settlements,
+      cardBillPayments: payments,
+      month,
+      currentMonth: "2026-06",
+      competenceOf: billingCompetence([card], []),
+    });
+    expect(report.general.totalCents).toBe(data.projectedBalanceCents);
+    expect(report.personal.totalCents).toBe(data.projectedBalancePersonalCents);
+    expect(report.gapCents).toBe(data.projectedBalanceCents - data.projectedBalancePersonalCents);
+    expect(report.unexplainedCents).toBe(0);
+  });
+
+  it("tells the gap apart from what people still owe", async () => {
+    const repo = stubRepo(transactions, [card], [ana, bia], settlements, payments);
+    const data = await getDashboard(repo, "u", "2026-06");
+    const report = explainMonthEndGap({
+      accounts: [account],
+      people: [ana, bia],
+      transactions,
+      settlements,
+      cardBillPayments: payments,
+      month: "2026-06",
+      currentMonth: "2026-06",
+      competenceOf: billingCompetence([card], []),
+    });
+    // The lenses differ, and not by the receivables: the reasons are the rows that break the pairing.
+    expect(report.gapCents).not.toBe(0);
+    expect(report.gapCents).not.toBe(report.general.peopleCents);
+    expect(new Set(report.items.map((item) => item.reason))).toEqual(
+      new Set(["advance", "writeoff", "expected-reimbursement", "paid-bill", "share-without-cost"]),
+    );
+    expect(report.items.reduce((total, item) => total + item.cents, 0)).toBe(
+      data.projectedBalanceCents - data.projectedBalancePersonalCents,
+    );
   });
 });
