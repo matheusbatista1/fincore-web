@@ -11,7 +11,8 @@
  *  - money received with no debt left to cover (an acerto above the debt: the person's credit);
  *  - a debt written off without cash (a "sem conta" acerto);
  *  - a payment still to come, counted as expected cash on top of the debt it will pay;
- *  - a paid fatura whose amount no longer matches its charges (an estorno, rows changed after paying);
+ *  - a paid fatura whose amount no longer matches its rows (they changed after paying). An estorno
+ *    alone opens no gap: it lowers the user's own slice (see `faturaPersonalDebit`);
  *  - a share the ledger charges that no cost in the general lens carries (an old fatura with no
  *    payment record, a forecast in a month the cash projection does not reach), or the reverse.
  *
@@ -168,7 +169,7 @@ export interface BillGapItem extends GapItemBase {
   readonly mineCents: number;
   /** Card credits (estornos) bucketed into the bill. */
   readonly creditsCents: number;
-  /** Others' slice the personal lens discounts from the payment (prorated by `mine / charges`). */
+  /** Others' slice the personal lens leaves out: the payment minus the user's own slice of it. */
   readonly costCents: number;
   /** Shares the ledger charges for the bill's rows (0 while the bill lies beyond `month`). */
   readonly ledgerCents: number;

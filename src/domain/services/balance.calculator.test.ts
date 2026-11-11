@@ -11,7 +11,12 @@ import type {
   TransferTransaction,
 } from "../entities/transaction";
 import { Money } from "../money/money";
-import { accountDeltas, computeAccountBalance, computeAccountBalances } from "./balance.calculator";
+import {
+  accountDeltas,
+  computeAccountBalance,
+  computeAccountBalances,
+  faturaPersonalDebit,
+} from "./balance.calculator";
 
 function settle(
   personId: string,
@@ -508,6 +513,135 @@ describe("card fatura payments debit the paying account", () => {
     expect(
       computeAccountBalances(accounts, charges, undefined, "personal", [], [p], comp).get("nu")?.cents,
     ).toBe(82_000);
+  });
+
+  /** A card credit (estorno) on c1. */
+  const cardCredit = (cents: number, cardId = "c1"): IncomeTransaction => ({
+    ...income("nu", cents),
+    accountId: null,
+    cardId,
+  });
+  const comp = () => "2026-07";
+
+  it("gives a card credit (estorno) to the user: the others still owe their shares in full", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // R$400 of charges — R$100 the user's, R$300 someone else's — and a R$40 estorno: paid R$360.
+    const mine = expense(-10_000, { source: "card", cardId: "c1" });
+    const txs: Transaction[] = [mine, sharedCardExpense("p1", 30_000), cardCredit(4_000)];
+    const p = payment({ amountCents: 36_000 });
+    // General: the whole payment leaves the account.
+    expect(computeAccountBalances(accounts, txs, undefined, "general", [], [p], comp).get("nu")?.cents).toBe(
+      64_000,
+    );
+    // Personal: 100 − 40 = R$60. What is left of the payment (R$300) is exactly her share, so the
+    // two lenses agree once she pays. Spreading the estorno over everyone would debit R$90 here.
+    expect(faturaPersonalDebit(p, txs, comp).cents).toBe(6_000);
+    expect(computeAccountBalances(accounts, txs, undefined, "personal", [], [p], comp).get("nu")?.cents).toBe(
+      94_000,
+    );
+  });
+
+  it("keeps the proportion when the payment no longer matches the bill's rows", () => {
+    const txs: Transaction[] = [
+      expense(-10_000, { source: "card", cardId: "c1" }),
+      sharedCardExpense("p1", 30_000),
+      cardCredit(4_000),
+    ];
+    // The R$360 bill paid for R$180: half of the user's R$60.
+    expect(faturaPersonalDebit(payment({ amountCents: 18_000 }), txs, comp).cents).toBe(3_000);
+    // …and exactly zero when the estorno cancels the user's own charges.
+    const cancelled: Transaction[] = [
+      expense(-4_000, { source: "card", cardId: "c1" }),
+      sharedCardExpense("p1", 30_000),
+      cardCredit(4_000),
+    ];
+    expect(faturaPersonalDebit(payment({ amountCents: 30_000 }), cancelled, comp).cents).toBe(0);
+    // A slice that rounds to "minus nothing" is plain zero (never −0).
+    const aCentOver: Transaction[] = [
+      expense(-4_000, { source: "card", cardId: "c1" }),
+      sharedCardExpense("p1", 30_000),
+      cardCredit(4_001),
+    ];
+    expect(Object.is(faturaPersonalDebit(payment({ amountCents: 100 }), aCentOver, comp).cents, 0)).toBe(
+      true,
+    );
+  });
+
+  it("turns the slice negative when the credit exceeds the user's own charges", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    // R$100 entirely hers and a R$30 estorno: paid R$70. She still owes the R$100, so the user is
+    // R$30 up in both lenses.
+    const txs: Transaction[] = [sharedCardExpense("p1", 10_000), cardCredit(3_000)];
+    const p = payment({ amountCents: 7_000 });
+    expect(faturaPersonalDebit(p, txs, comp).cents).toBe(-3_000);
+    expect(computeAccountBalances(accounts, txs, undefined, "personal", [], [p], comp).get("nu")?.cents).toBe(
+      103_000,
+    );
+  });
+
+  it("falls back when there is nothing sound to prorate", () => {
+    // Credits swallow the whole bill: the plain ratio of the charges (half of them are the user's).
+    const swallowed: Transaction[] = [
+      expense(-10_000, { source: "card", cardId: "c1" }),
+      sharedCardExpense("p1", 10_000),
+      cardCredit(25_000),
+    ];
+    expect(faturaPersonalDebit(payment({ amountCents: 1_000 }), swallowed, comp).cents).toBe(500);
+    // No charges at all: the full amount.
+    expect(faturaPersonalDebit(payment({ amountCents: 1_000 }), [cardCredit(500)], comp).cents).toBe(1_000);
+  });
+
+  it("only reads the rows of the paid bill: another card's or another month's are ignored", () => {
+    const june: IncomeTransaction = { ...cardCredit(9_000), date: "2026-05-01" };
+    const txs: Transaction[] = [
+      expense(-10_000, { source: "card", cardId: "c1" }),
+      sharedCardExpense("p1", 30_000),
+      cardCredit(4_000),
+      cardCredit(5_000, "c2"),
+      june,
+      { ...expense(-50_000, { source: "card", cardId: "c1" }), date: "2026-05-01" },
+    ];
+    const byMonth = (tx: Transaction) => (tx.date === "2026-05-01" ? "2026-06" : "2026-07");
+    expect(faturaPersonalDebit(payment({ amountCents: 36_000 }), txs, byMonth).cents).toBe(6_000);
+  });
+
+  it("leaves a bill paid for what its rows add up to with exactly the others' shares (property)", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            total: fc.integer({ min: 1, max: 200_000 }),
+            sharePct: fc.integer({ min: 0, max: 100 }),
+          }),
+          { minLength: 1, maxLength: 8 },
+        ),
+        fc.array(fc.integer({ min: 1, max: 5_000 }), { maxLength: 3 }),
+        (charges, credits) => {
+          const txs: Transaction[] = [];
+          let others = 0;
+          let total = 0;
+          for (const charge of charges) {
+            const share = Math.floor((charge.total * charge.sharePct) / 100);
+            others += share;
+            total += charge.total;
+            txs.push({
+              ...expense(-charge.total, { source: "card", cardId: "c1" }),
+              splits: share > 0 ? [{ personId: "p1", shareCents: share }] : [],
+              myShareCents: charge.total - share,
+            });
+          }
+          let credited = 0;
+          for (const credit of credits) {
+            credited += credit;
+            txs.push(cardCredit(credit));
+          }
+          const net = total - credited;
+          fc.pre(net > 0);
+          const p = payment({ amountCents: net });
+          expect(net - faturaPersonalDebit(p, txs, comp).cents).toBe(others);
+        },
+      ),
+    );
   });
 
   it("lands on the pay date (excluded before it, included on/after)", () => {

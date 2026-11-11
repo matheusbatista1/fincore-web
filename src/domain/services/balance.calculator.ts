@@ -164,32 +164,48 @@ export function balanceEffectiveDate(tx: Transaction): IsoDate {
 
 /**
  * The user's own slice of a paid card fatura, for the personal lens. A {@link CardBillPayment}
- * stores only the total paid, so the personal fraction is reconstructed from the bill's underlying
- * card charges: `Σ myShareCents / Σ |amountCents|` over the charges whose bill competence matches
- * the payment, applied to the amount actually paid. With no charges to base a ratio on (e.g. an
- * imported bill with no itemized charges), the full amount is debited — the safe, real-cash default.
+ * stores only the total paid, so the slice is reconstructed from the bill's rows — the charges
+ * whose bill competence matches the payment, and the card credits (estornos) bucketed into it.
+ *
+ * A card credit is the user's: other people owe their shares in full whatever the bank gave back
+ * (the person ledger charges exactly that), so a credit lowers the user's own slice and nobody
+ * else's. With `charges`, `mine` and `credits` summed over the bill:
+ *
+ *     slice = paid × (mine − credits) / (charges − credits)
+ *
+ * When the fatura was paid for exactly what its rows add up to (`paid = charges − credits`) this
+ * is `mine − credits`, and what is left of the payment is exactly the others' shares — the two
+ * lenses then agree on the bill. When the payment no longer matches the rows (they changed after
+ * paying) the same proportion is applied to the amount actually paid. A credit larger than the
+ * user's own charges makes the slice negative: money back on purchases the others still owe.
+ *
+ * With no charges to base a ratio on (e.g. an imported bill with no itemized charges) the full
+ * amount is debited — the safe, real-cash default; when the credits swallow the whole bill the
+ * plain ratio of charges is used.
  */
 export function faturaPersonalDebit(
   p: CardBillPayment,
   transactions: readonly Transaction[],
   competenceOf: CompetenceResolver,
 ): Money {
-  let full = 0;
+  let charges = 0;
   let mine = 0;
+  let credits = 0;
   for (const tx of transactions) {
-    if (
-      isExpense(tx) &&
-      !isRolled(tx) &&
-      tx.source === "card" &&
-      tx.cardId === p.cardId &&
-      competenceOf(tx) === p.competence
-    ) {
-      full += Math.abs(tx.amountCents);
+    if (isExpense(tx)) {
+      if (isRolled(tx) || tx.source !== "card" || tx.cardId !== p.cardId) continue;
+      if (competenceOf(tx) !== p.competence) continue;
+      charges += Math.abs(tx.amountCents);
       mine += tx.myShareCents;
+    } else if (isIncome(tx) && tx.cardId === p.cardId && competenceOf(tx) === p.competence) {
+      credits += tx.amountCents;
     }
   }
-  if (full <= 0) return Money.fromCents(p.amountCents);
-  return Money.fromCents(Math.round((p.amountCents * mine) / full));
+  if (charges <= 0) return Money.fromCents(p.amountCents);
+  const net = charges - credits;
+  if (net <= 0) return Money.fromCents(Math.round((p.amountCents * mine) / charges));
+  // `|| 0`: a slice that rounds to −0 is plain zero.
+  return Money.fromCents(Math.round((p.amountCents * (mine - credits)) / net) || 0);
 }
 
 /**

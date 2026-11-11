@@ -308,7 +308,7 @@ export function renderDiagnosis(input: DiagnosisInput): string[] {
         );
       }
       if (item.creditsCents !== 0) {
-        out.push("      -> há estorno: o Apenas meu repassa parte dele para a fatia das pessoas.");
+        out.push("      -> estornos da fatura (abatem só a sua parte; sozinhos não criam diferença):");
         for (const tx of ws.transactions) {
           if (!isIncome(tx) || tx.cardId !== item.cardId || competenceOf(tx) !== item.competence) continue;
           out.push(
