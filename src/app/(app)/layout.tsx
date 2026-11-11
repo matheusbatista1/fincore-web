@@ -48,7 +48,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       themeKey: a.themeKey,
       balanceCents: a.balanceCents,
     })),
-    cards: workspace.cards.map((c) => ({ id: c.id, bank: c.bank })),
+    cards: workspace.cards.map((c) => ({
+      id: c.id,
+      bank: c.bank,
+      // The cycle and the paid faturas: the form warns when a row lands on a bill already paid.
+      billing: {
+        closingDay: c.closingDay,
+        dueDay: c.dueDay,
+        overrides: workspace.cardBillDates
+          .filter((d) => d.cardId === c.id)
+          .map((d) => ({ month: d.month, closingDay: d.closingDay, dueDay: d.dueDay })),
+        paid: workspace.cardBillPayments
+          .filter((p) => p.cardId === c.id)
+          .map((p) => ({ competence: p.competence, amountCents: p.amountCents, paidOn: p.date })),
+      },
+    })),
     people: workspace.people.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     categories: workspace.categories.map((c) => ({
       id: c.id,

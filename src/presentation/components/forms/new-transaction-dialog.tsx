@@ -5,8 +5,10 @@ import { createTransactionAction, updateTransactionAction } from "@/app/_actions
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { ExpenseSource } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
+import type { CardBilling } from "@/domain/services/card-bill.calculator";
 import { calculateSplit } from "@/domain/services/split.calculator";
 import { CategoryFormDialog } from "@/presentation/components/forms/category-form-dialog";
+import { paidBillNotice } from "@/presentation/components/forms/paid-bill-notice";
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { InfoHint } from "@/presentation/components/ui/info-hint";
@@ -14,7 +16,7 @@ import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { monthLabel } from "@/shared/formatting/dates";
+import { monthLabel, shortDate } from "@/shared/formatting/dates";
 import {
   createTransactionSchema,
   type EditScope,
@@ -32,6 +34,8 @@ export interface TxFormAccount {
 export interface TxFormCard {
   readonly id: string;
   readonly bank: string;
+  /** The card's cycle and the faturas already paid: lets the form warn when a row lands on one. */
+  readonly billing: CardBilling;
 }
 export interface TxFormPerson {
   readonly id: string;
@@ -68,6 +72,9 @@ const INFO_STYLE: CSSProperties = {
   gap: 7,
   lineHeight: 1.45,
 };
+
+/** The "this lands on a paid fatura" notice: the info box, in the warning tone. */
+const PAID_BILL_STYLE: CSSProperties = { ...INFO_STYLE, color: "var(--amber-500)" };
 
 function reaisToCents(value: string): number {
   const normalized = value.replace(/\./g, "").replace(",", ".").trim();
@@ -307,6 +314,25 @@ function TransactionForm({
   const split = calculateSplit({ unit: unitMoney.abs(), method, meIn, selected, custom: customMap });
   const meShareCents = meIn ? split.myShare.cents : 0;
   const pct = (value: number): number => (unitCents > 0 ? Math.round((value / unitCents) * 100) : 0);
+
+  // A card row (a charge, or an estorno) about to land on a fatura that was already paid.
+  const onCard = (tab === "expense" && srcType === "card") || (tab === "income" && incomeDest === "card");
+  const paidBill = onCard
+    ? paidBillNotice({
+        billing: cards.find((c) => c.id === cardId)?.billing,
+        cardId,
+        date: ymd,
+        amountCents: tab === "expense" ? unitCents : cents,
+        original: initial
+          ? {
+              cardId: initial.cardId,
+              billMonth: initial.cardId ? (initial.billMonth ?? null) : null,
+              amountCents: Math.abs(initial.amountCents),
+              billMonthOverride: initial.billMonthOverride,
+            }
+          : null,
+      })
+    : null;
 
   function toggleSelected(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -633,6 +659,22 @@ function TransactionForm({
             value={ymd}
             onChange={(e) => setYmd(e.target.value || todayIso())}
           />
+          {/* A row on a fatura that was already paid never leaves an account: usually a mistyped date. */}
+          {paidBill && (
+            <div style={PAID_BILL_STYLE} role="status">
+              <Icon name="alert-triangle" size={14} style={{ marginTop: 2, flex: "none" }} />
+              <span>
+                A fatura de{" "}
+                <b style={{ color: "var(--text-hi)" }}>
+                  {monthLabel(paidBill.competence, { long: true }).toLowerCase()}
+                </b>{" "}
+                do {cards.find((c) => c.id === cardId)?.bank ?? "cartão"} já foi paga (
+                <span style={{ whiteSpace: "nowrap" }}>{formatBRLAbsolute(paidBill.amountCents)}</span> em{" "}
+                {shortDate(paidBill.paidOn)}). Este lançamento entra nela e não sai de nenhuma conta. Confira
+                a data.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* recorrência — disponível ao criar e ao editar (exceto parcelas de um parcelamento) */}

@@ -68,6 +68,50 @@ export function cardBillMonth(
   return addMonths(closeMonth, dueOffset);
 }
 
+/** A paid fatura, as far as placing a row on it is concerned. */
+export interface PaidBill {
+  /** The bill's competence (due) month. */
+  readonly competence: CompetenceMonth;
+  /** The amount it was paid for. */
+  readonly amountCents: number;
+  readonly paidOn: IsoDate;
+}
+
+/** One card's billing cycle and the faturas already paid on it — plain data, safe to send to a form. */
+export interface CardBilling {
+  readonly closingDay: number;
+  readonly dueDay: number;
+  /** Per-bill overrides of the closing/due day, by the bill's competence month. */
+  readonly overrides: ReadonlyArray<{
+    readonly month: CompetenceMonth;
+    readonly closingDay: number;
+    readonly dueDay: number;
+  }>;
+  readonly paid: readonly PaidBill[];
+}
+
+/**
+ * The fatura a card row dated `date` lands on, when that fatura has ALREADY been paid; null when it
+ * lands on a bill still to be paid.
+ *
+ * Paying a fatura stores the total of that moment and debits an account by it. A row that lands on
+ * the bill afterwards is never debited from anywhere: the usual way to get there is a mistyped date
+ * (the month, most often), which parks a charge on an old bill where nobody looks.
+ *
+ * `pinnedMonth` is the row's manual bill override, which wins over the cycle computed from its date.
+ */
+export function paidBillOf(
+  billing: CardBilling,
+  date: IsoDate,
+  pinnedMonth: CompetenceMonth | null = null,
+): PaidBill | null {
+  const overrides: CardBillOverrides = new Map(
+    billing.overrides.map((o) => [o.month, { closingDay: o.closingDay, dueDay: o.dueDay }]),
+  );
+  const competence = pinnedMonth ?? cardBillMonth(date, billing.closingDay, billing.dueDay, overrides);
+  return billing.paid.find((bill) => bill.competence === competence) ?? null;
+}
+
 /** Group per-bill date overrides by card id, for `billingCompetence` / the cards view. */
 export function cardBillOverridesByCard(
   billDates: readonly CardBillDate[],
