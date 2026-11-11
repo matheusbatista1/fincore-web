@@ -28,7 +28,7 @@ import {
   isTransfer,
 } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
-import { computeAccountBalances } from "@/domain/services/balance.calculator";
+import { computeAccountBalances, faturaPersonalDebit } from "@/domain/services/balance.calculator";
 import {
   billingCompetence,
   computeCardBill,
@@ -286,21 +286,8 @@ async function main() {
   let othersPaidOut = 0;
   for (const p of ws.cardBillPayments) {
     if (p.date > today) continue;
-    let full = 0;
-    let mine = 0;
-    for (const tx of ws.transactions) {
-      if (
-        isExpense(tx) &&
-        !isRolled(tx) &&
-        tx.source === "card" &&
-        tx.cardId === p.cardId &&
-        competenceOf(tx) === p.competence
-      ) {
-        full += Math.abs(tx.amountCents);
-        mine += tx.myShareCents;
-      }
-    }
-    const mineOfPaid = full > 0 ? Math.round((p.amountCents * mine) / full) : p.amountCents;
+    // The user's slice exactly as the personal balance debits it (card credits are the user's).
+    const mineOfPaid = faturaPersonalDebit(p, ws.transactions, competenceOf).cents;
     const others = p.amountCents - mineOfPaid;
     othersPaidOut += others;
     console.log(

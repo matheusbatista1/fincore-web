@@ -520,7 +520,8 @@ describe("getDashboard — the gap explainer reads the same 'fim do mês' (today
       id: "pay-june",
       cardId: "card-1",
       competence: "2026-06",
-      amountCents: 36000,
+      // Paid for R$ 10,00 less than its rows add up to today (400,00 − 40,00 of estorno).
+      amountCents: 35000,
       accountId: "acc-1",
       date: "2026-06-02",
     },

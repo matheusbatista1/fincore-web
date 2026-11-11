@@ -355,27 +355,37 @@ describe("explainMonthEndGap — paid faturas", () => {
   const mine = () => charge(10_000, 0, "2026-05-10");
   const hers = () => charge(30_000, 30_000, "2026-05-12");
 
-  it("an estorno lowers the payment; the personal lens hands part of it to the other person's slice", () => {
-    const estorno = income({ accountId: null, cardId: "card-1", amountCents: 4_000, date: "2026-05-15" });
-    const r = explain([mine(), hers(), estorno], { cardBillPayments: [paidBill({ amountCents: 36_000 })] });
-    // General: −360,00 + 300,00 she owes. Personal: 360,00 × (100/400) = −90,00.
+  const estorno = () => income({ accountId: null, cardId: "card-1", amountCents: 4_000, date: "2026-05-15" });
+
+  it("an estorno alone opens no gap: it lowers the user's own slice, the others owe in full", () => {
+    const r = explain([mine(), hers(), estorno()], { cardBillPayments: [paidBill({ amountCents: 36_000 })] });
+    // General: −360,00 + 300,00 she owes. Personal: 100,00 − 40,00 = −60,00.
     expect(r.general.totalCents).toBe(94_000);
-    expect(r.personal.totalCents).toBe(91_000);
+    expect(r.personal.totalCents).toBe(94_000);
+    expect(r.gapCents).toBe(0);
+    expect(r.items).toEqual([]);
+  });
+
+  it("an estorno on a fatura paid for another amount: the item carries the credits", () => {
+    // The R$ 360,00 bill was paid for R$ 350,00: the personal slice is 350 × 60 / 360 = 58,33.
+    const r = explain([mine(), hers(), estorno()], { cardBillPayments: [paidBill({ amountCents: 35_000 })] });
+    expect(r.general.totalCents).toBe(95_000);
+    expect(r.personal.totalCents).toBe(94_167);
     expect(r.items).toEqual([
       {
         subject: "bill",
         reason: "paid-bill",
-        cents: 3_000,
+        cents: 833,
         date: "2026-06-02",
         description: "",
         personIds: ["ana"],
         cardId: "card-1",
         competence: "2026-06",
-        paidCents: 36_000,
+        paidCents: 35_000,
         chargesCents: 40_000,
         mineCents: 10_000,
         creditsCents: 4_000,
-        costCents: 27_000,
+        costCents: 29_167,
         ledgerCents: 30_000,
         accountKnown: true,
       },
