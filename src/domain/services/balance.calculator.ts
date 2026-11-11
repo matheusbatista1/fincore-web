@@ -154,7 +154,7 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
  * `paidAt` (which may differ from the due date it's still filed under); everything else uses its
  * own date. Used to gate the balance cutoff in {@link computeAccountBalances}.
  */
-function balanceEffectiveDate(tx: Transaction): IsoDate {
+export function balanceEffectiveDate(tx: Transaction): IsoDate {
   if (isExpense(tx) && tx.paidAt != null) return tx.paidAt;
   // A received income lands on its receipt date (which may differ from its booked date); a pending
   // receivable never credits, so its effective date is moot (accountDeltas returns empty for it).
@@ -169,7 +169,7 @@ function balanceEffectiveDate(tx: Transaction): IsoDate {
  * the payment, applied to the amount actually paid. With no charges to base a ratio on (e.g. an
  * imported bill with no itemized charges), the full amount is debited — the safe, real-cash default.
  */
-function faturaPersonalDebit(
+export function faturaPersonalDebit(
   p: CardBillPayment,
   transactions: readonly Transaction[],
   competenceOf: CompetenceResolver,
