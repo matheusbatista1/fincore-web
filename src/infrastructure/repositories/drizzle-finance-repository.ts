@@ -841,6 +841,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           transferValueCents: command.transferValueCents ?? null,
           // `fixed` toggles recurrence on/off, anchored to the (possibly new) date's day.
           recurrenceDayOfMonth: command.fixed ? Number.parseInt(command.date.slice(8, 10), 10) : null,
+          // The receipt/payment recorded on the row is what the balance reads: it is written with
+          // the row, so an edited amount/account/date reaches the balance too.
+          ...(command.settlement
+            ? {
+                receivedAt: command.settlement.receivedAt,
+                receivedAccountId: command.settlement.receivedAccountId,
+                receivedAmountCents: command.settlement.receivedAmountCents,
+                paidAt: command.settlement.paidAt,
+                paidAccountId: command.settlement.paidAccountId,
+                paidAmountCents: command.settlement.paidAmountCents,
+              }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.transactions.id, command.id));

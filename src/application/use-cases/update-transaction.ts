@@ -1,8 +1,11 @@
 import { Money } from "@/domain/money/money";
 import { generateInstallments } from "@/domain/services/installment.generator";
+import { settlementAfterEdit } from "@/domain/services/settlement-after-edit";
 import { calculateSplit } from "@/domain/services/split.calculator";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { err, ok, type Result } from "@/shared/result";
 import type { UpdateTransactionInput } from "@/shared/schemas/transaction";
+import { loadWorkspaceCached } from "../loaders";
 import type {
   CreateTransactionCommand,
   FinanceRepository,
@@ -184,6 +187,13 @@ function expenseSourceFields(input: ExpenseUpdate) {
  * immutable, recurrence toggled by `fixed`). When a non-installment expense is
  * converted to an installment, the original row is replaced by the generated
  * parcelas atomically.
+ *
+ * A received income and a paid obligation store their settlement (date, account, amount) apart
+ * from the row, and the balance reads the settlement. The edited row therefore takes its
+ * settlement along (see `settlementAfterEdit`): correcting a received income from 18,86 to 18,84
+ * must move the balance by those two cents, not only the figure on the list. Only the edited row
+ * is touched this way — siblings in the scope keep theirs, since their cash already landed where
+ * it landed.
  */
 export async function updateTransaction(
   repo: FinanceRepository,
@@ -200,6 +210,24 @@ export async function updateTransaction(
   if (!command.ok) return command;
   // Transfers never carry a scope; expense/income edits propagate it to siblings.
   const scope = input.kind === "transfer" ? "one" : input.scope;
-  const count = await repo.updateTransaction(userId, command.value, scope);
+
+  const workspace = await loadWorkspaceCached(repo, userId);
+  const current = workspace.transactions.find((tx) => tx.id === input.id);
+  const edited = command.value;
+  const settlement =
+    current && current.kind === edited.kind
+      ? settlementAfterEdit(
+          current,
+          {
+            date: edited.date,
+            amountCents: edited.amountCents,
+            accountId: edited.accountId ?? null,
+            cardId: edited.cardId ?? null,
+            source: edited.source ?? null,
+          },
+          todayInBrazil(),
+        )
+      : undefined;
+  const count = await repo.updateTransaction(userId, settlement ? { ...edited, settlement } : edited, scope);
   return ok(count);
 }

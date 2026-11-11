@@ -13,6 +13,7 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
+import type { RecordedSettlement } from "@/domain/services/settlement-after-edit";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import type { ModuleKey } from "@/shared/modules";
 import type {
@@ -125,6 +126,11 @@ export interface UpdateTransactionCommand {
   readonly transferToAccountId?: string | null;
   readonly transferValueCents?: number | null;
   readonly splits?: ReadonlyArray<{ personId: string; shareCents: number }>;
+  /**
+   * The receipt/payment the row must carry after the edit (see `settlementAfterEdit`): written
+   * together with the row, so the balance follows what the list shows. Omitted = left untouched.
+   */
+  readonly settlement?: RecordedSettlement;
 }
 
 export interface SettlementData {
