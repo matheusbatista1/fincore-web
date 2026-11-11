@@ -439,6 +439,47 @@ describe("paid deferred obligations debit the paying account on their paid date"
     ); // personal: only the R$100 share
   });
 
+  it("personal lens keeps a payoff discount (or interest) with the user: the others owe in full", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const personal = (tx: ExpenseTransaction): number | undefined =>
+      computeAccountBalances(accounts, [tx], undefined, "personal").get("nu")?.cents;
+    const shared = (paidAmountCents: number): ExpenseTransaction => ({
+      ...expense(-30_000, { source: "boleto", linkedAccountId: "it" }),
+      splits: [{ personId: "p1", shareCents: 20_000 }],
+      myShareCents: 10_000,
+      paidAt: "2026-06-05",
+      paidAccountId: "nu",
+      paidAmountCents,
+    });
+    // R$300 (R$200 hers) settled for R$270: she still owes R$200, so it cost the user R$70.
+    expect(computeAccountBalances(accounts, [shared(27_000)]).get("nu")?.cents).toBe(73_000);
+    expect(personal(shared(27_000))).toBe(93_000);
+    // …and for R$310 with interest: R$110.
+    expect(personal(shared(31_000))).toBe(89_000);
+
+    // A R$347,65 parcela that is all hers, settled early for R$342,32: the user is R$5,33 up, in
+    // both lenses once she pays her R$347,65.
+    const allHers: ExpenseTransaction = {
+      ...expense(-34_765, { source: "loan", linkedAccountId: "it" }),
+      splits: [{ personId: "p1", shareCents: 34_765 }],
+      myShareCents: 0,
+      paidAt: "2026-08-05",
+      paidAccountId: "nu",
+      paidAmountCents: 34_232,
+    };
+    expect(personal(allHers)).toBe(100_533);
+
+    // Nobody to charge (own share below the total, no split): the whole payment, as before.
+    const noSplit: ExpenseTransaction = {
+      ...expense(-30_000, { source: "boleto", linkedAccountId: "it" }),
+      myShareCents: 10_000,
+      paidAt: "2026-06-05",
+      paidAccountId: "nu",
+      paidAmountCents: 27_000,
+    };
+    expect(personal(noSplit)).toBe(73_000);
+  });
+
   it("a paid 'futura' installment still debits (you can settle a parcela early)", () => {
     const accounts = [makeAccount("nu", 100_000)];
     const paidFuture: ExpenseTransaction = {

@@ -295,14 +295,14 @@ async function main() {
     );
   }
   // Others' shares the user fronted with CASH outside faturas: shared account/overdraft expenses
-  // and paid obligations with splits (personal debits only myShare — mirrors accountDeltas).
+  // and paid obligations with splits. For a paid obligation that is exactly the split shares — a
+  // discount or interest on the payment is the user's (mirrors accountDeltas).
   let othersViaCash = 0;
   for (const tx of ws.transactions) {
     if (!isExpense(tx) || isRolled(tx)) continue;
     if (isPaid(tx) && isPayableObligation(tx) && tx.paidAccountId) {
       if ((tx.paidAt ?? tx.date) > today) continue;
-      if (tx.splits.length === 0) continue;
-      othersViaCash += (tx.paidAmountCents ?? Math.abs(tx.amountCents)) - tx.myShareCents;
+      othersViaCash += tx.splits.reduce((sum, split) => sum + split.shareCents, 0);
       continue;
     }
     if (tx.installment && tx.installment.status !== "atual") continue;
