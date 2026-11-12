@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { MonthlyItem, PaidObligationFlow } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
+import type { StatementCheckSummary } from "@/application/use-cases/statement-checks";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
@@ -54,6 +55,9 @@ function SectionHead({ label, cents }: { label: string; cents: number }) {
   );
 }
 
+/** `2026-11-12` → `12/11/2026`. */
+const brDay = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+
 /**
  * Account detail modal: the browsed month's money IN (income + settlements received), money OUT
  * (account debits, paid boletos/loans/financings and card faturas paid from here) and transfers to/
@@ -62,6 +66,7 @@ function SectionHead({ label, cents }: { label: string; cents: number }) {
  */
 export function AccountDetailModal({
   account,
+  lastCheck = null,
   items,
   paidFlows,
   month,
@@ -69,6 +74,8 @@ export function AccountDetailModal({
   onClose,
 }: {
   account: AccountView | null;
+  /** The latest statement check recorded for this account, if it was ever checked. */
+  lastCheck?: StatementCheckSummary | null;
   items: MonthlyItem[];
   paidFlows: PaidObligationFlow[];
   month: string;
@@ -192,6 +199,11 @@ export function AccountDetailModal({
                 <Icon name="file-spreadsheet" size={14} />
                 Conferir com o extrato do banco
               </Link>
+              {lastCheck !== null && (
+                <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--text-lo)" }}>
+                  Conferido em {brDay(lastCheck.checkedOn)}, com o extrato até {brDay(lastCheck.periodTo)}.
+                </div>
+              )}
             </div>
           </div>
           <div className="modal-foot" style={{ justifyContent: "space-between" }}>

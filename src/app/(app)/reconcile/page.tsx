@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { markStatementCheckedAction } from "@/app/_actions/finance";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
+import { getLastStatementChecks } from "@/application/use-cases/statement-checks";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
 import { ReconcileView } from "@/presentation/components/reconcile/reconcile-view";
@@ -21,7 +23,10 @@ export default async function ReconcilePage({
   const { conta, cartao } = await searchParams;
   const first = (value: string | string[] | undefined): string | undefined =>
     Array.isArray(value) ? value[0] : value;
-  const workspace = await getWorkspaceView(financeRepository, user.id);
+  const [workspace, lastChecks] = await Promise.all([
+    getWorkspaceView(financeRepository, user.id),
+    getLastStatementChecks(financeRepository, user.id),
+  ]);
   const accountId = workspace.accounts.find((a) => a.id === first(conta))?.id;
   const cardId = workspace.cards.find((c) => c.id === first(cartao))?.id;
 
@@ -30,6 +35,8 @@ export default async function ReconcilePage({
       accounts={workspace.accounts.map((a) => ({ id: a.id, bank: a.bank, name: a.name }))}
       cards={workspace.cards.map((c) => ({ id: c.id, bank: c.bank, product: c.product }))}
       currentMonth={currentMonthInBrazil()}
+      lastChecks={lastChecks}
+      mark={markStatementCheckedAction}
       {...(accountId ? { initialAccountId: accountId } : {})}
       {...(cardId ? { initialCardId: cardId } : {})}
     />

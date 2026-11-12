@@ -17,6 +17,7 @@ import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-pa
 import { type ReconcileResult, reconcileWithStatement } from "@/application/use-cases/reconcile-statement";
 import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
 import { settlePerson } from "@/application/use-cases/settle-person";
+import { markStatementChecked, type StatementCheckSummary } from "@/application/use-cases/statement-checks";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -333,6 +334,23 @@ export async function reconcileStatementAction(raw: unknown): Promise<ReconcileA
   const result = await reconcileWithStatement(financeRepository, userId, parsed.data);
   if (!result.ok) return { ok: false, error: result.error.message };
   return { ok: true, result: result.value };
+}
+
+export type MarkCheckedState = { ok: true; check: StatementCheckSummary } | { ok: false; error: string };
+
+/**
+ * "Marcar como conferido": records that this statement was checked today. The comparison is run
+ * again on the server from the same lines, so what is recorded is what the server finds.
+ */
+export async function markStatementCheckedAction(raw: unknown): Promise<MarkCheckedState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = reconcileStatementSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Não consegui ler as linhas deste arquivo." };
+  const result = await markStatementChecked(financeRepository, userId, parsed.data, todayInBrazil());
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, check: result.value };
 }
 
 /**
