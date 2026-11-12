@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import {
+  CreateTransactionModal,
   EditTransactionModal,
   type TxFormAccount,
   type TxFormCard,
@@ -10,6 +11,7 @@ import {
   type TxFormPerson,
 } from "@/presentation/components/forms/new-transaction-dialog";
 import { SettleBody } from "@/presentation/components/people/settle-person-modal";
+import { CreateFromLink } from "@/presentation/components/transactions/create-from-link";
 import { DeleteScopeModal } from "@/presentation/components/transactions/delete-scope-modal";
 import { InstallmentGroupModal } from "@/presentation/components/transactions/installment-group-modal";
 import { PayModal } from "@/presentation/components/transactions/pay-modal";
@@ -55,6 +57,11 @@ export function TxModalsHost({
       <PayModal accounts={accounts} today={today} />
       <ReceiveModal accounts={accounts} today={today} />
       <EditTransactionModal accounts={accounts} cards={cards} people={people} categories={categories} />
+      <CreateTransactionModal accounts={accounts} cards={cards} people={people} categories={categories} />
+      {/* useSearchParams suspends during prerender; the opener renders nothing either way. */}
+      <Suspense fallback={null}>
+        <CreateFromLink />
+      </Suspense>
       <Dialog open={settling !== null} onOpenChange={(v) => !v && closeSettle()}>
         {settling && (
           <SettleBody target={settling} editing={null} accounts={settleAccounts} onDone={closeSettle} />

@@ -1561,6 +1561,13 @@
   color: var(--text-mid);
   margin-bottom: 8px;
 }
+/* A quiet remark beside a field's label (e.g. where a pre-selected value came from). */
+.field-aside {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--purple-300);
+}
 .input,
 .amount-input {
   width: 100%;

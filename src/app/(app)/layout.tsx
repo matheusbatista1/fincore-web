@@ -14,10 +14,12 @@ import { PageHead } from "@/presentation/components/shell/page-head";
 import { PageTransition } from "@/presentation/components/shell/page-transition";
 import { Sidebar } from "@/presentation/components/shell/sidebar";
 import { TxModalsHost } from "@/presentation/components/transactions/tx-modals-host";
+import { CategoryHintsProvider } from "@/presentation/providers/category-hints-provider";
 import { ModulesProvider } from "@/presentation/providers/modules-provider";
 import { LONG_MONTHS } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
 import { isModuleEnabled } from "@/shared/modules";
+import { buildCategoryHints } from "@/shared/suggestions/category-hints";
 
 /** Derive a display name from the account email when no profile name is set. */
 function nameFromEmail(email: string): string {
@@ -121,35 +123,40 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // Cap the search payload so the RSC response stays lean.
   const searchTransactions = transactions.slice(0, 300);
 
+  // How past expenses were categorised: the form suggests a category as the description is typed.
+  const categoryHints = buildCategoryHints(transactions.filter((t) => !t.rolled && !t.ledgerOnly));
+
   return (
     <ModulesProvider value={enabledModules}>
-      <div className="shell">
-        <Sidebar
-          userEmail={user.email ?? ""}
-          pendingCount={pendingCount}
-          displayName={displayName}
-          avatarUrl={profile.avatarUrl}
-        />
-        <main className="main">
-          <AppHeader
-            {...formData}
-            searchPeople={searchPeople}
-            searchCards={searchCards}
-            transactions={searchTransactions}
-            notif={notif}
+      <CategoryHintsProvider value={categoryHints}>
+        <div className="shell">
+          <Sidebar
+            userEmail={user.email ?? ""}
+            pendingCount={pendingCount}
+            displayName={displayName}
+            avatarUrl={profile.avatarUrl}
           />
-          <div className="page">
-            <PageHead firstName={firstName} todayLabel={todayLabel} />
-            <PullToRefresh>
-              <PageTransition>{children}</PageTransition>
-            </PullToRefresh>
-          </div>
-        </main>
-        <MobileNav {...formData} pendingCount={pendingCount} />
-        <TxModalsHost {...formData} transactions={transactions} today={today} />
-        <AutoPaymentsSync enabled={profile.autoPaymentsEnabled} />
-        <OnboardingHost onboarded={profile.onboardedAt !== null} enabledModules={enabledModules} />
-      </div>
+          <main className="main">
+            <AppHeader
+              {...formData}
+              searchPeople={searchPeople}
+              searchCards={searchCards}
+              transactions={searchTransactions}
+              notif={notif}
+            />
+            <div className="page">
+              <PageHead firstName={firstName} todayLabel={todayLabel} />
+              <PullToRefresh>
+                <PageTransition>{children}</PageTransition>
+              </PullToRefresh>
+            </div>
+          </main>
+          <MobileNav {...formData} pendingCount={pendingCount} />
+          <TxModalsHost {...formData} transactions={transactions} today={today} />
+          <AutoPaymentsSync enabled={profile.autoPaymentsEnabled} />
+          <OnboardingHost onboarded={profile.onboardedAt !== null} enabledModules={enabledModules} />
+        </div>
+      </CategoryHintsProvider>
     </ModulesProvider>
   );
 }

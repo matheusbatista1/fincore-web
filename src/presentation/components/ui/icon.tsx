@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   CircleCheck,
+  Copy,
   CreditCard,
   Download,
   Ellipsis,
@@ -86,6 +87,7 @@ import { CATEGORY_ICON_COMPONENTS } from "./category-icon";
 const ICONS: Record<string, LucideIcon> = {
   "layout-dashboard": LayoutDashboard,
   wallet: Wallet,
+  copy: Copy,
   "credit-card": CreditCard,
   "arrow-left-right": ArrowLeftRight,
   "arrow-up-right": ArrowUpRight,
