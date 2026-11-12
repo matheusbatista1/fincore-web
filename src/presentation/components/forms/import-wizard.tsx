@@ -248,6 +248,14 @@ export function ImportWizard({
           }}
         />
       </label>
+      {rows.length === 0 && (
+        <p className="rc-note" style={{ textAlign: "center" }}>
+          Só quer ver se o app bate com o banco, sem importar nada?{" "}
+          <Link href="/reconcile" className="card-link">
+            Conferir extrato
+          </Link>
+        </p>
+      )}
 
       {error && (
         <div className="warn-text">

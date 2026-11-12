@@ -14,7 +14,7 @@ import { Icon } from "@/presentation/components/ui/icon";
 import { InfoHint } from "@/presentation/components/ui/info-hint";
 import { useCategoryHints } from "@/presentation/providers/category-hints-provider";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
-import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
+import { type TxDraft, useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, shortDate } from "@/shared/formatting/dates";
@@ -231,13 +231,19 @@ export function CreateTransactionModal({
       {creating && (
         <DialogModal title="Novo lançamento">
           <TransactionForm
-            key={creating.from?.id ?? creating.kind}
+            key={
+              creating.from?.id ??
+              (creating.draft
+                ? `${creating.draft.date}|${creating.draft.amountCents}|${creating.draft.description}`
+                : creating.kind)
+            }
             accounts={accounts}
             cards={cards}
             people={people}
             categories={categories}
             defaultTab={creating.kind}
             {...(creating.from ? { prefill: creating.from } : {})}
+            {...(creating.draft ? { draft: creating.draft } : {})}
             onDone={closeCreate}
           />
         </DialogModal>
@@ -254,6 +260,7 @@ function TransactionForm({
   defaultTab,
   initial,
   prefill,
+  draft,
   onDone,
 }: {
   accounts: TxFormAccount[];
@@ -269,11 +276,22 @@ function TransactionForm({
    * installment plan, and nothing of its id or paid state.
    */
   prefill?: TransactionListItem;
+  /**
+   * A NEW transaction that starts from a bank line being checked against the statement: its date,
+   * its amount, what the bank calls it and the account (or card) it moved.
+   */
+  draft?: TxDraft;
   onDone: () => void;
 }) {
   const editing = initial !== undefined;
   // Where the fields start from: the row being edited, or the one being duplicated.
   const seed = initial ?? prefill;
+  // A bank line that left an account may be a transfer out of it; one that came in, a transfer
+  // into it. The other side starts on any other account.
+  const draftFrom = draft !== undefined && draft.amountCents < 0 ? draft.accountId : undefined;
+  const draftTo = draft !== undefined && draft.amountCents > 0 ? draft.accountId : undefined;
+  const otherThan = (id: string | undefined): string | undefined =>
+    id === undefined ? undefined : accounts.find((a) => a.id !== id)?.id;
   // A ledger-only debt (a remainder rolled with the user's own money) has no account, instrument,
   // category or recurrence, and must not gain one here: only its amount, date, description and who
   // owes it are editable. The server enforces the same (see update-transaction).
@@ -295,10 +313,12 @@ function TransactionForm({
 
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [cents, setCents] = useState(
-    seed ? Math.abs(seed.kind === "transfer" ? (seed.transferValueCents ?? 0) : seed.amountCents) : 0,
+    seed
+      ? Math.abs(seed.kind === "transfer" ? (seed.transferValueCents ?? 0) : seed.amountCents)
+      : Math.abs(draft?.amountCents ?? 0),
   );
-  const [desc, setDesc] = useState(seed?.description ?? "");
-  const [ymd, setYmd] = useState(initial?.date ?? todayIso());
+  const [desc, setDesc] = useState(seed?.description ?? draft?.description ?? "");
+  const [ymd, setYmd] = useState(initial?.date ?? draft?.date ?? todayIso());
   const [fixed, setFixed] = useState(initial?.isFixed ?? false);
 
   // expense — when editing, a null category stays null (no silent assignment on save).
@@ -311,9 +331,13 @@ function TransactionForm({
   const categoryHints = useCategoryHints();
   // Local copy so a category created inline ("+ Nova categoria") shows + selects immediately.
   const [cats, setCats] = useState<TxFormCategory[]>(categories);
-  const [srcType, setSrcType] = useState<ExpenseSource>(seed?.source ?? "card");
-  const [cardId, setCardId] = useState<string | null>(seed?.cardId ?? cards[0]?.id ?? null);
-  const [acctId, setAcctId] = useState<string | null>(seed?.accountId ?? accounts[0]?.id ?? null);
+  const [srcType, setSrcType] = useState<ExpenseSource>(
+    seed?.source ?? (draft?.accountId !== undefined ? "account" : "card"),
+  );
+  const [cardId, setCardId] = useState<string | null>(seed?.cardId ?? draft?.cardId ?? cards[0]?.id ?? null);
+  const [acctId, setAcctId] = useState<string | null>(
+    seed?.accountId ?? draft?.accountId ?? accounts[0]?.id ?? null,
+  );
   const [linkedAccount, setLinkedAccount] = useState<string | null>(seed?.linkedAccountId ?? null);
   const [parcelado, setParcelado] = useState(false);
   const [parcN, setParcN] = useState("2");
@@ -337,15 +361,20 @@ function TransactionForm({
   const [fromPerson, setFromPerson] = useState<string | null>(seed?.fromPersonId ?? null);
   // Income destination: a normal account, or a credit card (estorno/reembolso).
   const [incomeDest, setIncomeDest] = useState<"account" | "card">(
-    seed?.kind === "income" && seed.cardId ? "card" : "account",
+    (seed?.kind === "income" && seed.cardId) || draft?.cardId !== undefined ? "card" : "account",
   );
 
   // transfer
   const [fromAcct, setFromAcct] = useState<string | null>(
-    seed?.transferFromAccountId ?? accounts[0]?.id ?? null,
+    seed?.transferFromAccountId ?? draftFrom ?? otherThan(draftTo) ?? accounts[0]?.id ?? null,
   );
   const [toAcct, setToAcct] = useState<string | null>(
-    seed?.transferToAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? null,
+    seed?.transferToAccountId ??
+      draftTo ??
+      otherThan(draftFrom) ??
+      accounts[1]?.id ??
+      accounts[0]?.id ??
+      null,
   );
 
   const [serverError, setServerError] = useState<string | null>(null);

@@ -3978,3 +3978,245 @@ html {
   width: 18px;
   height: 18px;
 }
+
+/* ---------- Conferir extrato ---------- */
+.rc-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 18px;
+  border: 1.5px dashed var(--line-3);
+  border-radius: var(--r-md);
+  text-align: center;
+  cursor: pointer;
+}
+.rc-drop:hover {
+  border-color: var(--purple-400);
+}
+.rc-drop-title {
+  font-weight: 600;
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+.rc-drop-sub {
+  font-size: 13px;
+  color: var(--text-lo);
+}
+.rc-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-lo);
+}
+.rc-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-lo);
+}
+.rc-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.rc-verdict h3 {
+  margin: 0 0 3px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-hi);
+}
+.rc-verdict-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.rc-verdict-ic.ok {
+  background: var(--mint-soft);
+  color: var(--mint-500);
+}
+.rc-verdict-ic.todo {
+  background: var(--amber-soft);
+  color: var(--amber-500);
+}
+/* Both sides' totals: what, how many, how much. */
+.rc-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 7px 14px;
+  align-items: baseline;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+.rc-figures .k {
+  color: var(--text-mid);
+}
+.rc-figures .n {
+  font-size: 12.5px;
+  color: var(--text-lo);
+  text-align: right;
+  white-space: nowrap;
+}
+.rc-figures .v {
+  font-weight: 600;
+  color: var(--text-hi);
+  text-align: right;
+  white-space: nowrap;
+}
+.rc-figures .strong {
+  font-weight: 700;
+  color: var(--text-hi);
+}
+.rc-balance {
+  display: grid;
+  gap: 8px;
+}
+.rc-balance-say {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+.rc-balance-say.ok {
+  background: var(--mint-soft);
+  color: var(--mint-500);
+  font-weight: 600;
+}
+.rc-balance-say.todo {
+  background: var(--amber-soft);
+  color: var(--text-hi);
+}
+.rc-list {
+  padding-top: 10px;
+  padding-bottom: 12px;
+}
+/* One line of either side: [check] name + day | amount + action. */
+.rc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 0;
+}
+.rc-row.has-lead {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.rc-row + .rc-row {
+  border-top: 1px solid var(--line);
+}
+.rc-main {
+  min-width: 0;
+}
+.rc-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.rc-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.rc-amount {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rc-amount.out {
+  color: var(--rose-500);
+}
+.rc-amount.in {
+  color: var(--mint-500);
+}
+.rc-check {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--purple-500);
+}
+/* Stays in sight while the lines to join are being ticked further down. */
+.rc-join {
+  position: sticky;
+  top: 80px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--purple-500);
+  font-size: 13.5px;
+  color: var(--text-hi);
+}
+.rc-group + .rc-group {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.rc-group-title {
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--purple-300);
+}
+.rc-group-parts {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-2);
+}
+.rc-group-parts .rc-row {
+  padding: 6px 0;
+  border-top: 0;
+}
+.rc-group-parts .rc-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-mid);
+}
+.rc-group-parts .rc-amount {
+  font-size: 13px;
+  font-weight: 600;
+}
+.rc-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 14.5px;
+  color: var(--text-mid);
+}
+.rc-details > summary::-webkit-details-marker {
+  display: none;
+}
+.rc-details > summary strong {
+  color: var(--text-hi);
+}
+.rc-details > summary svg {
+  transition: transform 0.15s ease;
+}
+.rc-details[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.rc-details[open] > summary svg {
+  transform: rotate(90deg);
+}

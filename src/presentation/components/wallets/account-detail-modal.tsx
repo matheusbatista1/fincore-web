@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { MonthlyItem, PaidObligationFlow } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
@@ -185,6 +186,13 @@ export function AccountDetailModal({
                 Nenhuma movimentação em {monthLabel(month, { long: true })}.
               </div>
             )}
+            {/* The balance here is only as right as what was booked: one tap to check it. */}
+            <div style={{ marginTop: 14, textAlign: "center" }}>
+              <Link className="card-link" href={`/reconcile?conta=${a.id}`}>
+                <Icon name="file-spreadsheet" size={14} />
+                Conferir com o extrato do banco
+              </Link>
+            </div>
           </div>
           <div className="modal-foot" style={{ justifyContent: "space-between" }}>
             <AccountFormDialog
