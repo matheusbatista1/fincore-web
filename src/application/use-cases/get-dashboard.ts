@@ -1,7 +1,11 @@
 import { isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
-import { computeBalanceTimeline, totalBalanceAt } from "@/domain/services/balance-timeline";
+import {
+  computeBalanceTimeline,
+  dailyTotalBalances,
+  totalBalanceAt,
+} from "@/domain/services/balance-timeline";
 import {
   billingCompetence,
   cardUtilization,
@@ -19,8 +23,9 @@ import {
   type CompetenceMonth,
   compareMonths,
   dateInMonth,
+  type IsoDate,
+  monthOf,
 } from "@/domain/value-objects/competence-month";
-import { monthLabel } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository } from "../ports/finance-repository";
@@ -72,11 +77,21 @@ export interface ViewTotalsDto {
   readonly netCents: number;
 }
 
-/** One point of the net-worth trend sparkline (cumulative balance at month-end). */
-export interface TrendPoint {
-  readonly label: string;
-  readonly valueCents: number;
+/**
+ * The total across accounts at the end of each day — the hero's net-worth timeline. Real cash
+ * (general lens), so its last entry is the live total balance.
+ */
+export interface NetWorthDaily {
+  /** The day `valuesCents[0]` is the total of; each next entry is the following calendar day. */
+  readonly startDate: IsoDate;
+  /** One end-of-day total per day, through today. */
+  readonly valuesCents: number[];
 }
+
+/** The timeline never starts later than this many months back (the current month included)… */
+const NET_WORTH_MIN_MONTHS = 6;
+/** …nor earlier than this many: one stray old date must not stretch the chart for ever. */
+const NET_WORTH_MAX_MONTHS = 60;
 
 /** Serializable dashboard snapshot (plain cents — safe to pass to client components). */
 export interface DashboardData {
@@ -131,8 +146,14 @@ export interface DashboardData {
   /** The same still-to-come slice through the personal lens (only the user's own shares). */
   readonly projectedIncomePersonalCents: number;
   readonly projectedExpensePersonalCents: number;
-  /** Trailing 6-month cumulative balance for the hero sparkline. */
-  readonly trend: TrendPoint[];
+  /** The total balance day by day, from the month of the first movement through today. */
+  readonly netWorthDaily: NetWorthDaily;
+  /**
+   * The total balance at the end of the browsed month and of the month before it, each with every
+   * movement dated up to that day (so the current month counts what is already booked for later in
+   * it) — the two figures the hero's month-over-month change compares.
+   */
+  readonly monthEndTotals: { readonly previousCents: number; readonly currentCents: number };
 }
 
 /** Load the user's workspace and derive the dashboard via the domain calculators. */
@@ -371,14 +392,25 @@ export async function getDashboard(
   ).cents;
   projectedBalancePersonalCents -= overduePersonalCents; // overdue obligations' own-share before this month
 
-  // Trailing 6-month cumulative balance, read off the balance timeline: one pass over the history,
-  // and each month-end is what the account balances add up to with that day as their cutoff.
+  // The total balance as it moved, read off the balance timeline: one pass over the history, and
+  // each reading is what the account balances add up to with that day as their cutoff.
   const timeline = computeBalanceTimeline(ws.accounts, ws.transactions, ws.settlements, ws.cardBillPayments);
-  const trend: TrendPoint[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const m = addMonths(month, -i);
-    trend.push({ label: monthLabel(m), valueCents: totalBalanceAt(timeline, dateInMonth(m, 31)) });
-  }
+  const monthEndTotals = {
+    previousCents: totalBalanceAt(timeline, dateInMonth(addMonths(month, -1), 31)),
+    currentCents: totalBalanceAt(timeline, dateInMonth(month, 31)),
+  };
+  // Day by day through today, from the first day of the month anything first moved — flat at the
+  // opening balances before that, so a new workspace still shows its six trailing months.
+  const shortestStart = dateInMonth(addMonths(currentMonth, 1 - NET_WORTH_MIN_MONTHS), 1);
+  const longestStart = dateInMonth(addMonths(currentMonth, 1 - NET_WORTH_MAX_MONTHS), 1);
+  const firstMovement = timeline.changes[0]?.date;
+  let netWorthStart = firstMovement === undefined ? shortestStart : dateInMonth(monthOf(firstMovement), 1);
+  if (netWorthStart > shortestStart) netWorthStart = shortestStart;
+  if (netWorthStart < longestStart) netWorthStart = longestStart;
+  const netWorthDaily: NetWorthDaily = {
+    startDate: netWorthStart,
+    valuesCents: dailyTotalBalances(timeline, netWorthStart, today),
+  };
 
   return {
     month,
@@ -397,7 +429,8 @@ export async function getDashboard(
     projectedExpenseCents: projectedTotals.expense.cents,
     projectedIncomePersonalCents: projectedTotalsPersonal.income.cents,
     projectedExpensePersonalCents: projectedTotalsPersonal.expense.cents,
-    trend,
+    netWorthDaily,
+    monthEndTotals,
     general: {
       incomeCents: general.income.cents,
       expenseCents: general.expense.cents,

@@ -7,6 +7,7 @@ import type { Settlement } from "@/domain/entities/settlement";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { explainMonthEndGap } from "@/domain/services/month-end-gap.explainer";
+import { daysBetween } from "@/domain/value-objects/competence-month";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
 // Freeze "today" so the live-vs-projected split is deterministic.
@@ -571,33 +572,67 @@ describe("getDashboard — the gap explainer reads the same 'fim do mês' (today
   });
 });
 
-describe("getDashboard — net-worth trend (today = 2026-06-14)", () => {
-  it("reads the six trailing month-ends, each with everything dated up to that day", async () => {
+describe("getDashboard — net worth over time (today = 2026-06-14)", () => {
+  /** The total at the end of `date`, read off the daily timeline. */
+  const totalOn = (data: Awaited<ReturnType<typeof getDashboard>>, date: string): number | undefined =>
+    data.netWorthDaily.valuesCents[daysBetween(data.netWorthDaily.startDate, date)];
+
+  it("compares the browsed month-end with the one before, each with everything dated up to it", async () => {
     // Opening 100000; − 20000 on May 10; + 50000 booked for June 20 (after today, inside the month).
-    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-06");
-    expect(data.trend).toEqual([
-      { label: "Jan 2026", valueCents: 100000 },
-      { label: "Fev 2026", valueCents: 100000 },
-      { label: "Mar 2026", valueCents: 100000 },
-      { label: "Abr 2026", valueCents: 100000 },
-      { label: "Mai 2026", valueCents: 80000 },
-      { label: "Jun 2026", valueCents: 130000 },
-    ]);
+    const repo = stubRepo([expense(), income()]);
+    expect((await getDashboard(repo, "u", "2026-05")).monthEndTotals).toEqual({
+      previousCents: 100000,
+      currentCents: 80000,
+    });
+    expect((await getDashboard(repo, "u", "2026-06")).monthEndTotals).toEqual({
+      previousCents: 80000,
+      currentCents: 130000, // the month-end counts the income already booked for the 20th
+    });
+    expect((await getDashboard(repo, "u", "2026-08")).monthEndTotals).toEqual({
+      previousCents: 130000,
+      currentCents: 130000,
+    });
   });
 
-  it("slides with the browsed month", async () => {
-    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-08");
-    expect(data.trend.map((point) => point.label)).toEqual([
-      "Mar 2026",
-      "Abr 2026",
-      "Mai 2026",
-      "Jun 2026",
-      "Jul 2026",
-      "Ago 2026",
-    ]);
-    expect(data.trend.map((point) => point.valueCents)).toEqual([
-      100000, 100000, 80000, 130000, 130000, 130000,
-    ]);
+  it("lists one total per day through today, whatever month is browsed", async () => {
+    const repo = stubRepo([expense(), income()]);
+    const data = await getDashboard(repo, "u", "2026-06");
+    // The six trailing months, as the hero always showed: 1 Jan … 14 Jun.
+    expect(data.netWorthDaily.startDate).toBe("2026-01-01");
+    expect(data.netWorthDaily.valuesCents).toHaveLength(165);
+    expect(totalOn(data, "2026-01-01")).toBe(100000);
+    expect(totalOn(data, "2026-05-09")).toBe(100000);
+    expect(totalOn(data, "2026-05-10")).toBe(80000); // the expense, on its day
+    expect(totalOn(data, "2026-06-14")).toBe(80000);
+    // It ends today, on the live balance: what is booked for the 20th has not happened yet.
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents);
+
+    const browsingElsewhere = await getDashboard(repo, "u", "2026-09");
+    expect(browsingElsewhere.netWorthDaily).toEqual(data.netWorthDaily);
+  });
+
+  it("starts on the first day of the month anything first moved", async () => {
+    const old = expense({ date: "2025-03-17", amountCents: -5000, myShareCents: 5000, recurrence: null });
+    const data = await getDashboard(stubRepo([old]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2025-03-01");
+    expect(data.netWorthDaily.valuesCents).toHaveLength(daysBetween("2025-03-01", "2026-06-14") + 1);
+    expect(totalOn(data, "2025-03-16")).toBe(100000);
+    expect(totalOn(data, "2025-03-17")).toBe(95000);
+  });
+
+  it("goes back five years at most, with what came before already in the first total", async () => {
+    const ancient = expense({ date: "2015-01-10", amountCents: -5000, myShareCents: 5000, recurrence: null });
+    const data = await getDashboard(stubRepo([ancient]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2021-07-01");
+    expect(data.netWorthDaily.valuesCents[0]).toBe(95000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(95000);
+  });
+
+  it("is a flat line at the opening balances while nothing has moved", async () => {
+    // Only a movement still to come: nothing happened yet.
+    const data = await getDashboard(stubRepo([income()]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2026-01-01");
+    expect(new Set(data.netWorthDaily.valuesCents)).toEqual(new Set([100000]));
   });
 
   it("counts the cash of settlements and fatura payments on the day it moved", async () => {
@@ -629,9 +664,12 @@ describe("getDashboard — net-worth trend (today = 2026-06-14)", () => {
       },
     ];
     const data = await getDashboard(stubRepo([charge], [card], [ana], settlements, payments), "u", "2026-06");
-    expect(data.trend.at(-2)).toEqual({ label: "Mai 2026", valueCents: 100000 });
-    // 100000 − 30000 (fatura) + 18000 (the share back) — the live total, nothing else being dated later.
-    expect(data.trend.at(-1)).toEqual({ label: "Jun 2026", valueCents: 88000 });
-    expect(data.trend.at(-1)?.valueCents).toBe(data.totalBalanceCents);
+    expect(totalOn(data, "2026-06-09")).toBe(100000); // the charge itself never touched the account
+    expect(totalOn(data, "2026-06-10")).toBe(70000); // the fatura left
+    expect(totalOn(data, "2026-06-11")).toBe(70000);
+    expect(totalOn(data, "2026-06-12")).toBe(88000); // the share came back
+    expect(totalOn(data, "2026-06-14")).toBe(88000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents);
+    expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 88000 });
   });
 });
