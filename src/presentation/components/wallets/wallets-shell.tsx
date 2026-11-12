@@ -24,9 +24,11 @@ export function WalletsShell({
 
   const select = (next: WalletsTab) => {
     setTab(next);
-    // Shallow URL sync — no refetch/navigation. Contas is the default, so it drops the param.
+    // Shallow URL sync — no refetch/navigation. Contas is the default, so it drops the param. The
+    // path is whichever page the shell is on (the real one, or the demo's).
     if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", next === "cartoes" ? "/wallets?tab=cartoes" : "/wallets");
+      const path = window.location.pathname;
+      window.history.replaceState(null, "", next === "cartoes" ? `${path}?tab=cartoes` : path);
     }
   };
 

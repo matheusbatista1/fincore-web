@@ -1,22 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getDashboard } from "@/application/use-cases/get-dashboard";
-import { getReports } from "@/application/use-cases/get-reports";
-import { getStatement } from "@/application/use-cases/get-statement";
-import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
-import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
+import { loadDashboard } from "@/app/_loaders/dashboard";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
-import { type DashboardData, DashboardView } from "@/presentation/components/dashboard/dashboard-view";
+import { DashboardView } from "@/presentation/components/dashboard/dashboard-view";
 import { Icon } from "@/presentation/components/ui/icon";
-import { collapseRowsByInstallments } from "@/presentation/lib/group-installments";
-
-function currentMonthInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()).slice(0, 7);
-}
-function todayInBrazil(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -26,33 +14,9 @@ export default async function DashboardPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const { m, cf } = await searchParams;
-  const raw = Array.isArray(m) ? m[0] : m;
-  const current = currentMonthInBrazil();
-  const month = raw && isValidCompetenceMonth(raw) ? raw : current;
-  const isCurrent = month === current;
-  // "Receitas x Despesas" cash-flow window: forward (default) shows the browsed month
-  // through +5 (future months fold in projected recurring); backward shows the trailing
-  // 6 months (actuals only). State lives in the URL so the server renders the right window.
-  const rawCf = Array.isArray(cf) ? cf[0] : cf;
-  const cashflowDir: "forward" | "backward" = rawCf === "backward" ? "backward" : "forward";
-  const chartFrom = cashflowDir === "backward" ? addMonths(month, -5) : month;
-  const chartTo = cashflowDir === "backward" ? month : addMonths(month, 5);
-  const [dash, reports, statement, workspace] = await Promise.all([
-    getDashboard(financeRepository, user.id, month),
-    // Bars: the 6-month cash-flow window (forward/backward). The donut stays pinned to the
-    // browsed month via categoryFrom/categoryTo, so flipping the bars never moves it.
-    getReports(financeRepository, user.id, {
-      from: chartFrom,
-      to: chartTo,
-      categoryFrom: month,
-      categoryTo: month,
-    }),
-    getStatement(financeRepository, user.id),
-    getWorkspaceView(financeRepository, user.id),
-  ]);
+  const { data, empty } = await loadDashboard(financeRepository, user.id, await searchParams);
 
-  if (workspace.accounts.length === 0 && workspace.cards.length === 0) {
+  if (empty) {
     return (
       <div className="card card-pad" style={{ textAlign: "center", padding: "56px 24px" }}>
         <span
@@ -85,90 +49,6 @@ export default async function DashboardPage({
       </div>
     );
   }
-
-  // Debtors + "a receber" are scoped to the browsed month (from the dashboard use-case).
-  const debtors = dash.people
-    .filter((p) => p.balanceCents > 0)
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      color: p.color,
-      relationship: p.relationship,
-      balanceCents: p.balanceCents,
-    }));
-  const aReceberCents = dash.aReceberCents;
-  const othersCents = Math.max(0, dash.general.expenseCents - dash.personal.expenseCents);
-
-  const toBar = (m: { label: string; incomeCents: number; expenseCents: number; projected: boolean }) => ({
-    label: m.label,
-    incomeCents: m.incomeCents,
-    expenseCents: m.expenseCents,
-    projected: m.projected,
-  });
-  const toSlice = (c: { id: string; name: string; color: string; valueCents: number }) => ({
-    id: c.id,
-    name: c.name,
-    color: c.color,
-    valueCents: c.valueCents,
-  });
-
-  const data: DashboardData = {
-    saldoTotalCents: dash.totalBalanceCents,
-    saldoTotalPersonalCents: dash.totalBalancePersonalCents,
-    projectedBalanceCents: dash.projectedBalanceCents,
-    projectedBalancePersonalCents: dash.projectedBalancePersonalCents,
-    isPast: month < current,
-    aReceberCents,
-    settlementNetCents: dash.settlementNetCents,
-    projectedIncomeCents: dash.projectedIncomeCents,
-    projectedExpenseCents: dash.projectedExpenseCents,
-    projectedIncomePersonalCents: dash.projectedIncomePersonalCents,
-    projectedExpensePersonalCents: dash.projectedExpensePersonalCents,
-    heldForOthersCents: dash.heldForOthersCents,
-    investedCents: 0,
-    general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
-    personal: { incomeCents: dash.personal.incomeCents, expenseCents: dash.personal.expenseCents },
-    othersCents,
-    monthChangeCents: dash.monthEndTotals.currentCents - dash.monthEndTotals.previousCents,
-    netWorth: dash.netWorthDaily,
-    netWorthForecast: {
-      valuesCents: dash.netWorthForecast.valuesCents,
-      events: dash.netWorthForecast.events.map((event) => ({
-        date: event.date,
-        deltaCents: event.deltaCents,
-        label: event.label,
-        late: event.late,
-      })),
-    },
-    months: reports.months.map(toBar),
-    monthsPersonal: reports.monthsPersonal.map(toBar),
-    categories: reports.categories.map(toSlice),
-    categoriesPersonal: reports.categoriesPersonal.map(toSlice),
-    totalExpenseCents: reports.totalExpenseCents,
-    totalExpensePersonalCents: reports.totalExpensePersonalCents,
-    // From the dashboard use-case (month-aware): billCents follows the browsed month,
-    // outstandingCents is the total committed against the limit.
-    cards: dash.cards.map((c) => ({
-      id: c.id,
-      bank: c.bank,
-      product: c.product,
-      themeKey: c.themeKey,
-      billCents: c.billCents,
-      billCompetence: c.billCompetence,
-      billProjectedCents: c.billProjectedCents,
-      outstandingCents: c.outstandingCents,
-      limitCents: c.limitCents,
-      dueDay: c.dueDay,
-    })),
-    debtors,
-    // The last executed cash movements (extrato) — the same source as Transações.
-    recent: collapseRowsByInstallments(statement.executed).slice(0, 10),
-    accountsCount: workspace.accounts.length,
-    today: todayInBrazil(),
-    month,
-    isCurrent,
-    cashflowDir,
-  };
 
   return <DashboardView data={data} />;
 }

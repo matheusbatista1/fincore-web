@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import type {
   MonthlyItem,
@@ -50,6 +51,8 @@ export function WalletsView({
   prevHref: string;
   nextHref: string;
 }) {
+  // Where this screen lives: "Voltar para hoje" points back to it (the real page, or the demo's).
+  const here = usePathname();
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
   // Tapping an account opens its detail (movements + Editar), not the edit form directly.
@@ -120,7 +123,7 @@ export function WalletsView({
                   Mês atual
                 </span>
               ) : (
-                <Link className="card-link" href="/wallets">
+                <Link className="card-link" href={here}>
                   Voltar para hoje
                 </Link>
               )}
