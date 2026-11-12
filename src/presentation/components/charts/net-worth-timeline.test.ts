@@ -6,6 +6,7 @@ import {
   assumedWindow,
   axisIsCompact,
   axisTicks,
+  CHART_HEIGHT,
   DAY_PX,
   dateAt,
   dayAtX,
@@ -13,6 +14,7 @@ import {
   dayMonth,
   dayX,
   drawnDays,
+  EDGE_FADE,
   extremes,
   fitRange,
   formatAxisTick,
@@ -21,13 +23,17 @@ import {
   linePath,
   MONTH_NAME_ROOM,
   monthEndIndex,
+  monthNameFits,
   monthRangeLabel,
   monthSlots,
   monthSpans,
   niceStep,
+  notesByDay,
   offsetEndingAt,
   PEAK_ROOM,
   PLOT_HEIGHT,
+  placeTip,
+  readableDays,
   restingAt,
   springSettled,
   stepSpring,
@@ -56,6 +62,7 @@ describe("the track's scale", () => {
     // Nothing left to scroll, and every day is in view.
     expect(offsetEndingAt(164, 706, track)).toBe(0);
     expect(visibleDays(0, 706, track)).toEqual({ first: 0, last: 164 });
+    expect(readableDays(0, 706, track)).toEqual({ first: 0, last: 164 });
   });
 
   it("never narrows a day, and always fills the plot or overflows it", () => {
@@ -67,9 +74,10 @@ describe("the track's scale", () => {
           const track = trackFor(days, viewport);
           expect(track.dayPx).toBeGreaterThanOrEqual(DAY_PX);
           expect(trackWidth(track)).toBeGreaterThanOrEqual(viewport - 1e-6);
-          // Wherever it is scrolled to its end, the last day is in view.
+          // Wherever it is scrolled to its end, the last day is in view — and clear of the fade.
           const end = Math.max(0, trackWidth(track) - viewport);
           expect(visibleDays(end, viewport, track).last).toBe(days - 1);
+          expect(readableDays(end, viewport, track).last).toBe(days - 1);
         },
       ),
     );
@@ -139,16 +147,24 @@ describe("days and pixels", () => {
   it("assumes the most recent days before anything is measured", () => {
     expect(assumedWindow(400)).toEqual({ first: 400 - ASSUMED_VISIBLE_DAYS, last: 399 });
     expect(assumedWindow(30)).toEqual({ first: 0, last: 29 });
+    // About to be placed to end earlier (the page's month ends there; the forecast goes on).
+    expect(assumedWindow(400, 349)).toEqual({ first: 350 - ASSUMED_VISIBLE_DAYS, last: 349 });
+    expect(assumedWindow(400, 20)).toEqual({ first: 0, last: 20 });
+    expect(assumedWindow(400, 999)).toEqual({ first: 400 - ASSUMED_VISIBLE_DAYS, last: 399 });
   });
 
   it("ends the viewport on a day, without leaving the track", () => {
     const year = plain(365);
     // The last day ends the track: the offset is the furthest the track scrolls.
     expect(offsetEndingAt(364, 270, year)).toBe(trackWidth(year) - 270);
-    // Any other day: the viewport ends right after it, the next day out of view.
+    // Any other day: what is read ends right after it. The next few days are in view only under
+    // the fade at the right of the plot — a hint of what comes next, not something to read.
     const offset = offsetEndingAt(200, 270, year);
-    expect(offset).toBe(dayX(200, year) + DAY_PX / 2 - 270);
-    expect(visibleDays(offset, 270, year).last).toBe(200);
+    expect(offset).toBe(dayX(200, year) + DAY_PX / 2 + EDGE_FADE - 270);
+    expect(readableDays(offset, 270, year).last).toBe(200);
+    expect(visibleDays(offset, 270, year).last).toBe(203);
+    // The start of what is read is the start of what is in view.
+    expect(readableDays(offset, 270, year).first).toBe(visibleDays(offset, 270, year).first);
     expect(offsetEndingAt(10, 270, year)).toBe(0);
     // A track shorter than the viewport does not scroll.
     expect(offsetEndingAt(29, 600, plain(30))).toBe(0);
@@ -428,6 +444,22 @@ describe("the calendar under the line", () => {
     );
   });
 
+  it("names a month only where its name fits whole in the part of its slot that is in view", () => {
+    const slot = { left: 300, width: 93 }; // a 31-day month: x 300 to 393
+    expect(monthNameFits(slot, "Out", { offset: 200, width: 300 })).toBe(true);
+    // Only just entering at the right (its first 9.5px): unnamed.
+    expect(monthNameFits(slot, "Dez", { offset: 9.5, width: 300 })).toBe(false);
+    // Named once 26px of it are clear of the 10px kept at the right…
+    expect(monthNameFits(slot, "Dez", { offset: 35, width: 300 })).toBe(false);
+    expect(monthNameFits(slot, "Dez", { offset: 36, width: 300 })).toBe(true);
+    // …and, leaving at the left, while 26px of it are clear of the 22px kept there.
+    expect(monthNameFits(slot, "Out", { offset: 345, width: 300 })).toBe(true);
+    expect(monthNameFits(slot, "Out", { offset: 346, width: 300 })).toBe(false);
+    // A name that carries its year needs the room of the widest one.
+    expect(monthNameFits(slot, "Jan 2027", { offset: 67, width: 300 })).toBe(false);
+    expect(monthNameFits(slot, "Jan 2027", { offset: 68, width: 300 })).toBe(true);
+  });
+
   it("finds where the track should end to show a month", () => {
     expect(monthEndIndex("2026-06-01", 165, "2026-08")).toBe(91); // 31 Aug
     expect(monthEndIndex("2026-06-01", 165, "2026-11")).toBe(164); // not over yet: today
@@ -452,6 +484,122 @@ describe("the calendar under the line", () => {
     expect(dayLabel("2026-11-12", "2026-11-12")).toBe("Hoje, 12 nov");
     expect(dayMonth("2026-10-05")).toBe("05/10");
     expect(dateAt("2026-06-01", 164)).toBe("2026-11-12");
+  });
+});
+
+describe("reading a forecast day", () => {
+  const note = (date: string, deltaCents: number, label: string, late = false) => ({
+    date,
+    deltaCents,
+    label,
+    late,
+  });
+
+  it("lists each day's movements, the largest first", () => {
+    const days = notesByDay([
+      note("2026-11-20", -5_000, "Internet"),
+      note("2026-11-20", 400_000, "Salário"),
+      note("2026-11-20", -180_000, "Aluguel"),
+      note("2026-11-25", -9_000, "Fatura Nubank"),
+    ]);
+    expect([...days.keys()]).toEqual(["2026-11-20", "2026-11-25"]);
+    expect(days.get("2026-11-20")).toEqual({
+      notes: [
+        { label: "Salário", deltaCents: 400_000, late: false },
+        { label: "Aluguel", deltaCents: -180_000, late: false },
+        { label: "Internet", deltaCents: -5_000, late: false },
+      ],
+      lateCount: 0,
+    });
+  });
+
+  it("makes one line of what shares a name on a day, and drops a line that sums to nothing", () => {
+    const days = notesByDay([
+      note("2026-11-20", -3_000, "Pedágio"),
+      note("2026-11-20", -4_500, "Pedágio"),
+      note("2026-11-20", -2_000, "Estorno"),
+      note("2026-11-20", 2_000, "Estorno"),
+      note("2026-11-21", 1_000, "Troco"),
+      note("2026-11-21", -1_000, "Troco"),
+    ]);
+    expect(days.get("2026-11-20")).toEqual({
+      notes: [{ label: "Pedágio", deltaCents: -7_500, late: false }],
+      lateCount: 0,
+    });
+    // A day left with nothing to say is not a day to read.
+    expect(days.has("2026-11-21")).toBe(false);
+  });
+
+  it("keeps what is late apart from what falls on its own day, and counts it", () => {
+    const days = notesByDay([
+      note("2026-11-13", -20_000, "Academia", true),
+      note("2026-11-13", -20_000, "Academia"),
+      note("2026-11-13", -50_000, "Fatura C6", true),
+      note("2026-11-13", -1_000, "Boleto", true),
+      note("2026-11-13", -2_000, "Boleto", true),
+    ]);
+    expect(days.get("2026-11-13")).toEqual({
+      notes: [
+        { label: "Fatura C6", deltaCents: -50_000, late: true },
+        { label: "Academia", deltaCents: -20_000, late: true },
+        { label: "Academia", deltaCents: -20_000, late: false },
+        { label: "Boleto", deltaCents: -3_000, late: true },
+      ],
+      lateCount: 4,
+    });
+  });
+
+  const view = { offset: 1_000, width: 300 };
+  const size = { width: 224, height: 103 };
+
+  it("puts the tooltip above its point, centred on it and held by its bottom", () => {
+    expect(placeTip({ x: 1_150, y: 150 }, size, view)).toEqual({
+      left: 1_150 - 112,
+      edge: "bottom",
+      offset: CHART_HEIGHT - (150 - 12),
+    });
+  });
+
+  it("stops it at the sides of the plot", () => {
+    expect(placeTip({ x: 1_290, y: 150 }, size, view).left).toBe(1_000 + 300 - 4 - 224);
+    expect(placeTip({ x: 1_010, y: 150 }, size, view).left).toBe(1_004);
+  });
+
+  it("goes below a point too near the top", () => {
+    expect(placeTip({ x: 1_150, y: 60 }, size, view)).toEqual({ left: 1_038, edge: "top", offset: 74 });
+  });
+
+  it("goes beside a point with room neither above nor below, on the side that has it", () => {
+    // y = 100: 100 − 12 − 103 is above the chart, 100 + 14 + 103 is under it.
+    expect(placeTip({ x: 1_280, y: 100 }, size, view)).toEqual({ left: 1_044, edge: "top", offset: 48.5 });
+    expect(placeTip({ x: 1_020, y: 100 }, size, view)).toEqual({ left: 1_032, edge: "top", offset: 48.5 });
+    // No room on either side: over the point, but whole.
+    expect(placeTip({ x: 1_150, y: 100 }, size, view)).toEqual({ left: 1_038, edge: "top", offset: 48.5 });
+  });
+
+  it("is never cut by the plot, wherever the point is", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 5_000 }),
+        fc.integer({ min: 120, max: 900 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.integer({ min: 0, max: PLOT_HEIGHT }),
+        fc.integer({ min: 60, max: 112 }),
+        fc.integer({ min: 40, max: 160 }),
+        (offset, width, across, y, tipWidth, tipHeight) => {
+          const place = placeTip(
+            { x: offset + across * width, y },
+            { width: tipWidth, height: tipHeight },
+            { offset, width },
+          );
+          expect(place.left).toBeGreaterThanOrEqual(offset + 4);
+          expect(place.left + tipWidth).toBeLessThanOrEqual(offset + width - 4);
+          // Held by either edge, it is `offset` away from it and fits before the other one.
+          expect(place.offset).toBeGreaterThanOrEqual(0);
+          expect(place.offset + tipHeight).toBeLessThanOrEqual(CHART_HEIGHT);
+        },
+      ),
+    );
   });
 });
 

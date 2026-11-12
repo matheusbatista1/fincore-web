@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { InfoHint } from "@/presentation/components/ui/info-hint";
 import { useReducedMotion } from "@/presentation/lib/use-reduced-motion";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
@@ -27,18 +28,24 @@ import {
   dayMonth,
   dayX,
   drawnDays,
+  EDGE_FADE,
   extremes,
+  type ForecastNote,
   fitRange,
   formatAxisTick,
   linePath,
   MONTH_BAND,
   monthEndIndex,
+  monthNameFits,
   monthRangeLabel,
   monthSlots,
   monthSpans,
+  notesByDay,
   offsetEndingAt,
   PLOT_HEIGHT,
+  placeTip,
   type RangeSpring,
+  readableDays,
   restingAt,
   springSettled,
   stepSpring,
@@ -46,7 +53,6 @@ import {
   trackWidth,
   type ValueRange,
   valueY,
-  visibleDays,
 } from "./net-worth-timeline";
 
 export interface NetWorthChartProps {
@@ -54,6 +60,10 @@ export interface NetWorthChartProps {
   readonly startDate: string;
   /** One end-of-day total per day; the last one is today's (the live balance). */
   readonly valuesCents: readonly number[];
+  /** The total expected at the end of each day after today — drawn dashed. Optional. */
+  readonly forecastCents?: readonly number[];
+  /** What is expected to move the total on the forecast days, for the tooltip. */
+  readonly forecastEvents?: readonly ForecastNote[];
   readonly today: string;
   /** The month the page is browsing: the chart scrolls to it and marks its name. */
   readonly month: string;
@@ -69,8 +79,13 @@ interface Viewport {
 const TIP_HALF_WIDTH = 82;
 /** How far past its day a tooltip that is not centred starts (or ends). */
 const TIP_OVERHANG = 14;
-/** The tallest the tooltip gets (three lines), to decide whether it fits above its point. */
-const TIP_HEIGHT = 68;
+/** The tooltip's height with its two fixed lines, and what each further line adds. */
+const TIP_HEIGHT = 52;
+const TIP_LINE = 17;
+/** A tooltip that names what moves a forecast day has a set width, so it can be placed whole. */
+const TIP_LISTING_WIDTH = 224;
+/** How many of a forecast day's movements the tooltip names before "+ n". */
+const TIP_EVENTS = 3;
 /** A label nearer than this to a side of the plot hangs towards the middle instead of centring. */
 const LABEL_EDGE = 76;
 /** How long a released drag keeps gliding: the time constant of its decay, in ms. */
@@ -190,8 +205,22 @@ function useSpringRange(targetLo: number, targetHi: number, animate: boolean): V
  * - Hovering (mouse), tapping (touch) or the arrow keys (the range input) read one day.
  * - Changing the page's month glides the track to that month.
  */
-export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorthChartProps) {
-  const days = valuesCents.length;
+export function NetWorthChart({
+  startDate,
+  valuesCents,
+  forecastCents,
+  forecastEvents,
+  today,
+  month,
+}: NetWorthChartProps) {
+  // One series on the track: the days up to today, then the days expected.
+  const series = useMemo(
+    () => (forecastCents && forecastCents.length > 0 ? [...valuesCents, ...forecastCents] : valuesCents),
+    [valuesCents, forecastCents],
+  );
+  const days = series.length;
+  /** Today's place on the track: where the real line ends and the forecast begins. */
+  const todayIndex = valuesCents.length - 1;
   const reduced = useReducedMotion();
   const privacy = useUIStore((s) => s.privacy);
   const gradientId = useId();
@@ -205,7 +234,7 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
   const [dragging, setDragging] = useState(false);
 
   const animate = ready && !reduced;
-  const values = useTweenedSeries(valuesCents, animate);
+  const values = useTweenedSeries(series, animate);
   // The horizontal scale: a few pixels per day, more when the whole history would not fill the plot.
   const { dayPx } = trackFor(days, view?.width);
   const track = useMemo(() => ({ days, dayPx }), [days, dayPx]);
@@ -213,7 +242,15 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
   const slots = useMemo(() => monthSlots(months, track), [months, track]);
   const width = trackWidth(track);
 
-  const win = view === null ? assumedWindow(days) : visibleDays(view.offset, view.width, track);
+  const win =
+    view === null
+      ? assumedWindow(days, monthEndIndex(startDate, days, month))
+      : readableDays(view.offset, view.width, track);
+  /** The part of the view that is read: all of it but the fade at the right. */
+  const readable = useMemo(
+    () => (view === null ? null : { offset: view.offset, width: Math.max(0, view.width - EDGE_FADE) }),
+    [view],
+  );
   const inView = extremes(values, win);
   const target = fitRange(inView.min, inView.max);
   const range = useSpringRange(target.lo, target.hi, animate);
@@ -225,17 +262,32 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
     () => ({ first: drawnWindow.first, last: drawnWindow.last }),
     [drawnWindow.first, drawnWindow.last],
   );
-  const line = useMemo(() => linePath(values, range, track, drawn), [values, range, track, drawn]);
-  const area = useMemo(() => areaPath(line, track, drawn), [line, track, drawn]);
+  // The real days up to today, solid; from today on, the forecast, dashed.
+  const real = useMemo(
+    () => ({ first: drawn.first, last: Math.min(drawn.last, todayIndex) }),
+    [drawn, todayIndex],
+  );
+  const expected = useMemo(
+    () => ({ first: Math.max(drawn.first, todayIndex), last: drawn.last }),
+    [drawn, todayIndex],
+  );
+  const line = useMemo(() => linePath(values, range, track, real), [values, range, track, real]);
+  const area = useMemo(() => areaPath(line, track, real), [line, track, real]);
+  const forecastLine = useMemo(
+    () => (expected.first < expected.last ? linePath(values, range, track, expected) : ""),
+    [values, range, track, expected],
+  );
+  const forecastArea = useMemo(
+    () => areaPath(forecastLine, track, expected),
+    [forecastLine, track, expected],
+  );
 
   // ---- measuring ---------------------------------------------------------------------------
 
-  const atEnd = useRef(true);
   const measure = useCallback(() => {
     const el = scrollerRef.current;
     if (el === null) return;
     const next = { offset: el.scrollLeft, width: el.clientWidth };
-    atEnd.current = next.offset >= el.scrollWidth - next.width - 1;
     setView((prev) =>
       prev !== null && prev.offset === next.offset && prev.width === next.width ? prev : next,
     );
@@ -257,13 +309,21 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
   const placed = useRef(false);
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
-  useEffect(() => {
+  /** The scroll offset that puts the page's month at the end of a view `width` wide. */
+  const monthOffset = useRef<(width: number) => number>(() => 0);
+  monthOffset.current = (width) => offsetEndingAt(monthEndIndex(startDate, track.days, month), width, track);
+  /** Resting where the page's month put it, rather than where the reader has scrolled to. */
+  const onMonth = useRef(true);
+  /** Put the page's month at the end of the view: gliding there, or at once. */
+  const showMonth = useRef<(gliding: boolean) => void>(() => {});
+  showMonth.current = (gliding) => {
     const el = scrollerRef.current;
-    if (el === null || !measured || track.days < 2) return;
-    const left = offsetEndingAt(monthEndIndex(startDate, track.days, month), el.clientWidth, track);
+    if (el === null || track.days < 2) return;
+    const left = monthOffset.current(el.clientWidth);
+    onMonth.current = true;
     cancelAnimationFrame(glide.current);
     const from = el.scrollLeft;
-    if (!placed.current || reducedRef.current || Math.abs(left - from) < 1) {
+    if (!gliding || reducedRef.current || Math.abs(left - from) < 1) {
       el.scrollLeft = left;
     } else {
       // Ease-out: leaves at once, lands softly. Longer trips take a little longer, up to a cap.
@@ -276,6 +336,11 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
       };
       glide.current = requestAnimationFrame(step);
     }
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: month, startDate and track are the triggers — `showMonth` reads them from the latest render.
+  useEffect(() => {
+    if (!measured) return;
+    showMonth.current(placed.current);
     placed.current = true;
     measure();
   }, [measured, month, startDate, track, measure]);
@@ -291,13 +356,20 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
     const el = scrollerRef.current;
     if (el === null || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      // Showing today and the box got narrower: keep showing today.
-      if (atEnd.current) el.scrollLeft = el.scrollWidth;
+      // A new width shows other days. Resting on the page's month, the track goes back to it;
+      // scrolled elsewhere, it stays where the reader left it.
+      if (onMonth.current) showMonth.current(false);
       measure();
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, [measure]);
+
+  const onScroll = (): void => {
+    const el = scrollerRef.current;
+    if (el !== null) onMonth.current = Math.abs(el.scrollLeft - monthOffset.current(el.clientWidth)) < 2;
+    measure();
+  };
 
   // ---- reading one day ---------------------------------------------------------------------
 
@@ -426,11 +498,20 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
   const monthTable = useMemo(
     () =>
       months.map((span) => {
-        const { min, max } = extremes(valuesCents, span);
-        return { month: span.month, closing: valuesCents[span.last] ?? 0, min, max };
+        const { min, max } = extremes(series, span);
+        // A month that ends after today closes on a forecast.
+        return {
+          month: span.month,
+          closing: series[span.last] ?? 0,
+          min,
+          max,
+          expected: span.last > todayIndex,
+        };
       }),
-    [months, valuesCents],
+    [months, series, todayIndex],
   );
+  /** What is expected to move each forecast day. */
+  const notes = useMemo(() => notesByDay(forecastEvents ?? []), [forecastEvents]);
 
   if (days < 2) {
     return (
@@ -467,37 +548,84 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
    * it: centred on the day, or towards the middle when the day is too near an edge.
    */
   const sideAt = (index: number, reach: number): "start" | "middle" | "end" => {
-    if (view === null) return "middle";
-    const x = dayX(index, track) - view.offset;
+    if (readable === null) return "middle";
+    const x = dayX(index, track) - readable.offset;
     if (x < reach) return "start";
-    if (x > view.width - reach) return "end";
+    if (x > readable.width - reach) return "end";
     return "middle";
   };
 
   const focusDate = focus === null ? null : dateAt(startDate, focus);
-  const focusValue = focus === null ? 0 : (valuesCents[focus] ?? 0);
-  const focusChange = focus === null || focus === 0 ? 0 : focusValue - (valuesCents[focus - 1] ?? focusValue);
+  const focusValue = focus === null ? 0 : (series[focus] ?? 0);
+  const focusChange = focus === null || focus === 0 ? 0 : focusValue - (series[focus - 1] ?? focusValue);
   const focusY = focus === null ? 0 : y(valueAt(focus));
-  const tipAbove = focusY - 12 - TIP_HEIGHT >= 0;
+  // A day after today is a forecast: it names what is expected to move it instead of what did.
+  const focusExpected = focus !== null && focus > todayIndex;
+  const focusNotes = focusExpected && focusDate !== null && !privacy ? notes.get(focusDate) : undefined;
+  const named = focusNotes?.notes.slice(0, TIP_EVENTS) ?? [];
+  const unnamed = (focusNotes?.notes.length ?? 0) - named.length;
+  const lateCount = focusNotes?.lateCount ?? 0;
+  const tipFootnote = [
+    unnamed > 0 ? `+ ${unnamed} no mesmo dia` : "",
+    lateCount > 0 ? `${lateCount} em atraso` : "",
+  ]
+    .filter((part) => part !== "")
+    .join(" · ");
+  const tipLines = focusExpected
+    ? named.length + (tipFootnote === "" ? 0 : 1)
+    : !privacy && focusChange !== 0
+      ? 1
+      : 0;
+  const tipHeight = TIP_HEIGHT + tipLines * TIP_LINE;
+  // A tooltip that names what moves the day is placed whole, by its set width; the plain one hangs
+  // from its day.
+  const listingWidth = Math.min(TIP_LISTING_WIDTH, (readable?.width ?? TIP_LISTING_WIDTH) - 8);
+  const listing =
+    named.length > 0 && focus !== null && readable !== null
+      ? placeTip({ x: dayX(focus, track), y: focusY }, { width: listingWidth, height: tipHeight }, readable)
+      : null;
+  const tipAbove = focusY - 12 - tipHeight >= 0;
   const tipSide = focus === null ? "middle" : sideAt(focus, TIP_HALF_WIDTH);
   // Next to its day: centred on it, or starting / ending just past it when an edge is near.
   const tipX =
-    focus === null || view === null
+    focus === null || readable === null
       ? 0
       : tipSide === "start"
-        ? Math.max(dayX(focus, track) - TIP_OVERHANG, view.offset + 4)
+        ? Math.max(dayX(focus, track) - TIP_OVERHANG, readable.offset + 4)
         : tipSide === "end"
-          ? Math.min(dayX(focus, track) + TIP_OVERHANG, view.offset + view.width - 4)
+          ? Math.min(dayX(focus, track) + TIP_OVERHANG, readable.offset + readable.width - 4)
           : dayX(focus, track);
   const tipShift = tipSide === "start" ? "0" : tipSide === "end" ? "-100%" : "-50%";
 
-  const sliderDay = pin ?? last;
-  const sliderValue = valuesCents[sliderDay] ?? 0;
+  const sliderDay = pin ?? todayIndex;
+  const sliderValue = series[sliderDay] ?? 0;
+  const sliderNotes =
+    sliderDay > todayIndex && !privacy ? (notes.get(dateAt(startDate, sliderDay))?.notes ?? []) : [];
+  // The same reading in words: the day, its total, and — on a forecast day — what moves it.
+  const sliderText = [
+    `${dayLabel(dateAt(startDate, sliderDay), today)}: ${privacy ? "valor oculto" : formatBRL(sliderValue)}${
+      sliderDay > todayIndex ? " (previsto)" : ""
+    }`,
+    ...sliderNotes
+      .slice(0, TIP_EVENTS)
+      .map((note) => `${note.label}${note.late ? ", em atraso" : ""}: ${formatBRL(note.deltaCents)}`),
+  ].join(". ");
 
   return (
     <div className="nw-chart">
       <div className="nw-head">
-        <span className="kicker">Evolução do patrimônio</span>
+        <span className="kicker">
+          Evolução do{" "}
+          <span className="nw-head-last">
+            patrimônio
+            <InfoHint label="Como ler este gráfico">
+              Linha cheia: o saldo real das suas contas em cada dia, até hoje.
+              {todayIndex < last
+                ? " Tracejado: a previsão. Cada lançamento futuro ou fixo entra no dia dele, cada fatura no vencimento, o que está em atraso conta para amanhã e o que as pessoas te devem entra no último dia do mês — por isso o último dia de cada mês é o “fim do mês” da visão Geral."
+                : ""}
+            </InfoHint>
+          </span>
+        </span>
         <span className="pill purple">
           {monthRangeLabel(dateAt(startDate, win.first), dateAt(startDate, win.last), today)}
         </span>
@@ -505,8 +633,9 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
       <div className="nw-body">
         <figure className="nw" data-ready={ready} style={{ height: CHART_HEIGHT }}>
           <figcaption className="sr-only">
-            Evolução do patrimônio dia a dia, de {dayLabel(startDate, "")} até hoje. Use as setas para ler um
-            dia.
+            Evolução do patrimônio dia a dia, de {dayLabel(startDate, "")} até hoje
+            {todayIndex < last ? `, com a previsão até ${dayLabel(dateAt(startDate, last), "")}` : ""}. Use as
+            setas para ler um dia.
           </figcaption>
           {/* The keyboard and screen-reader way to read one day; arrows, Page Up/Down, Home and End. */}
           <input
@@ -517,9 +646,7 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
             step={1}
             value={sliderDay}
             aria-label="Dia lido no gráfico de evolução do patrimônio"
-            aria-valuetext={`${dayLabel(dateAt(startDate, sliderDay), today)}: ${
-              privacy ? "valor oculto" : formatBRL(sliderValue)
-            }`}
+            aria-valuetext={sliderText}
             onChange={(e) => {
               const index = Number(e.target.value);
               keyboardReads.current = true;
@@ -547,7 +674,7 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
               ref={scrollerRef}
               className={dragging ? "nw-scroll is-dragging" : "nw-scroll"}
               tabIndex={-1}
-              onScroll={measure}
+              onScroll={onScroll}
               onWheel={() => cancelAnimationFrame(glide.current)}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
@@ -589,14 +716,16 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
                     );
                   })}
                   <path d={area} fill={`url(#${gradientId})`} />
+                  <path className="nw-wash-expected" d={forecastArea} fill={`url(#${gradientId})`} />
                   <path className="nw-line" d={line} />
+                  <path className="nw-line is-expected" d={forecastLine} />
                   {peaks.map(({ key, index, value, dy }) => (
                     <g key={key} className="nw-peak">
-                      {index !== last && (
+                      {index !== todayIndex && (
                         <circle className="nw-peak-dot" cx={dayX(index, track)} cy={y(value)} r={3} />
                       )}
                       <text x={dayX(index, track)} y={y(value) + dy} textAnchor={sideAt(index, LABEL_EDGE)}>
-                        {formatBRL(valuesCents[index] ?? 0)}
+                        {formatBRL(series[index] ?? 0)}
                         <tspan className="nw-peak-date"> · {dayMonth(dateAt(startDate, index))}</tspan>
                       </text>
                     </g>
@@ -614,8 +743,18 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
                     </>
                   )}
                   {/* Today: the line's live end. */}
-                  <circle className="nw-live-ring" cx={dayX(last, track)} cy={y(valueAt(last))} r={4.5} />
-                  <circle className="nw-live-dot" cx={dayX(last, track)} cy={y(valueAt(last))} r={4.5} />
+                  <circle
+                    className="nw-live-ring"
+                    cx={dayX(todayIndex, track)}
+                    cy={y(valueAt(todayIndex))}
+                    r={4.5}
+                  />
+                  <circle
+                    className="nw-live-dot"
+                    cx={dayX(todayIndex, track)}
+                    cy={y(valueAt(todayIndex))}
+                    r={4.5}
+                  />
                 </svg>
                 {/* Each name stays inside its own month and sticks to the plot's edge while that
                     month is only partly in view, so it is never cut. */}
@@ -624,31 +763,63 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
                   style={{ top: PLOT_HEIGHT, height: MONTH_BAND }}
                   aria-hidden="true"
                 >
-                  {months.map((span, i) => (
-                    <span key={span.month} className="nw-month-slot" style={slots[i]}>
-                      <span className={span.month === month ? "nw-month is-browsed" : "nw-month"}>
-                        {span.label}
+                  {months.map((span, i) => {
+                    const slot = slots[i];
+                    const cut = view !== null && slot !== undefined && !monthNameFits(slot, span.label, view);
+                    return (
+                      <span key={span.month} className="nw-month-slot" style={slot}>
+                        <span
+                          className={`nw-month${span.month === month ? " is-browsed" : ""}${cut ? " is-cut" : ""}`}
+                        >
+                          {span.label}
+                        </span>
                       </span>
-                    </span>
-                  ))}
+                    );
+                  })}
                 </div>
                 {focus !== null && focusDate !== null && (
                   <div
-                    className="nw-tip"
-                    style={{
-                      left: tipX,
-                      top: tipAbove ? focusY - 12 : focusY + 14,
-                      transform: `translate(${tipShift}, ${tipAbove ? "-100%" : "0"})`,
-                    }}
+                    className={listing ? "nw-tip is-listing" : "nw-tip"}
+                    style={
+                      listing === null
+                        ? {
+                            left: tipX,
+                            top: tipAbove ? focusY - 12 : focusY + 14,
+                            transform: `translate(${tipShift}, ${tipAbove ? "-100%" : "0"})`,
+                          }
+                        : listing.edge === "bottom"
+                          ? { left: listing.left, bottom: listing.offset, width: listingWidth }
+                          : { left: listing.left, top: listing.offset, width: listingWidth }
+                    }
                   >
                     <span className="nw-tip-value tnum">{privacy ? "R$ ••••" : formatBRL(focusValue)}</span>
-                    <span className="nw-tip-date">{dayLabel(focusDate, today)}</span>
-                    {!privacy && focusChange !== 0 && (
+                    <span className="nw-tip-date">
+                      {dayLabel(focusDate, today)}
+                      {focusExpected ? " · previsto" : ""}
+                    </span>
+                    {!privacy && !focusExpected && focusChange !== 0 && (
                       <span className={focusChange > 0 ? "nw-tip-change up tnum" : "nw-tip-change down tnum"}>
                         {focusChange > 0 ? "+ " : ""}
                         {formatBRL(focusChange)} no dia
                       </span>
                     )}
+                    {named.map((note) => (
+                      <span
+                        key={`${note.late ? "late" : "due"}|${note.label}`}
+                        className={note.late ? "nw-tip-note is-late" : "nw-tip-note"}
+                      >
+                        <span className="nw-tip-note-label">{note.label}</span>
+                        <span
+                          className={
+                            note.deltaCents > 0 ? "nw-tip-change up tnum" : "nw-tip-change down tnum"
+                          }
+                        >
+                          {note.deltaCents > 0 ? "+ " : ""}
+                          {formatBRL(note.deltaCents)}
+                        </span>
+                      </span>
+                    ))}
+                    {tipFootnote !== "" && <span className="nw-tip-date">{tipFootnote}</span>}
                   </div>
                 )}
               </div>
@@ -679,7 +850,10 @@ export function NetWorthChart({ startDate, valuesCents, today, month }: NetWorth
               <tbody>
                 {monthTable.map((row) => (
                   <tr key={row.month}>
-                    <th scope="row">{monthLabel(row.month, { long: true })}</th>
+                    <th scope="row">
+                      {monthLabel(row.month, { long: true })}
+                      {row.expected ? " (previsto)" : ""}
+                    </th>
                     <td>{formatBRL(row.closing)}</td>
                     <td>{formatBRL(row.max)}</td>
                     <td>{formatBRL(row.min)}</td>
