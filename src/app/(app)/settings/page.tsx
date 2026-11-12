@@ -6,6 +6,7 @@ import { createSupabaseServerClient, getCurrentUser } from "@/infrastructure/aut
 import { financeRepository } from "@/infrastructure/composition";
 import { AutoPaymentsCard } from "@/presentation/components/settings/auto-payments-card";
 import { DeleteAccountCard } from "@/presentation/components/settings/delete-account-card";
+import { ExportDataCard } from "@/presentation/components/settings/export-data-card";
 import { HelpCard } from "@/presentation/components/settings/help-card";
 import { MfaCard } from "@/presentation/components/settings/mfa-card";
 import { ModulesCard } from "@/presentation/components/settings/modules-card";
@@ -124,6 +125,7 @@ export default async function SettingsPage() {
               <>
                 <HelpCard />
                 {aboutCard}
+                <ExportDataCard />
                 <DeleteAccountCard />
               </>
             ),

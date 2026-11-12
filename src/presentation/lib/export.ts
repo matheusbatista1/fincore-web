@@ -32,7 +32,7 @@ export function csvMoney(cents: number): string {
 }
 
 /** Trigger a client download of `content` as a file. */
-function download(filename: string, content: BlobPart, mime: string): void {
+export function downloadFile(filename: string, content: BlobPart, mime: string): void {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -51,7 +51,7 @@ export function exportCSV(
   rows: ReadonlyArray<readonly CsvCell[]>,
 ): void {
   const bom = String.fromCharCode(0xfeff); // UTF-8 BOM so Excel decodes accents
-  download(filename, bom + buildCsv(headers, rows), "text/csv;charset=utf-8");
+  downloadFile(filename, bom + buildCsv(headers, rows), "text/csv;charset=utf-8");
 }
 
 /** Per-column horizontal alignment for an autoTable section. */
