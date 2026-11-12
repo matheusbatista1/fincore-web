@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { addMonths } from "@/domain/value-objects/competence-month";
-import { AreaChart } from "@/presentation/components/charts/area-chart";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
+import { NetWorthChart } from "@/presentation/components/charts/net-worth-chart";
 import {
   MonthNavButton,
   MonthNavPending,
@@ -92,7 +92,8 @@ export interface DashboardData {
   readonly personal: Totals;
   readonly othersCents: number;
   readonly deltaPct: number | null;
-  readonly trend: { label: string; valueCents: number }[];
+  /** The total balance at the end of each day from `startDate` through today (real cash). */
+  readonly netWorth: { readonly startDate: string; readonly valuesCents: readonly number[] };
   readonly months: MonthBar[];
   readonly monthsPersonal: MonthBar[];
   readonly categories: CategorySlice[];
@@ -504,23 +505,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 </div>
               </div>
             </div>
-            <div
-              className="dash-hero-spark"
-              style={{
-                background: "linear-gradient(180deg, rgba(124,92,255,0.05), transparent)",
-                borderLeft: "1px solid var(--line)",
-                padding: "22px 24px",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                <span className="kicker">Evolução do patrimônio</span>
-                <span className="pill purple">6 meses</span>
-              </div>
-              <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
-                <AreaChart data={data.trend} />
-              </div>
+            {/* Real cash day by day, in both lenses (like the hero balance). The timeline does not
+                depend on the browsed month: changing it only scrolls the chart there. */}
+            <div className="dash-hero-spark">
+              <NetWorthChart
+                startDate={data.netWorth.startDate}
+                valuesCents={data.netWorth.valuesCents}
+                today={data.today}
+                month={data.month}
+              />
             </div>
           </div>
         </div>
