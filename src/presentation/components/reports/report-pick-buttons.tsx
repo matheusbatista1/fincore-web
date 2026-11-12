@@ -30,7 +30,7 @@ const PICKS: ReadonlyArray<{
     tone: "amber",
     icon: "users",
     title: "Por pessoa",
-    sub: "Gastos de cada um, agrupados por origem",
+    sub: "Extrato de cada pessoa: compras, pagamentos e o que falta pagar",
   },
 ];
 

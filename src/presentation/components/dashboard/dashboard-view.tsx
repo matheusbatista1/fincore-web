@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { addMonths } from "@/domain/value-objects/competence-month";
-import { AreaChart } from "@/presentation/components/charts/area-chart";
 import { BarsChart } from "@/presentation/components/charts/bars-chart";
 import { DonutChart } from "@/presentation/components/charts/donut-chart";
+import { NetWorthChart } from "@/presentation/components/charts/net-worth-chart";
 import {
   MonthNavButton,
   MonthNavPending,
@@ -15,14 +15,14 @@ import {
 } from "@/presentation/components/shell/month-transition";
 import { TxRow } from "@/presentation/components/transactions/tx-row";
 import { AnimatedMoney } from "@/presentation/components/ui/animated-money";
-import { AnimatedNumber } from "@/presentation/components/ui/animated-number";
 import { Avatar } from "@/presentation/components/ui/avatar";
 import { CountMoney } from "@/presentation/components/ui/count-money";
 import { Icon } from "@/presentation/components/ui/icon";
+import { InfoHint } from "@/presentation/components/ui/info-hint";
 import { Money } from "@/presentation/components/ui/money";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useUIStore } from "@/presentation/stores/ui-store";
-import { monthLabel } from "@/shared/formatting/dates";
+import { LONG_MONTHS, monthLabel } from "@/shared/formatting/dates";
 import { resolveThemeKey } from "@/shared/theme/bank-themes";
 
 interface Totals {
@@ -91,8 +91,26 @@ export interface DashboardData {
   readonly general: Totals;
   readonly personal: Totals;
   readonly othersCents: number;
-  readonly deltaPct: number | null;
-  readonly trend: { label: string; valueCents: number }[];
+  /**
+   * How much the accounts' total moved over the browsed month: its month-end minus the month-end
+   * before it, each with everything dated up to that day.
+   */
+  readonly monthChangeCents: number;
+  /** The total balance at the end of each day from `startDate` through today (real cash). */
+  readonly netWorth: { readonly startDate: string; readonly valuesCents: readonly number[] };
+  /**
+   * Where it is expected to go: one total per day from tomorrow on (general lens), and what is
+   * expected to move it. The dashed part of the chart.
+   */
+  readonly netWorthForecast: {
+    readonly valuesCents: readonly number[];
+    readonly events: readonly {
+      readonly date: string;
+      readonly deltaCents: number;
+      readonly label: string;
+      readonly late: boolean;
+    }[];
+  };
   readonly months: MonthBar[];
   readonly monthsPersonal: MonthBar[];
   readonly categories: CategorySlice[];
@@ -111,6 +129,9 @@ export interface DashboardData {
   /** "Receitas x Despesas" window: forward = next 6 months (projected), backward = last 6. */
   readonly cashflowDir: "forward" | "backward";
 }
+
+/** A month as it reads inside a sentence: "outubro". */
+const monthName = (month: string): string => (LONG_MONTHS[Number(month.slice(5, 7)) - 1] ?? "").toLowerCase();
 
 /** Approx. days from `today` (ISO) to the next occurrence of `dueDay` (1–31). */
 function daysUntilDue(dueDay: number, today: string): number {
@@ -376,13 +397,20 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   narrow window/phone): wrap by whole chips instead of squeezing the spans until
                   their text breaks mid-value. */}
               <div className="row gap-3" style={{ marginTop: 12, flexWrap: "wrap", rowGap: 4 }}>
-                {data.deltaPct !== null && (
-                  <span className={`delta ${data.deltaPct >= 0 ? "up" : "down"}`}>
-                    <Icon name={data.deltaPct >= 0 ? "trending-up" : "trending-down"} size={15} />
-                    <AnimatedNumber
-                      value={data.deltaPct}
-                      format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1).replace(".", ",")}%`}
-                    />
+                {/* How the accounts moved over the browsed month, in money: a percentage of a
+                    balance near zero (or below it) says nothing. */}
+                {data.monthChangeCents !== 0 && (
+                  <span className={`delta ${data.monthChangeCents > 0 ? "up" : "down"}`}>
+                    <Icon name={data.monthChangeCents > 0 ? "trending-up" : "trending-down"} size={15} />
+                    <AnimatedMoney cents={Math.abs(data.monthChangeCents)} withSign={false} />
+                    <span style={{ fontWeight: 500 }}>
+                      {data.monthChangeCents > 0 ? "a mais" : "a menos"}
+                    </span>
+                    <InfoHint label="O que essa diferença compara">
+                      O saldo das suas contas no fim de {monthName(data.month)}
+                      {data.isCurrent ? " (com o que já está lançado até lá)" : ""} comparado com o do fim de{" "}
+                      {monthName(addMonths(data.month, -1))}.
+                    </InfoHint>
                   </span>
                 )}
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
@@ -394,13 +422,6 @@ export function DashboardView({ data }: { data: DashboardData }) {
                       color: ownCents < 0 && isPersonal ? "var(--rose-500)" : "var(--text-lo)",
                       fontSize: 13.5,
                     }}
-                    title={
-                      advancesLeftCents === 0 && usedAdvancesCents > 0
-                        ? "Você já usou todos os adiantamentos que as pessoas te mandaram para as faturas que ainda vão vencer — quando elas chegarem, o valor sai do seu bolso (e volta quando as dívidas registradas forem pagas)."
-                        : ownCents < 0
-                          ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
-                          : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."
-                    }
                   >
                     {isPersonal && ownCents < 0 && advancesLeftCents === 0 ? (
                       // Waterfall floor: the advances are fully consumed, so "yours" reads as the
@@ -426,6 +447,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     ) : (
                       <>· adiantamentos de terceiros já usados</>
                     )}
+                    <InfoHint label="O que é o dinheiro de terceiros">
+                      {advancesLeftCents === 0 && usedAdvancesCents > 0
+                        ? "Você já usou todos os adiantamentos que as pessoas te mandaram para as faturas que ainda vão vencer — quando elas chegarem, o valor sai do seu bolso (e volta quando as dívidas registradas forem pagas)."
+                        : ownCents < 0
+                          ? "Adiantamentos que pessoas te mandaram para faturas que ainda vão vencer. Você já usou parte desse dinheiro nas suas contas — quando as faturas chegarem, a diferença sai do seu bolso."
+                          : "Adiantamentos que pessoas te mandaram para cobrir faturas que ainda vão vencer — estão nas suas contas, mas não são seus."}
+                    </InfoHint>
                   </span>
                 )}
                 {/* Hide only when the projection adds nothing over ITS OWN lens's live base — the
@@ -438,13 +466,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                         color: projectedEom < 0 ? "var(--rose-500)" : "var(--text-lo)",
                         fontSize: 13.5,
                       }}
-                      title={
-                        isPersonal
-                          ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
-                          : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."
-                      }
                     >
                       · fim do mês ~<AnimatedMoney cents={projectedEom} withSign />
+                      <InfoHint label="Como o fim do mês é calculado">
+                        {isPersonal
+                          ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
+                          : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."}
+                      </InfoHint>
                     </span>
                   )}
               </div>
@@ -483,19 +511,18 @@ export function DashboardView({ data }: { data: DashboardData }) {
                     </div>
                   </div>
                 )}
-                <div
-                  title={
-                    heldCents > 0
-                      ? "Saldo em contas + investimentos. Inclui os adiantamentos de terceiros ainda não descontados nas faturas."
-                      : "Saldo em contas + investimentos."
-                  }
-                >
+                <div>
                   <div
                     className="row gap-2"
                     style={{ color: "var(--text-lo)", fontSize: 12.5, marginBottom: 5 }}
                   >
                     <Icon name="landmark" size={14} />
                     Patrimônio
+                    <InfoHint label="O que entra no patrimônio">
+                      {heldCents > 0
+                        ? "Saldo em contas + investimentos. Inclui os adiantamentos de terceiros ainda não descontados nas faturas."
+                        : "Saldo em contas + investimentos."}
+                    </InfoHint>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
                     {/* Real cash + invested (negative when in overdraft); lens changes only the annotation. */}
@@ -504,23 +531,18 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 </div>
               </div>
             </div>
-            <div
-              className="dash-hero-spark"
-              style={{
-                background: "linear-gradient(180deg, rgba(124,92,255,0.05), transparent)",
-                borderLeft: "1px solid var(--line)",
-                padding: "22px 24px",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                <span className="kicker">Evolução do patrimônio</span>
-                <span className="pill purple">6 meses</span>
-              </div>
-              <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
-                <AreaChart data={data.trend} />
-              </div>
+            {/* Real cash day by day, in both lenses (like the hero balance), then the forecast of
+                the days to come. The timeline does not depend on the browsed month: changing it
+                only scrolls the chart there. */}
+            <div className="dash-hero-spark">
+              <NetWorthChart
+                startDate={data.netWorth.startDate}
+                valuesCents={data.netWorth.valuesCents}
+                forecastCents={data.netWorthForecast.valuesCents}
+                forecastEvents={data.netWorthForecast.events}
+                today={data.today}
+                month={data.month}
+              />
             </div>
           </div>
         </div>
@@ -613,8 +635,12 @@ export function DashboardView({ data }: { data: DashboardData }) {
               <span className="row gap-2">
                 <Icon name="target" size={14} />
                 {projIncome > 0 || projExpense > 0 ? (
-                  <span title="A Visão mensal pode diferir por acertos: lá eles contam na data em que aconteceram; aqui, na competência da dívida coberta.">
+                  <span>
                     com previstos: <Money cents={economia + projIncome - projExpense} withSign />
+                    <InfoHint label="Por que pode diferir da Visão mensal">
+                      A Visão mensal pode diferir por acertos: lá eles contam na data em que aconteceram;
+                      aqui, na competência da dívida coberta.
+                    </InfoHint>
                   </span>
                 ) : (
                   <span>{savingsPct === null ? "— da renda" : `${savingsPct}% da renda`}</span>

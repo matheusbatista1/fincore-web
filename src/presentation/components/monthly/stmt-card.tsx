@@ -6,6 +6,7 @@ import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { PayFaturaAccount, PayFaturaTarget } from "@/presentation/components/cards/pay-fatura-modal";
 import { Dialog, DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
+import { InfoHint } from "@/presentation/components/ui/info-hint";
 import { Money } from "@/presentation/components/ui/money";
 import { PeopleStack } from "@/presentation/components/ui/people-stack";
 import { openSettlePerson, openTxDetail } from "@/presentation/stores/tx-ui-store";
@@ -17,6 +18,12 @@ export interface ReceivableRow {
   readonly id: string;
   readonly name: string;
   readonly amountCents: number;
+  /**
+   * The person total through today (the People profile figure), when the caller has it. The settle
+   * flow caps at it instead of the month snapshot: paying more than the month but within the total
+   * is not a sobra.
+   */
+  readonly totalBalanceCents?: number;
 }
 
 export interface StmtGroup {
@@ -110,14 +117,18 @@ function StmtRow({ item, today }: { item: MonthlyItem; today: string }) {
           {item.source === "overdraft" && (
             // Overdraft debits its account the moment it happens — there is nothing to "pay"
             // later, unlike the boletos/parcelas sharing this group. The badge says why.
-            <span
-              className="parc-badge"
-              style={{ marginLeft: 8, background: "var(--amber-soft)", color: "var(--amber-500)" }}
-              title="Cheque especial: o valor já saiu direto da conta — não há nada a pagar."
-            >
-              <Icon name="landmark" size={11} />
-              cheque especial
-            </span>
+            <>
+              <span
+                className="parc-badge"
+                style={{ marginLeft: 8, background: "var(--amber-soft)", color: "var(--amber-500)" }}
+              >
+                <Icon name="landmark" size={11} />
+                cheque especial
+              </span>
+              <InfoHint label="Por que não há nada a pagar">
+                Cheque especial: o valor já saiu direto da conta — não há nada a pagar.
+              </InfoHint>
+            </>
           )}
           {item.projected && (
             <span className="parc-badge futura" style={{ marginLeft: 6 }}>
@@ -320,7 +331,8 @@ export function StmtCard({
                     id: r.id,
                     name: r.name,
                     prefillCents: r.amountCents,
-                    capCents: r.amountCents,
+                    capCents: r.totalBalanceCents ?? r.amountCents,
+                    throughMonth: month,
                   });
                 return (
                   <div

@@ -48,6 +48,13 @@ export const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Configuraçõ
 /** Discreet entry just below Settings (import a bank statement or a card bill). */
 export const IMPORT_ITEM: NavItem = { href: "/import", label: "Importar", icon: "file-up" };
 
+/** Reached from the Import page and from an account: checks a statement against what is booked. */
+export const RECONCILE_ITEM: NavItem = {
+  href: "/reconcile",
+  label: "Conferir extrato",
+  icon: "file-spreadsheet",
+};
+
 /** Mobile bottom-nav: 4 primary tabs (+ a "Mais" sheet for the rest). Cartões now live inside
  * Carteiras (a tab there), so Carteiras is the primary tab. */
 export const MOBILE_TABS: NavItem[] = [
@@ -65,10 +72,11 @@ export const MOBILE_MORE: NavItem[] = [
   { href: "/reports", label: "Relatórios", icon: "chart-pie" },
   { href: "/settings", label: "Configurações", icon: "settings" },
   { href: "/import", label: "Importar", icon: "file-up" },
+  { href: "/reconcile", label: "Conferir extrato", icon: "file-spreadsheet" },
 ];
 
 /** All routes flattened, for resolving the topbar title from the pathname. */
-const ALL: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), SETTINGS_ITEM, IMPORT_ITEM];
+const ALL: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), SETTINGS_ITEM, IMPORT_ITEM, RECONCILE_ITEM];
 
 export function titleForPath(pathname: string): string {
   const item = ALL.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));

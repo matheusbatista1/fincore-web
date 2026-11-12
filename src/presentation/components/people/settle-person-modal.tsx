@@ -2,13 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { settlePersonAction, updateSettlementAction } from "@/app/_actions/finance";
+import { type SettleActionState, settlePersonAction, updateSettlementAction } from "@/app/_actions/finance";
 import type { SettlementView } from "@/application/use-cases/get-settlements";
 import { DialogClose, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
-import { settlementInputSchema } from "@/shared/schemas/transaction";
+import { settlementInputSchema, settlePersonSchema } from "@/shared/schemas/transaction";
 
 /** A wallet/account option for the settle account picker. */
 export interface AccountOption {
@@ -19,18 +19,23 @@ export interface AccountOption {
 /**
  * The person + amounts a settle ("Acerto") targets. A light shape (no full PersonMonthView) so the
  * modal can be opened from anywhere — the person profile OR the Visão mensal "a receber" rows.
- *  - `capCents`: signed outstanding the settle applies against (> 0 they owe you, < 0 you owe them).
- *    This is the HARD cap and drives the direction. Callers pass the balance the screen shows (the
- *    profile passes the through-month total; a monthly receivable passes the month's amount), so the
- *    modal always agrees with the figure the user just clicked.
+ *  - `capCents`: signed outstanding the settle applies against (> 0 they owe you, < 0 you owe them,
+ *    0 nothing pending — then anything received is a sobra). It drives the direction and is the
+ *    pending a payment is measured against: callers pass the person's total through today (the
+ *    figure the People profile shows), so the modal and the server agree on what is "above".
  *  - `prefillCents`: signed amount to prefill (typically the browsed-month net), clamped to the cap.
+ *  - `throughMonth`: the browsed competence month; the server measures the pending through it (or
+ *    today, whichever is later), exactly like the profile's "no total".
  */
 export interface SettleTarget {
   readonly id: string;
   readonly name: string;
   readonly prefillCents: number;
   readonly capCents: number;
+  readonly throughMonth: string;
 }
+
+type Surplus = "tip" | "credit";
 
 const firstName = (full: string): string => full.split(" ")[0] ?? full;
 
@@ -46,7 +51,14 @@ function todayIso(): string {
 /**
  * Register (or edit) an acerto — a person paying you back, or you paying them. Reused by the People
  * profile and the Visão mensal "a receber" rows. Settle against `target.capCents` (the outstanding the
- * screen shows), prefilling `target.prefillCents` (what the user clicked) clamped to the cap.
+ * screen shows), prefilling `target.prefillCents` (what the user clicked) clamped to the cap. The
+ * acerto carries the date it really happened (default today): a payment for August made in
+ * September must be able to say so, since the ledger covers the oldest open months by date.
+ *
+ * A payment ABOVE the pending is never clipped silently: the modal asks what the sobra is — a
+ * gorjeta (the user's own income, booked with the acerto) or the person's credit (kept in the acerto,
+ * applied to their next share) — and the server re-checks the figures. A "sem conta" acerto
+ * (baixa/perdão) has no cash behind it, so it stays capped at the pending.
  */
 export function SettleBody({
   target,
@@ -61,7 +73,9 @@ export function SettleBody({
 }) {
   const toast = useUIStore((s) => s.toast);
   const router = useRouter();
-  const owes = target.capCents > 0;
+  // Direction: a non-negative cap is "they pay" — zero means nothing pending, so whatever is
+  // received is a sobra to decide on (not the "você deve R$ 0,00" dead end it used to be).
+  const theyPay = target.capCents >= 0;
   const max = Math.abs(target.capCents);
   const monthAmount = Math.abs(target.prefillCents);
   const owed = monthAmount > 0 ? Math.min(monthAmount, max) : max;
@@ -71,54 +85,93 @@ export function SettleBody({
   // the user consciously picks where the cash landed (no silent default to the first wallet).
   // ACCOUNT_NONE = "sem conta" (baixa/perdão, no cash movement).
   const [accountSel, setAccountSel] = useState<string>(editing ? (editing.accountId ?? ACCOUNT_NONE) : "");
+  const today = todayIso();
+  const [date, setDate] = useState<string>(editing ? editing.date : today);
+  const [surplus, setSurplus] = useState<Surplus | null>(null);
+  // The pending the server measured when it refused to guess: it replaces the screen's figure, so
+  // the question is asked with the numbers that will actually be written.
+  const [serverOwed, setServerOwed] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const owedShown = serverOwed ?? max;
+  const noAccount = accountSel === ACCOUNT_NONE;
+  const overCents = !editing && theyPay ? Math.max(0, cents - owedShown) : 0;
+  // A sobra needs cash to exist: with "sem conta" the amount keeps today's cap.
+  const surplusActive = overCents > 0 && !noAccount;
   // When editing, the amount is free (the booked balance already reflects this acerto).
-  const applied = editing ? cents : Math.min(cents, max);
-  const restante = Math.max(0, max - applied);
-  const valid = cents > 0;
+  const applied = editing ? cents : Math.min(cents, owedShown);
+  const submitAmount = editing || surplusActive ? cents : applied;
+  const restante = Math.max(0, owedShown - applied);
+  const valid = cents > 0 && (!surplusActive || surplus !== null);
 
   async function confirm() {
     if (!valid || submitting) return;
     if (accountSel === "") {
-      setError(owes ? "Escolha a conta que recebeu o pagamento." : "Escolha a conta de onde saiu.");
+      setError(theyPay ? "Escolha a conta que recebeu o pagamento." : "Escolha a conta de onde saiu.");
       return;
     }
     setError(null);
-    const accountId = accountSel === ACCOUNT_NONE ? null : accountSel;
-    const parsed = settlementInputSchema.safeParse({
-      personId: target.id,
-      amountCents: applied,
-      date: editing ? editing.date : todayIso(),
-      accountId,
-    });
+    const accountId = noAccount ? null : accountSel;
+    const parsed = editing
+      ? settlementInputSchema.safeParse({ personId: target.id, amountCents: submitAmount, date, accountId })
+      : settlePersonSchema.safeParse({
+          personId: target.id,
+          amountCents: submitAmount,
+          date,
+          accountId,
+          throughMonth: target.throughMonth,
+          ...(surplusActive && surplus ? { surplus } : {}),
+        });
     if (!parsed.success) {
       setError("Revise o valor do acerto.");
       return;
     }
     setSubmitting(true);
-    const res = editing
+    const res: SettleActionState = editing
       ? await updateSettlementAction(editing.id, parsed.data)
       : await settlePersonAction(parsed.data);
     setSubmitting(false);
     if (!res.ok) {
+      if (res.surplus) {
+        // The server measured a pending the screen did not know (a stale cap, or a month-only one):
+        // ask the question with its figures instead of failing.
+        setServerOwed(res.surplus.owedCents);
+        setSurplus(null);
+        return;
+      }
       setError(res.error);
       return;
     }
-    toast(editing ? "Acerto atualizado." : "Acerto registrado.");
+    toast(
+      editing
+        ? "Acerto atualizado."
+        : surplusActive && surplus === "tip"
+          ? `Acerto registrado. Gorjeta de ${formatBRLAbsolute(overCents)} lançada como receita.`
+          : surplusActive && surplus === "credit"
+            ? `Acerto registrado. ${formatBRLAbsolute(overCents)} ficam como crédito de ${first}.`
+            : "Acerto registrado.",
+    );
     router.refresh();
     onDone();
   }
 
   return (
     <DialogModal
-      title={editing ? "Editar acerto" : owes ? "Registrar pagamento" : "Marcar como pago"}
+      title={editing ? "Editar acerto" : theyPay ? "Registrar pagamento" : "Marcar como pago"}
       maxWidth={440}
     >
       <div className="modal-body">
         <div style={{ textAlign: "center", marginBottom: 6, fontSize: 13.5, color: "var(--text-lo)" }}>
-          {owes ? (
+          {editing ? (
+            <span>
+              Editando o acerto de <b style={{ color: "var(--text-hi)" }}>{first}</b>.
+            </span>
+          ) : theyPay && max === 0 ? (
+            <span>
+              <b style={{ color: "var(--text-hi)" }}>{first}</b> não deve nada no momento. Quanto recebeu?
+            </span>
+          ) : theyPay ? (
             <span>
               <b style={{ color: "var(--text-hi)" }}>{first}</b> te deve {formatBRLAbsolute(owed)}. Quanto
               recebeu?
@@ -141,9 +194,9 @@ export function SettleBody({
           // biome-ignore lint/a11y/noAutofocus: amount is the primary field of the settle modal.
           autoFocus
           aria-label="Valor do acerto"
-          style={{ marginBottom: 14, color: owes ? "var(--mint-500)" : "var(--rose-500)" }}
+          style={{ marginBottom: 14, color: theyPay ? "var(--mint-500)" : "var(--rose-500)" }}
         />
-        {!editing && (
+        {!editing && max > 0 && (
           <div className="chip-select" style={{ justifyContent: "center", marginBottom: 16 }}>
             <button type="button" className="person-chip" onClick={() => setCents(Math.round(max / 2))}>
               Metade
@@ -157,7 +210,7 @@ export function SettleBody({
           htmlFor="settle-account"
           style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
         >
-          {owes ? "Entrou em qual conta?" : "Saiu de qual conta?"}
+          {theyPay ? "Entrou em qual conta?" : "Saiu de qual conta?"}
         </label>
         <select
           id="settle-account"
@@ -176,17 +229,105 @@ export function SettleBody({
           ))}
           <option value={ACCOUNT_NONE}>Sem conta (só baixa / perdão)</option>
         </select>
+        <label
+          htmlFor="settle-date"
+          style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
+        >
+          Quando foi?
+        </label>
+        <input
+          id="settle-date"
+          className="input"
+          type="date"
+          value={date}
+          max={today}
+          onChange={(e) => setDate(e.target.value || today)}
+          style={{ width: "100%", marginBottom: 16 }}
+        />
+        {surplusActive && (
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                textAlign: "center",
+                fontSize: 13,
+                color: "var(--text-lo)",
+                marginBottom: 8,
+                lineHeight: 1.45,
+              }}
+            >
+              Sobram <b style={{ color: "var(--text-hi)" }}>{formatBRLAbsolute(overCents)}</b> acima do que{" "}
+              {first} deve ({formatBRLAbsolute(owedShown)}). O que fazer com a sobra?
+            </div>
+            <div className="chip-select" style={{ justifyContent: "center", marginBottom: 8 }}>
+              <button
+                type="button"
+                className={`person-chip${surplus === "tip" ? " on" : ""}`}
+                onClick={() => setSurplus("tip")}
+              >
+                Gorjeta
+              </button>
+              <button
+                type="button"
+                className={`person-chip${surplus === "credit" ? " on" : ""}`}
+                onClick={() => setSurplus("credit")}
+              >
+                Crédito de {first}
+              </button>
+            </div>
+            <div style={{ textAlign: "center", fontSize: 12.5, color: "var(--text-lo)", lineHeight: 1.45 }}>
+              {surplus === "tip"
+                ? "A sobra é sua: vira uma receita na conta escolhida."
+                : surplus === "credit"
+                  ? `A sobra fica como crédito de ${first} e abate o que ainda deve ou vier a dever.`
+                  : "Escolha uma opção para confirmar."}
+            </div>
+          </div>
+        )}
+        {overCents > 0 && noAccount && (
+          <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: -8, marginBottom: 16 }}>
+            Sem conta, o acerto fica limitado a {formatBRLAbsolute(owedShown)}.
+          </div>
+        )}
         <div className="summary-box">
-          <div className="sb-row">
-            <span className="k">{owes ? "Recebendo agora" : "Pagando agora"}</span>
-            <span className="v" style={{ color: owes ? "var(--mint-500)" : "var(--rose-500)" }}>
-              {formatBRLAbsolute(applied)}
-            </span>
-          </div>
-          <div className="sb-row total">
-            <span className="k">Continua pendente</span>
-            <span className="v">{formatBRLAbsolute(restante)}</span>
-          </div>
+          {surplusActive ? (
+            <>
+              <div className="sb-row">
+                <span className="k">Abate da dívida</span>
+                <span className="v" style={{ color: "var(--mint-500)" }}>
+                  {formatBRLAbsolute(applied)}
+                </span>
+              </div>
+              <div className="sb-row">
+                <span className="k">
+                  {surplus === "tip"
+                    ? "Gorjeta (receita sua)"
+                    : surplus === "credit"
+                      ? "Fica como crédito"
+                      : "Sobra"}
+                </span>
+                <span className="v" style={{ color: "var(--sky-500)" }}>
+                  {formatBRLAbsolute(overCents)}
+                </span>
+              </div>
+              <div className="sb-row total">
+                <span className="k">Entra na conta</span>
+                <span className="v">{formatBRLAbsolute(cents)}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="sb-row">
+                <span className="k">{theyPay ? "Recebendo agora" : "Pagando agora"}</span>
+                <span className="v" style={{ color: theyPay ? "var(--mint-500)" : "var(--rose-500)" }}>
+                  {formatBRLAbsolute(applied)}
+                </span>
+              </div>
+              <div className="sb-row total">
+                <span className="k">Continua pendente</span>
+                <span className="v">{formatBRLAbsolute(restante)}</span>
+              </div>
+            </>
+          )}
           {restante === 0 && cents > 0 && (
             <div
               style={{

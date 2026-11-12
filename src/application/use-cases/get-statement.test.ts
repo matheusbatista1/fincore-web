@@ -187,6 +187,16 @@ describe("getStatement — executed extrato", () => {
     expect(executed).toHaveLength(0);
     expect(future).toHaveLength(0);
   });
+
+  it("excludes a ledger-only debt, past or future: it is owed, never moved", async () => {
+    // Own money with no account — a remainder rolled with the user's own money.
+    const owed = { splits: [{ personId: "p1", shareCents: 10000 }], myShareCents: 0, accountId: null };
+    const past = exp({ date: "2026-06-02", ...owed });
+    const upcoming = exp({ date: "2026-07-20", ...owed });
+    const { executed, future } = await getStatement(stub([past, upcoming]), "u");
+    expect(executed).toHaveLength(0);
+    expect(future).toHaveLength(0);
+  });
 });
 
 describe("getStatement — future", () => {

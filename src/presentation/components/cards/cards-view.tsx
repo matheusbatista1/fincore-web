@@ -26,6 +26,8 @@ import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
 
 interface ActiveInstallment {
+  /** The installment group: two purchases can share a description and a parcela count. */
+  readonly groupId: string;
   readonly desc: string;
   readonly of: number;
   readonly value: number;
@@ -132,7 +134,8 @@ export function CardsView({
       g.nos.push(t.parcela.number);
       if (t.parcela.status === "atual") g.cur = t.parcela.number;
     }
-    return [...groups.values()].map((g) => ({
+    return [...groups.entries()].map(([groupId, g]) => ({
+      groupId,
       desc: g.desc,
       of: g.of,
       value: g.value,
@@ -428,7 +431,7 @@ export function CardsView({
                 </div>
               )}
               {parcelas.map((p) => (
-                <div className="lrow" key={`${p.desc}-${p.of}`}>
+                <div className="lrow" key={p.groupId}>
                   <span
                     className="l-ic"
                     style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}

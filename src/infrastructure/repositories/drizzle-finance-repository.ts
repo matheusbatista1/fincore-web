@@ -47,6 +47,16 @@ function one<T>(rows: T[]): T {
   return row;
 }
 
+/** The edit form caps a note at 280 chars: keep an assumption trail without breaking later edits. */
+const NOTE_MAX_LENGTH = 280;
+function appendNote(existing: string | null, suffix: string): string {
+  if (!existing) return suffix.slice(0, NOTE_MAX_LENGTH);
+  const joined = `${existing} · ${suffix}`;
+  if (joined.length <= NOTE_MAX_LENGTH) return joined;
+  const room = NOTE_MAX_LENGTH - suffix.length - 4; // "… · " between the clipped note and the trail
+  return room > 0 ? `${existing.slice(0, room)}… · ${suffix}` : suffix.slice(0, NOTE_MAX_LENGTH);
+}
+
 /** Maps a domain entry to a transactions insert payload for the given user. */
 function toTransactionValues(userId: string, entry: NewTransactionEntry, installmentGroupId: string | null) {
   return {
@@ -546,15 +556,86 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     // Pool roll: zero the person's outstanding via a cash-less rollover settlement (no account →
     // no cash moved) and create the new rolled-into debt, atomically. RLS scopes rows to the user.
     await this.run(userId, async (tx) => {
-      await tx.insert(schema.settlements).values({
-        userId,
-        personId: settlement.personId,
-        amountCents: settlement.amountCents,
-        settledOn: settlement.date,
-        accountId: settlement.accountId ?? null,
-        note: settlement.note ?? null,
-      });
+      await this.insertSettlement(tx, userId, settlement);
       await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  async createSettlementWithTransaction(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void> {
+    // An acerto capped at the pending plus the surplus as the user's own income (gorjeta): one
+    // transaction, so the cash never lands without its explanation, nor the other way round.
+    await this.run(userId, async (tx) => {
+      await this.insertSettlement(tx, userId, settlement);
+      await this.insertCommand(tx, userId, command);
+    });
+  }
+
+  /** The settlements insert every acerto write shares (plain, pool roll, acerto + gorjeta). */
+  private async insertSettlement(tx: RlsTransaction, userId: string, input: SettlementData): Promise<void> {
+    await tx.insert(schema.settlements).values({
+      userId,
+      personId: input.personId,
+      amountCents: input.amountCents,
+      settledOn: input.date,
+      accountId: input.accountId ?? null,
+      note: input.note ?? null,
+    });
+  }
+
+  async assumePersonShares(
+    userId: string,
+    items: ReadonlyArray<{ transactionId: string; personId: string; assumeCents: number }>,
+    note: string,
+  ): Promise<number> {
+    if (items.length === 0) return 0;
+    // Each share shrinks by what the user takes over (and goes when fully taken), the row's own share
+    // grows by the same cents and the note keeps the trail — all or nothing. RLS scopes rows to the user.
+    return this.run(userId, async (tx) => {
+      for (const item of items) {
+        const split = one(
+          await tx
+            .select({ id: schema.transactionSplits.id, shareCents: schema.transactionSplits.shareCents })
+            .from(schema.transactionSplits)
+            .where(
+              and(
+                eq(schema.transactionSplits.transactionId, item.transactionId),
+                eq(schema.transactionSplits.personId, item.personId),
+              ),
+            ),
+        );
+        if (item.assumeCents <= 0 || item.assumeCents > split.shareCents) {
+          throw new Error("Assumed amount exceeds the person's share");
+        }
+        const row = one(
+          await tx
+            .select({ myShareCents: schema.transactions.myShareCents, note: schema.transactions.note })
+            .from(schema.transactions)
+            .where(
+              and(eq(schema.transactions.id, item.transactionId), isNull(schema.transactions.deletedAt)),
+            ),
+        );
+        if (item.assumeCents === split.shareCents) {
+          await tx.delete(schema.transactionSplits).where(eq(schema.transactionSplits.id, split.id));
+        } else {
+          await tx
+            .update(schema.transactionSplits)
+            .set({ shareCents: split.shareCents - item.assumeCents })
+            .where(eq(schema.transactionSplits.id, split.id));
+        }
+        await tx
+          .update(schema.transactions)
+          .set({
+            myShareCents: (row.myShareCents ?? 0) + item.assumeCents,
+            note: appendNote(row.note, note),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.transactions.id, item.transactionId));
+      }
+      return items.length;
     });
   }
 
@@ -760,6 +841,18 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           transferValueCents: command.transferValueCents ?? null,
           // `fixed` toggles recurrence on/off, anchored to the (possibly new) date's day.
           recurrenceDayOfMonth: command.fixed ? Number.parseInt(command.date.slice(8, 10), 10) : null,
+          // The receipt/payment recorded on the row is what the balance reads: it is written with
+          // the row, so an edited amount/account/date reaches the balance too.
+          ...(command.settlement
+            ? {
+                receivedAt: command.settlement.receivedAt,
+                receivedAccountId: command.settlement.receivedAccountId,
+                receivedAmountCents: command.settlement.receivedAmountCents,
+                paidAt: command.settlement.paidAt,
+                paidAccountId: command.settlement.paidAccountId,
+                paidAmountCents: command.settlement.paidAmountCents,
+              }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.transactions.id, command.id));
@@ -857,16 +950,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
   }
 
   async createSettlement(userId: string, input: SettlementData): Promise<void> {
-    await this.run(userId, async (tx) => {
-      await tx.insert(schema.settlements).values({
-        userId,
-        personId: input.personId,
-        amountCents: input.amountCents,
-        settledOn: input.date,
-        accountId: input.accountId ?? null,
-        note: input.note ?? null,
-      });
-    });
+    await this.run(userId, (tx) => this.insertSettlement(tx, userId, input));
   }
 
   async updateSettlement(userId: string, id: string, input: SettlementData): Promise<void> {
@@ -879,7 +963,7 @@ export class DrizzleFinanceRepository implements FinanceRepository {
           amountCents: input.amountCents,
           settledOn: input.date,
           accountId: input.accountId ?? null,
-          note: input.note ?? null,
+          ...(input.note !== undefined ? { note: input.note || null } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.settlements.id, id));

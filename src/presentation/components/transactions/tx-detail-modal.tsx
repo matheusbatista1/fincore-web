@@ -36,6 +36,7 @@ export function TxDetailModal({ today }: { today: string }) {
   const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
+  const openCreate = useTxUIStore((s) => s.openCreate);
   const openDelete = useTxUIStore((s) => s.openDelete);
   const openPay = useTxUIStore((s) => s.openPay);
   const openReceive = useTxUIStore((s) => s.openReceive);
@@ -166,6 +167,11 @@ export function TxDetailModal({ today }: { today: string }) {
                 <div className="balance-big" style={{ fontSize: 32, marginTop: 4, color: "var(--sky-500)" }}>
                   <Money cents={tx.transferValueCents ?? 0} withSign={false} />
                 </div>
+              ) : tx.ledgerOnly ? (
+                // No money left for this row: the amount is what the person owes, not a debit.
+                <div className="balance-big" style={{ fontSize: 32, marginTop: 4 }}>
+                  <Money cents={Math.abs(tx.amountCents)} withSign={false} />
+                </div>
               ) : (
                 <div
                   className={`balance-big ${tx.amountCents < 0 ? "neg" : "pos"}`}
@@ -205,14 +211,23 @@ export function TxDetailModal({ today }: { today: string }) {
                     </span>
                   </div>
                 )}
-                <div className="sb-row">
-                  <span className="k">Categoria</span>
-                  <span className="v">{tx.category?.name ?? "Receita"}</span>
-                </div>
+                {/* A ledger-only debt is no spending: it has no category to show. */}
+                {!tx.ledgerOnly && (
+                  <div className="sb-row">
+                    <span className="k">Categoria</span>
+                    <span className="v">{tx.category?.name ?? "Receita"}</span>
+                  </div>
+                )}
                 <div className="sb-row">
                   <span className="k">{tx.cardId ? "Cartão" : tx.accountId ? "Conta" : "Forma"}</span>
                   <span className="v">{tx.sourceLabel ?? (tx.kind === "income" ? "Receita" : "—")}</span>
                 </div>
+                {tx.ledgerOnly && (
+                  <div className="sb-row">
+                    <span className="k">Movimentação</span>
+                    <span className="v">Nenhuma (só a dívida)</span>
+                  </div>
+                )}
                 <div className="sb-row">
                   <span className="k">Data</span>
                   <span className="v">{relativeDateLabel(tx.date, today)}</span>
@@ -377,6 +392,20 @@ export function TxDetailModal({ today }: { today: string }) {
                   ))}
                 </div>
               </div>
+            )}
+
+            {/* A new one with the same values, dated today; nothing is saved until confirmed. Not for
+                a synthetic row (nothing to copy) nor a debt with nothing behind it. */}
+            {!synthetic && !tx.ledgerOnly && (
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                style={{ marginTop: 16 }}
+                onClick={() => openCreate(tx.kind, tx)}
+              >
+                <Icon name="copy" size={14} />
+                Duplicar lançamento
+              </button>
             )}
           </div>
 

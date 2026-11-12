@@ -284,6 +284,35 @@ describe("computeViewTotals — edge cases", () => {
   });
 });
 
+describe("computeViewTotals — a ledger-only debt is no spending", () => {
+  // Own money with no account: only what a person owes. The spending it stands for was counted
+  // when the original rows happened; counting this one would book it twice.
+  const debt: ExpenseTransaction = {
+    ...expense({
+      id: "carried",
+      amountCents: -40_000,
+      source: "account",
+      splits: [{ personId: "p1", shareCents: 40_000 }],
+    }),
+    accountId: null,
+  };
+  const groceries = expense({ id: "groceries", amountCents: -10_000 });
+
+  it("counts in neither lens", () => {
+    for (const mode of ["general", "personal"] as const) {
+      const totals = computeViewTotals([groceries, debt], mode);
+      expect(totals.expense.cents).toBe(10_000);
+      expect(totals.net.cents).toBe(-10_000);
+    }
+  });
+
+  it("an own-money expense WITH an account still counts in full", () => {
+    const real: ExpenseTransaction = { ...debt, id: "real", accountId: "it" };
+    expect(computeViewTotals([real], "general").expense.cents).toBe(40_000);
+    expect(computeViewTotals([real], "personal").expense.cents).toBe(0); // all someone else's
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests — business invariants over arbitrary transaction lists.
 // ---------------------------------------------------------------------------

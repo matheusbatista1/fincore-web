@@ -80,6 +80,27 @@ describe("getMonthly", () => {
     expect(data.items.some((i) => i.id === "rolled")).toBe(false);
   });
 
+  it("excludes a ledger-only debt from totals and items — it is owed, not spent", async () => {
+    const repo = stubRepo(
+      [
+        expense({ id: "real", amountCents: -10000 }),
+        // A remainder rolled with the user's own money: own-money source, no account.
+        expense({
+          id: "carried",
+          amountCents: -40000,
+          accountId: null,
+          splits: [{ personId: "p1", shareCents: 40000 }],
+          myShareCents: 0,
+        }),
+      ],
+      [person("p1")],
+    );
+    const data = await getMonthly(repo, "u", "2026-06");
+
+    expect(data.realized.expenseCents).toBe(10000);
+    expect(data.items.map((i) => i.id)).toEqual(["real"]);
+  });
+
   it("shows a settlement (person paid you) as an ENTRADA in the month it was paid", async () => {
     const repo = stubRepo(
       // p owes you R$100 (their full share) — gross positive → settlement is an inflow.

@@ -62,6 +62,15 @@ export interface LedgerMovement {
   readonly balanceAfterCents: number;
 }
 
+/**
+ * Tuning for a ledger replay. `projected` (default `true`) folds the "previsto" recurring
+ * occurrences into the horizon; `false` replays only BOOKED rows — the figure an operation that
+ * acts on real rows (settle, roll, assume) must validate against, since a forecast has no row.
+ */
+export interface LedgerOptions {
+  readonly projected?: boolean;
+}
+
 /** A transaction stamped with the date/competence/projected flag to emit on its movements. */
 interface StampedTransaction {
   readonly tx: Transaction;
@@ -239,9 +248,16 @@ export function computePersonMonthNets(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): Map<string, Map<CompetenceMonth, number>> {
-  return computePersonMonthNetsAndSettledCash(people, transactions, settlements, throughMonth, competenceOf)
-    .nets;
+  return computePersonMonthNetsAndSettledCash(
+    people,
+    transactions,
+    settlements,
+    throughMonth,
+    competenceOf,
+    options,
+  ).nets;
 }
 
 /**
@@ -270,11 +286,19 @@ export function computePersonMonthNetsAndSettledCash(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): {
   nets: Map<string, Map<CompetenceMonth, number>>;
   settledCashByMonth: Map<CompetenceMonth, number>;
 } {
-  const { movements } = computePersonLedger(people, transactions, settlements, throughMonth, competenceOf);
+  const { movements } = computePersonLedger(
+    people,
+    transactions,
+    settlements,
+    throughMonth,
+    competenceOf,
+    options,
+  );
 
   const byPerson = new Map<string, LedgerMovement[]>();
   for (const mv of movements) {
@@ -375,6 +399,7 @@ export function computePersonLedger(
   settlements: readonly Settlement[],
   throughMonth: CompetenceMonth,
   competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
 ): { balances: Map<string, Money>; movements: LedgerMovement[] } {
   // A received income abates a person's debt on its RECEIPT date, which may differ from its booked
   // date (you record an expected payment for next month, then receive it early). Bucket such a row by
@@ -404,7 +429,7 @@ export function computePersonLedger(
   }
 
   const projected: StampedTransaction[] = [];
-  if (earliest !== null) {
+  if (earliest !== null && (options.projected ?? true)) {
     for (let m = earliest; compareMonths(m, throughMonth) <= 0; m = addMonths(m, 1)) {
       for (const occ of projectRecurring(transactions, m, competenceOf)) {
         // `projectRecurring` resolves each occurrence through the SAME competence resolver as real
@@ -467,6 +492,95 @@ export function computePersonBookedBalancesThrough(
     .filter((s) => compareMonths(monthOf(s.date), throughMonth) <= 0)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1));
   return accumulateWithMovements(people, real, settsThrough, true).balances;
+}
+
+/** A ledger movement annotated with the money it really moved — the figure a lay reader expects. */
+export interface CashMovement extends LedgerMovement {
+  /**
+   * The unclamped delta. Shares and payments: `signedDeltaCents` (they never clamp). An
+   * account-backed acerto: the full amount paid, `< 0` when they paid you and `> 0` when you paid
+   * them — including the part the zero-clamp parked. A "sem conta" acerto (baixa/perdão): the
+   * applied delta, because a write-off beyond the debt forgives nothing.
+   */
+  readonly cashDeltaCents: number;
+}
+
+/**
+ * The cash a single movement moved (see {@link CashMovement}). `rawAccrualCents` is the person's
+ * accrual in the replay (shares − payments) and only orients an acerto that landed on a ZERO
+ * balance (applied delta 0): `≥ 0` → they paid you, mirroring the account-cash direction rule in
+ * balance.calculator. That rule reads the all-time, horizon-free accrual, so the two can disagree
+ * for a zero-balance acerto whose only share lies beyond the horizon: an edge of an edge,
+ * documented rather than fixed.
+ */
+export function cashDeltaCents(mv: LedgerMovement, rawAccrualCents: number): number {
+  if (mv.source.type !== "settlement") return mv.signedDeltaCents;
+  const { settlement } = mv.source;
+  if (settlement.accountId === null) return mv.signedDeltaCents;
+  const theyPaid = mv.signedDeltaCents < 0 || (mv.signedDeltaCents === 0 && rawAccrualCents >= 0);
+  const amount = Math.abs(settlement.amountCents);
+  return theyPaid ? -amount : amount;
+}
+
+/**
+ * Annotate a replay's movements with their cash deltas. Expects the list exactly as
+ * {@link computePersonLedger} emits it (transactions first, then settlements): each person's raw
+ * accrual is read off the non-settlement movements seen so far. Length and order are preserved.
+ */
+export function withCashDeltas(movements: readonly LedgerMovement[]): CashMovement[] {
+  const raw = new Map<string, number>();
+  return movements.map((mv) => {
+    if (mv.source.type !== "settlement") {
+      raw.set(mv.personId, (raw.get(mv.personId) ?? 0) + mv.signedDeltaCents);
+      return { ...mv, cashDeltaCents: mv.signedDeltaCents };
+    }
+    return { ...mv, cashDeltaCents: cashDeltaCents(mv, raw.get(mv.personId) ?? 0) };
+  });
+}
+
+/**
+ * What each person has ADVANCED through a replayed ledger: the part of their account-backed acertos
+ * that found no debt to cover — money held for them that the replay applies to the next share they
+ * owe. Per acerto it is `applied − cash` (see {@link cashDeltaCents}): `> 0` their money parked with
+ * you (abates their next share), `< 0` yours parked with them (you paid back more than you owed).
+ * Every `people` id is present, defaulting to 0. Only an account-backed acerto parks anything: a
+ * "sem conta" settlement is a baixa/perdão, and a write-off beyond the debt is not money held.
+ *
+ * Derived from {@link computePersonLedger}'s movements, so nets, settled cash and the clamp itself
+ * stay untouched: this is the complement the clamp drops, and the identity
+ * `balanceThrough − advance === Σ cashDeltaCents` holds for every replay.
+ */
+export function computePersonAdvances(
+  people: readonly Person[],
+  movements: readonly LedgerMovement[],
+): Map<string, number> {
+  const advances = new Map<string, number>();
+  for (const person of people) advances.set(person.id, 0);
+  for (const mv of withCashDeltas(movements)) {
+    if (mv.source.type !== "settlement" || mv.source.settlement.accountId === null) continue;
+    const parked = mv.signedDeltaCents - mv.cashDeltaCents;
+    if (parked === 0) continue;
+    advances.set(mv.personId, (advances.get(mv.personId) ?? 0) + parked);
+  }
+  return advances;
+}
+
+/**
+ * {@link computePersonAdvances} over the through-ledger of `throughMonth` — the same replay (and
+ * `options`) as {@link computePersonLedger}, so it pairs with {@link computePersonBalancesThrough}.
+ */
+export function computePersonAdvancesThrough(
+  people: readonly Person[],
+  transactions: readonly Transaction[],
+  settlements: readonly Settlement[],
+  throughMonth: CompetenceMonth,
+  competenceOf: CompetenceResolver,
+  options: LedgerOptions = {},
+): Map<string, number> {
+  return computePersonAdvances(
+    people,
+    computePersonLedger(people, transactions, settlements, throughMonth, competenceOf, options).movements,
+  );
 }
 
 /**

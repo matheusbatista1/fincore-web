@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
+import { assumePersonDebt } from "@/application/use-cases/assume-person-debt";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
+import { exportWorkspace } from "@/application/use-cases/export-workspace";
+import { getTransactions, type TransactionListItem } from "@/application/use-cases/get-transactions";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { materializeOccurrence } from "@/application/use-cases/materialize-occurrence";
 import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
@@ -11,10 +14,13 @@ import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
+import { type ReconcileResult, reconcileWithStatement } from "@/application/use-cases/reconcile-statement";
 import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
+import { settlePerson } from "@/application/use-cases/settle-person";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { todayInBrazil } from "@/shared/formatting/now";
 import {
   accountInputSchema,
   budgetInputSchema,
@@ -27,7 +33,9 @@ import {
   personInputSchema,
 } from "@/shared/schemas/entities";
 import { importStatementSchema } from "@/shared/schemas/import";
+import { reconcileStatementSchema } from "@/shared/schemas/reconcile";
 import {
+  assumeDebtSchema,
   createTransactionSchema,
   deleteTransactionSchema,
   materializeOccurrenceSchema,
@@ -38,6 +46,7 @@ import {
   rollDebtSchema,
   rollMonthDebtSchema,
   settlementInputSchema,
+  settlePersonSchema,
   stopRecurringSchema,
   undoCardBillPaymentSchema,
   undoPaymentSchema,
@@ -279,16 +288,81 @@ export async function importTransactionsAction(raw: unknown): Promise<ActionStat
   return { ok: true };
 }
 
-export async function settlePersonAction(raw: unknown): Promise<ActionState> {
-  return withParsed(settlementInputSchema, raw, (userId, input) =>
-    financeRepository.createSettlement(userId, {
-      personId: input.personId,
-      amountCents: input.amountCents,
-      date: input.date,
-      accountId: input.accountId,
-      ...(input.note !== undefined ? { note: input.note } : {}),
-    }),
-  );
+export type ExportBackupState =
+  | { ok: true; filename: string; content: string }
+  | { ok: false; error: string };
+
+/**
+ * "Baixar meus dados": everything the user recorded, as one JSON document. Read-only. The text is
+ * built here so the file is exactly what the server holds, not a re-serialisation of it.
+ */
+export async function exportBackupAction(): Promise<ExportBackupState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const backup = await exportWorkspace(financeRepository, userId, new Date());
+  return {
+    ok: true,
+    filename: `fincore-backup-${todayInBrazil()}.json`,
+    content: JSON.stringify(backup, null, 2),
+  };
+}
+
+export type ExportTransactionsState =
+  | { ok: true; filename: string; rows: TransactionListItem[] }
+  | { ok: false; error: string };
+
+/** Every transaction, oldest first, for the spreadsheet of "Baixar meus dados". Read-only. */
+export async function exportTransactionsAction(): Promise<ExportTransactionsState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const rows = await getTransactions(financeRepository, userId);
+  return { ok: true, filename: `fincore-lancamentos-${todayInBrazil()}.csv`, rows: rows.reverse() };
+}
+
+export type ReconcileActionState = { ok: true; result: ReconcileResult } | { ok: false; error: string };
+
+/**
+ * "Conferir com o extrato": compares a statement file's lines with what is booked. Read-only, so
+ * nothing is revalidated.
+ */
+export async function reconcileStatementAction(raw: unknown): Promise<ReconcileActionState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = reconcileStatementSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Não consegui ler as linhas deste arquivo." };
+  const result = await reconcileWithStatement(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  return { ok: true, result: result.value };
+}
+
+/**
+ * The settle action's state: when the payment exceeds the pending and the client sent no decision,
+ * the error carries the figures so the modal can ask ("gorjeta ou crédito?") with the server's numbers.
+ */
+export type SettleActionState = ActionState & {
+  surplus?: { owedCents: number; surplusCents: number };
+};
+
+/**
+ * "Registrar pagamento": the use-case measures the person's pending (never trust the client) and
+ * refuses to clip a payment above it — the surplus is either the user's gorjeta (an own income,
+ * atomic with the acerto) or the person's credit (kept inside the acerto).
+ */
+export async function settlePersonAction(raw: unknown): Promise<SettleActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = settlePersonSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await settlePerson(financeRepository, userId, parsed.data);
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error.message,
+      ...(result.error.surplus ? { surplus: result.error.surplus } : {}),
+    };
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function updateSettlementAction(id: string, raw: unknown): Promise<ActionState> {
@@ -367,6 +441,21 @@ export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionSta
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/**
+ * "Assumir dívida": the use-case validates the person's BOOKED pending (never trust the client) and
+ * moves their shares onto the user — no cash, no acerto; the expense becomes the user's.
+ */
+export async function assumePersonDebtAction(raw: unknown): Promise<ActionState> {
+  const userId = await currentUserId();
+  if (!userId) return UNAUTHORIZED;
+  const parsed = assumeDebtSchema.safeParse(raw);
+  if (!parsed.success) return INVALID;
+  const result = await assumePersonDebt(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, count: result.value };
 }
 
 // --- accounts ---

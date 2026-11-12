@@ -3,6 +3,8 @@ import type { IsoDate } from "../value-objects/competence-month";
 import type { ExpenseTransaction, IncomeTransaction } from "./transaction";
 import {
   incomeEffectiveDate,
+  isLedgerOnly,
+  isOffBooks,
   isOverdue,
   isPaid,
   isPayableObligation,
@@ -61,6 +63,41 @@ describe("isPayableObligation", () => {
     expect(isPayableObligation(expense({ source: "overdraft" }))).toBe(false);
     expect(isPayableObligation(expense({ source: "card", cardId: "c1", linkedAccountId: null }))).toBe(false);
     expect(isPayableObligation(income())).toBe(false);
+  });
+});
+
+describe("isLedgerOnly", () => {
+  const debt = expense({ source: "account", accountId: null, linkedAccountId: null, myShareCents: 0 });
+
+  it("is an own-money expense with no account behind it", () => {
+    expect(isLedgerOnly(debt)).toBe(true);
+  });
+
+  it("is false once the expense names an account (it debits that balance)", () => {
+    expect(isLedgerOnly(expense({ source: "account", accountId: "acc-1" }))).toBe(false);
+  });
+
+  it("is false for every other source, even with no account at all", () => {
+    for (const source of ["card", "boleto", "loan", "financing", "overdraft"] as const) {
+      expect(isLedgerOnly(expense({ source, accountId: null, linkedAccountId: null }))).toBe(false);
+    }
+  });
+
+  it("is false for incomes", () => {
+    expect(isLedgerOnly(income())).toBe(false);
+  });
+});
+
+describe("isOffBooks", () => {
+  it("covers a rolled expense and a ledger-only debt", () => {
+    expect(isOffBooks(expense({ rolledAt: "2026-07-21" as IsoDate }))).toBe(true);
+    expect(isOffBooks(expense({ source: "account", accountId: null }))).toBe(true);
+  });
+
+  it("is false for an active expense and for incomes", () => {
+    expect(isOffBooks(expense())).toBe(false);
+    expect(isOffBooks(expense({ source: "account", accountId: "acc-1" }))).toBe(false);
+    expect(isOffBooks(income())).toBe(false);
   });
 });
 

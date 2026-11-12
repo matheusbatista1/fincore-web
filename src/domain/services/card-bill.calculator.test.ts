@@ -11,6 +11,7 @@ import type {
 import { Money } from "../money/money";
 import {
   billingCompetence,
+  type CardBilling,
   cardBillMonth,
   cardUtilization,
   computeCardBill,
@@ -22,6 +23,7 @@ import {
   computeCardOpenBillMonth,
   computeCardOutstanding,
   computeCardOutstandings,
+  paidBillOf,
 } from "./card-bill.calculator";
 
 // ---------------------------------------------------------------------------
@@ -732,5 +734,43 @@ describe("computeCardBillForecast — the previsto slice of a bill", () => {
   it("ignores a rolled rule", () => {
     const rolled: ExpenseTransaction = { ...sub, rolledAt: "2026-06-20" };
     expect(computeCardBillForecast("c1", [rolled], "2026-08", competenceOf).cents).toBe(0);
+  });
+});
+
+describe("paidBillOf — the paid fatura a card row lands on", () => {
+  // Closes on the 2nd, due on the 9th: a charge of 26/06 is on the fatura due 09/07.
+  const billing: CardBilling = {
+    closingDay: 2,
+    dueDay: 9,
+    overrides: [],
+    paid: [
+      { competence: "2026-07", amountCents: 193_267, paidOn: "2026-07-11" },
+      { competence: "2026-10", amountCents: 329_633, paidOn: "2026-10-20" },
+    ],
+  };
+
+  it("finds the bill when it was already paid", () => {
+    // The mistyped month: a purchase of 26/09 entered as 26/06 lands on July's bill, long paid.
+    expect(paidBillOf(billing, "2026-06-26")).toEqual({
+      competence: "2026-07",
+      amountCents: 193_267,
+      paidOn: "2026-07-11",
+    });
+    // The day it was really made is on October's bill, paid as well.
+    expect(paidBillOf(billing, "2026-09-26")?.competence).toBe("2026-10");
+  });
+
+  it("is null on a bill still to be paid", () => {
+    expect(paidBillOf(billing, "2026-10-26")).toBeNull();
+    expect(paidBillOf({ ...billing, paid: [] }, "2026-06-26")).toBeNull();
+  });
+
+  it("honours a per-bill closing day and the row's own bill override", () => {
+    // June's bill closing on the 28th instead of the 2nd keeps a 26/06 charge on June's bill.
+    const moved: CardBilling = { ...billing, overrides: [{ month: "2026-06", closingDay: 28, dueDay: 9 }] };
+    expect(paidBillOf(moved, "2026-06-26")).toBeNull();
+    // A row pinned to a bill stays on it whatever its date.
+    expect(paidBillOf(billing, "2026-10-26", "2026-07")?.competence).toBe("2026-07");
+    expect(paidBillOf(billing, "2026-06-26", "2026-12")).toBeNull();
   });
 });

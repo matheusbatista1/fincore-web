@@ -15,8 +15,9 @@ import {
   pdfMoneySigned,
 } from "@/presentation/lib/export";
 import { useUIStore } from "@/presentation/stores/ui-store";
-import { formatBRL, formatBRLAbsolute } from "@/shared/formatting/currency";
+import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { shortDate } from "@/shared/formatting/dates";
+import { buildPersonStatementPdf, closingWords, personStatementSlug, rowLines } from "./person-statement-pdf";
 
 /** ISO "YYYY-MM-DD" -> "DD/MM/YYYY" for statement exports. */
 function brDate(iso: string): string {
@@ -53,6 +54,8 @@ export interface ReportData {
   }>;
   readonly transactions: TransactionListItem[];
   readonly today: string;
+  /** The user's first name, for the person statement's copy ("Pagamentos que você fez para …"). */
+  readonly issuerFirstName: string | null;
   /** True when the report window reaches into the future (some figures are projected). */
   readonly includesProjected: boolean;
   /** Human label of the future portion ("jul – set 2026"); "" when none. */
@@ -93,7 +96,7 @@ interface MonthRow {
 const TITLES: Record<ReportMode, string> = {
   month: "Relatório geral do mês",
   mine: "Meu relatório (pessoal)",
-  person: "Relatório por pessoa",
+  person: "Extrato por pessoa",
 };
 
 function useMoney() {
@@ -115,9 +118,6 @@ export function ReportModal({
 }) {
   const toast = useUIStore((s) => s.toast);
   const money = useMoney();
-  const privacy = useUIStore((s) => s.privacy);
-  /** Signed money for balances (> 0 they owe you, < 0 you owe them); masked in privacy mode. */
-  const moneySigned = (cents: number): string => (privacy ? "R$ ••••" : formatBRL(cents, { withSign: true }));
   const [mode, setMode] = useState<ReportMode>(initialMode);
   const [pid, setPid] = useState(
     initialPersonId ?? (data.people.find((p) => p.balanceCents !== 0) ?? data.people[0])?.id ?? "",
@@ -148,8 +148,8 @@ export function ReportModal({
     ptp.incomeCents > 0 ? Math.round((ptp.netCents / ptp.incomeCents) * 100) : null;
   const savingsRateLabel = savingsRate === null ? "—" : `${savingsRate}%`;
   const fileSlug =
-    mode === "person" && person
-      ? `relatorio-${(person.name.split(" ")[0] ?? "pessoa").toLowerCase()}-${data.today}`
+    mode === "person" && statement
+      ? personStatementSlug(statement)
       : mode === "mine"
         ? `relatorio-pessoal-${data.today}`
         : `relatorio-mes-${data.today}`;
@@ -205,26 +205,74 @@ export function ReportModal({
         ],
       );
     } else if (statement) {
+      const compraTotal = statement.rows.reduce((s, r) => (r.cashCents > 0 ? s + r.cashCents : s), 0);
+      const pagamentoTotal = statement.rows.reduce((s, r) => (r.cashCents < 0 ? s - r.cashCents : s), 0);
+      const closingLabel = closingWords(statement).label;
       const rows: string[][] = [
-        ["", "Saldo anterior", "", "", "", csvMoney(statement.openingCents)],
-        ...statement.entries.map((e) => [
-          brDate(e.date),
-          e.projected ? `${e.description} (previsto)` : e.description,
-          e.origin,
-          e.kind === "debit" ? csvMoney(e.amountCents) : "",
-          e.kind === "credit" ? csvMoney(e.amountCents) : "",
-          csvMoney(e.balanceCents),
-        ]),
         [
           "",
-          "Saldo final",
+          "Saldo anterior",
+          statement.openingCents < 0
+            ? "crédito que já tinha"
+            : statement.openingCents > 0
+              ? "já devia de antes"
+              : "",
           "",
-          csvMoney(statement.debitTotalCents),
-          csvMoney(statement.creditTotalCents),
+          "",
+          "",
+          "",
+          "",
+          "",
+          csvMoney(statement.openingCents),
+          "",
+        ],
+        ...statement.rows.map((r) => {
+          const [what, details] = rowLines(r);
+          return [
+            brDate(r.date),
+            what,
+            details,
+            r.categoryName ?? "",
+            r.originLabel,
+            r.competence,
+            r.parcela ? `${r.parcela.number}/${r.parcela.total}` : "",
+            r.cashCents > 0 ? csvMoney(r.cashCents) : "",
+            r.cashCents < 0 ? csvMoney(-r.cashCents) : "",
+            csvMoney(r.runningCents),
+            r.projected ? "previsto" : "realizado",
+          ];
+        }),
+        [
+          "",
+          "Totais do período",
+          closingLabel,
+          "",
+          "",
+          "",
+          "",
+          csvMoney(compraTotal),
+          csvMoney(pagamentoTotal),
           csvMoney(statement.closingCents),
+          "",
         ],
       ];
-      exportCSV(`${fileSlug}.csv`, ["Data", "Descrição", "Origem", "Débito", "Crédito", "Saldo"], rows);
+      exportCSV(
+        `${fileSlug}.csv`,
+        [
+          "Data",
+          "Descrição",
+          "Detalhe",
+          "Categoria",
+          "Origem",
+          "Fatura (mês)",
+          "Parcela",
+          "Compra (sua parte)",
+          "Pagamento",
+          "Falta pagar (negativo = crédito)",
+          "Situação",
+        ],
+        rows,
+      );
     }
     toast(`Relatório (${exportName}) exportado em CSV`);
   }
@@ -363,44 +411,13 @@ export function ReportModal({
           ],
         });
       } else if (statement) {
-        const closing = statement.closingCents;
         await exportPDF({
           filename: `${fileSlug}.pdf`,
-          title: `Extrato de conta corrente${person ? ` — ${person.name}` : ""}`,
-          subtitle: `${person ? `${person.relationship} · ` : ""}${data.rangeLabel}`,
-          generatedOn: data.today,
-          kpis: [
-            { label: "Saldo anterior", value: pdfMoneySigned(statement.openingCents) },
-            { label: "Débitos", value: pdfMoney(statement.debitTotalCents) },
-            { label: "Créditos", value: pdfMoney(statement.creditTotalCents), tone: "pos" },
-            { label: "Saldo final", value: pdfMoneySigned(closing), tone: closing < 0 ? "neg" : "pos" },
-          ],
-          sections: [
-            {
-              heading: "Lançamentos",
-              head: ["Data", "Descrição", "Origem", "Débito", "Crédito", "Saldo"],
-              align: ["left", "left", "left", "right", "right", "right"],
-              body: [
-                ["", "Saldo anterior", "", "", "", pdfMoneySigned(statement.openingCents)],
-                ...statement.entries.map((e) => [
-                  brDate(e.date),
-                  e.projected ? `${e.description} (previsto)` : e.description,
-                  e.origin,
-                  e.kind === "debit" ? pdfMoney(e.amountCents) : "",
-                  e.kind === "credit" ? pdfMoney(e.amountCents) : "",
-                  pdfMoneySigned(e.balanceCents),
-                ]),
-              ],
-              foot: [
-                "",
-                "Saldo final",
-                "",
-                pdfMoney(statement.debitTotalCents),
-                pdfMoney(statement.creditTotalCents),
-                pdfMoneySigned(closing),
-              ],
-            },
-          ],
+          ...buildPersonStatementPdf(statement, {
+            rangeLabel: data.rangeLabel,
+            today: data.today,
+            issuerFirstName: data.issuerFirstName,
+          }),
         });
       }
       toast(`Relatório (${exportName}) exportado em PDF`);
@@ -613,40 +630,106 @@ export function ReportModal({
                     {statement.name}
                   </h3>
                   <div style={{ color: "var(--text-lo)", marginTop: 2, fontSize: 13 }}>
-                    {statement.relationship} ·{" "}
+                    {statement.relationship ? `${statement.relationship} · ` : ""}
                     {statement.closingCents > 0
-                      ? `te deve ${money(statement.closingCents)}`
+                      ? `falta pagar ${money(statement.closingCents)}`
                       : statement.closingCents < 0
-                        ? `você deve ${money(Math.abs(statement.closingCents))}`
-                        : "quitado"}
+                        ? `crédito de ${money(-statement.closingCents)}`
+                        : closingWords(statement).label.toLowerCase()}
                   </div>
                 </div>
               </div>
 
               <div className="summary-box" style={{ marginBottom: 16 }}>
+                {statement.openingCents !== 0 && (
+                  <div className="sb-row">
+                    <span className="k">
+                      {statement.openingCents > 0 ? "Já devia de antes" : "Crédito anterior"}
+                    </span>
+                    <span
+                      className="v"
+                      style={{ color: statement.openingCents > 0 ? "var(--text-hi)" : "var(--mint-500)" }}
+                    >
+                      {money(Math.abs(statement.openingCents))}
+                    </span>
+                  </div>
+                )}
                 <div className="sb-row">
-                  <span className="k">Saldo anterior</span>
-                  <span className="v">{moneySigned(statement.openingCents)}</span>
-                </div>
-                <div className="sb-row">
-                  <span className="k">Débitos no período</span>
+                  <span className="k">Compras (sua parte)</span>
                   <span className="v" style={{ color: "var(--text-hi)" }}>
-                    {money(statement.debitTotalCents)}
+                    {money(statement.purchasesCents)}
                   </span>
                 </div>
+                {statement.carriedCents > 0 && (
+                  <div className="sb-row">
+                    <span className="k">Saldo adiado de outro mês</span>
+                    <span className="v" style={{ color: "var(--text-hi)" }}>
+                      {money(statement.carriedCents)}
+                    </span>
+                  </div>
+                )}
+                {statement.refundsCents > 0 && (
+                  <div className="sb-row">
+                    <span className="k">Devoluções recebidas</span>
+                    <span className="v" style={{ color: "var(--text-hi)" }}>
+                      {money(statement.refundsCents)}
+                    </span>
+                  </div>
+                )}
                 <div className="sb-row">
-                  <span className="k">Créditos no período</span>
+                  <span className="k">Pagamentos</span>
                   <span className="v" style={{ color: "var(--mint-500)" }}>
-                    {money(statement.creditTotalCents)}
+                    {money(statement.paymentsCents)}
                   </span>
                 </div>
+                {/* A rollover is neither paid nor forgiven: its own row, no "good news" colour. */}
+                {statement.rolloversCents !== 0 && (
+                  <div className="sb-row">
+                    <span className="k">Adiado para outra data</span>
+                    <span className="v" style={{ color: "var(--text-hi)" }}>
+                      {money(Math.abs(statement.rolloversCents))}
+                    </span>
+                  </div>
+                )}
+                {statement.writeoffsCents !== 0 && (
+                  <div className="sb-row">
+                    <span className="k">
+                      {statement.writeoffsCents < 0 ? "Descontos" : "Crédito abatido"}
+                    </span>
+                    <span className="v" style={{ color: "var(--mint-500)" }}>
+                      {money(Math.abs(statement.writeoffsCents))}
+                    </span>
+                  </div>
+                )}
                 <div className="sb-row total">
-                  <span className="k">Saldo final</span>
-                  <span className="v">{moneySigned(statement.closingCents)}</span>
+                  <span className="k">
+                    {statement.closingCents > 0
+                      ? "Falta pagar"
+                      : statement.closingCents < 0
+                        ? "Crédito a favor"
+                        : closingWords(statement).label}
+                  </span>
+                  <span
+                    className="v"
+                    style={{ color: statement.closingCents > 0 ? "var(--rose-500)" : "var(--mint-500)" }}
+                  >
+                    {money(Math.abs(statement.closingCents))}
+                  </span>
                 </div>
+                {statement.asOf && (
+                  <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 8, lineHeight: 1.45 }}>
+                    Hoje:{" "}
+                    {statement.asOf.closingCents > 0
+                      ? `falta pagar ${money(statement.asOf.closingCents)}`
+                      : statement.asOf.closingCents < 0
+                        ? `crédito de ${money(-statement.asOf.closingCents)}`
+                        : "tudo pago"}{" "}
+                    (considera o que entrou depois do período).
+                  </div>
+                )}
               </div>
 
-              {statement.entries.length === 0 ? (
+              {statement.rows.length === 0 ? (
                 <div
                   style={{ color: "var(--text-lo)", fontSize: 14, padding: "20px 0", textAlign: "center" }}
                 >
@@ -658,41 +741,55 @@ export function ReportModal({
                     <span>Lançamentos</span>
                     <span />
                   </div>
-                  {statement.entries.map((e, j) => (
-                    <div
-                      className="split-row"
-                      key={`${e.date}-${e.kind}-${e.amountCents}-${e.balanceCents}`}
-                      style={{
-                        borderBottom: j === statement.entries.length - 1 ? 0 : "1px solid var(--line)",
-                      }}
-                    >
-                      <div className="sr-name" style={{ fontWeight: 500, color: "var(--text-mid)" }}>
-                        {e.description}
-                        {e.projected && (
-                          <span className="pill purple" style={{ marginLeft: 8 }}>
-                            previsto
-                          </span>
-                        )}
-                        <span style={{ fontSize: 12, color: "var(--text-faint)", marginLeft: 8 }}>
-                          {shortDate(e.date)} · {e.origin}
-                        </span>
-                      </div>
-                      <div className="sr-share" style={{ width: "auto", textAlign: "right" }}>
-                        <div
-                          style={{
-                            color: e.kind === "credit" ? "var(--mint-500)" : "var(--text-hi)",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {e.kind === "credit" ? "− " : ""}
-                          {money(e.amountCents)}
+                  {statement.rows.map((r, j) => {
+                    const [what, details] = rowLines(r);
+                    return (
+                      <div
+                        className="split-row"
+                        key={`${r.date}-${r.kind}-${r.cashCents}-${r.runningCents}`}
+                        style={{
+                          borderBottom: j === statement.rows.length - 1 ? 0 : "1px solid var(--line)",
+                        }}
+                      >
+                        {/* `.sr-name` is a flex row: one column child keeps the details UNDER the name. */}
+                        <div className="sr-name" style={{ fontWeight: 500, color: "var(--text-mid)" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span>{what}</span>
+                              {r.projected && <span className="pill purple">previsto</span>}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "var(--text-faint)",
+                                marginTop: 2,
+                                fontWeight: 400,
+                                lineHeight: 1.4,
+                              }}
+                            >
+                              {shortDate(r.date)} · {details}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
-                          {moneySigned(e.balanceCents)}
+                        <div className="sr-share" style={{ width: "auto", textAlign: "right" }}>
+                          <div
+                            style={{
+                              color: r.cashCents < 0 ? "var(--mint-500)" : "var(--text-hi)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {r.cashCents < 0 ? "− " : ""}
+                            {money(Math.abs(r.cashCents))}
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                            {r.runningCents < 0
+                              ? `crédito ${money(-r.runningCents)}`
+                              : `falta pagar ${money(r.runningCents)}`}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -5,6 +5,9 @@ import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
+import { billingCompetence } from "@/domain/services/card-bill.calculator";
+import { explainMonthEndGap } from "@/domain/services/month-end-gap.explainer";
+import { daysBetween } from "@/domain/value-objects/competence-month";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 
 // Freeze "today" so the live-vs-projected split is deterministic.
@@ -117,6 +120,38 @@ describe("getDashboard — projected end-of-month balance", () => {
     expect(withOverdue.projectedBalanceCents).toBe(base.projectedBalanceCents - 8000);
   });
 
+  it("credits a person's pending share from BEFORE the current month (symmetric with the overdue term)", async () => {
+    // A May loan parcela (competence < current June), still unpaid and fully owed by Ana. The overdue
+    // term subtracts the whole R$80, so the R$80 she still owes must come back as a receivable — the
+    // general figure assumes she pays her part. It used to credit only the [current, browsed] window,
+    // reading the stale receivable as absorbed by the user; taking the share over then changed nothing.
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const parcela = {
+      id: "loan-may",
+      source: "loan" as const,
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -8000,
+      recurrence: null,
+    };
+    const owedByAna = expense({
+      ...parcela,
+      myShareCents: 0,
+      splits: [{ personId: "p1", shareCents: 8000 }],
+    });
+    const assumedByMe = expense({ ...parcela, myShareCents: 8000, splits: [] });
+    const base = await getDashboard(stubRepo([]), "u", "2026-06");
+    const shared = await getDashboard(stubRepo([owedByAna], [], [ana]), "u", "2026-06");
+    const mine = await getDashboard(stubRepo([assumedByMe], [], [ana]), "u", "2026-06");
+    // General: −8000 (overdue obligation) + 8000 (her receivable) = unchanged; after taking it over,
+    // the obligation stays and the receivable is gone.
+    expect(shared.projectedBalanceCents).toBe(base.projectedBalanceCents);
+    expect(mine.projectedBalanceCents).toBe(base.projectedBalanceCents - 8000);
+    // The personal lens already told this story: none of it was my share, then all of it is.
+    expect(shared.projectedBalancePersonalCents).toBe(base.projectedBalancePersonalCents);
+    expect(mine.projectedBalancePersonalCents).toBe(base.projectedBalancePersonalCents - 8000);
+  });
+
   it("does NOT subtract an old card charge with no payment record (fatura presumed paid)", async () => {
     // A pre-current card charge whose fatura has no CardBillPayment must stay presumed-paid — the
     // overdue term is boleto/loan/financing only, never card charges (guards the reviewed regression).
@@ -223,7 +258,8 @@ describe("getDashboard — projected end-of-month by lens (today = 2026-06-14)",
     const data = await getDashboard(stubRepo([shared], [], [ana]), "u", "2026-06");
     // Account holds the full −30000 (real); June's a-receber is 0 (the expense is May).
     expect(data.aReceberCents).toBe(0);
-    expect(data.projectedBalanceCents).toBe(70000); // 100000 − 30000
+    // General still expects Ana's R$200 from May (pending through month-end): 100000 − 30000 + 20000.
+    expect(data.projectedBalanceCents).toBe(90000);
     // Personal debits only my share (10000) → 90000.
     expect(data.projectedBalancePersonalCents).toBe(90000);
   });
@@ -412,5 +448,286 @@ describe("getDashboard — saldo pessoal com fatura paga compartilhada", () => {
     expect(data.totalBalanceCents).toBe(70000);
     // Personal: opening 100000 − 12000 (only my slice of the paid fatura) = 88000.
     expect(data.totalBalancePersonalCents).toBe(88000);
+  });
+});
+
+describe("getDashboard — the gap explainer reads the same 'fim do mês' (today = 2026-06-14)", () => {
+  // The explainer (domain) recomputes both figures to break their difference down row by row; it is
+  // only worth trusting while it lands on the very numbers the hero shows. One workspace with every
+  // kind of row the two lenses treat differently, browsed across past, current and future months.
+  const ana: Person = { id: "ana", name: "Ana", relationship: "Amiga", color: "#000000" };
+  const bia: Person = { id: "bia", name: "Bia", relationship: "Amiga", color: "#000000" };
+  const cardCharge = (date: string, total: number, personId: string, share: number, id: string) =>
+    expense({
+      id,
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date,
+      amountCents: -total,
+      myShareCents: total - share,
+      splits: [{ personId, shareCents: share }],
+      recurrence: null,
+    });
+  const transactions = [
+    // Shared on the account, once and every month (anchored in May).
+    expense({
+      id: "market",
+      date: "2026-06-05",
+      amountCents: -10000,
+      myShareCents: 4000,
+      splits: [{ personId: "ana", shareCents: 6000 }],
+      recurrence: null,
+    }),
+    expense({
+      id: "rent",
+      date: "2026-05-10",
+      amountCents: -20000,
+      myShareCents: 8000,
+      splits: [{ personId: "ana", shareCents: 12000 }],
+    }),
+    // Card: an old fatura with no payment, the paid June one (with an estorno), the open July one.
+    cardCharge("2026-04-10", 5000, "ana", 5000, "old-bill"),
+    cardCharge("2026-05-12", 40000, "ana", 30000, "june-bill"),
+    income({ id: "estorno", accountId: null, cardId: "card-1", amountCents: 4000, date: "2026-05-15" }),
+    cardCharge("2026-06-10", 9000, "bia", 4500, "july-bill"),
+    // An overdue shared boleto, a recurring salary, a payment still to be received.
+    expense({
+      id: "boleto",
+      source: "boleto",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -8000,
+      myShareCents: 3000,
+      splits: [{ personId: "bia", shareCents: 5000 }],
+      recurrence: null,
+    }),
+    income({ id: "salary", date: "2026-05-20", recurrence: { dayOfMonth: 20 } }),
+    income({
+      id: "pending",
+      date: "2026-06-25",
+      amountCents: 6000,
+      fromPersonId: "ana",
+      isReimbursement: true,
+      receivedAt: null,
+    }),
+  ];
+  const settlements: Settlement[] = [
+    { id: "s-above", personId: "ana", amountCents: 60000, date: "2026-06-12", accountId: "acc-1" },
+    { id: "s-writeoff", personId: "bia", amountCents: 2000, date: "2026-06-13", accountId: null },
+  ];
+  const payments: CardBillPayment[] = [
+    {
+      id: "pay-june",
+      cardId: "card-1",
+      competence: "2026-06",
+      // Paid for R$ 10,00 less than its rows add up to today (400,00 − 40,00 of estorno).
+      amountCents: 35000,
+      accountId: "acc-1",
+      date: "2026-06-02",
+    },
+  ];
+
+  it.each(["2026-04", "2026-05", "2026-06", "2026-07", "2026-09"] as const)("month %s", async (month) => {
+    const repo = stubRepo(transactions, [card], [ana, bia], settlements, payments);
+    const data = await getDashboard(repo, "u", month);
+    const report = explainMonthEndGap({
+      accounts: [account],
+      people: [ana, bia],
+      transactions,
+      settlements,
+      cardBillPayments: payments,
+      month,
+      currentMonth: "2026-06",
+      competenceOf: billingCompetence([card], []),
+    });
+    expect(report.general.totalCents).toBe(data.projectedBalanceCents);
+    expect(report.personal.totalCents).toBe(data.projectedBalancePersonalCents);
+    expect(report.gapCents).toBe(data.projectedBalanceCents - data.projectedBalancePersonalCents);
+    expect(report.unexplainedCents).toBe(0);
+  });
+
+  it("tells the gap apart from what people still owe", async () => {
+    const repo = stubRepo(transactions, [card], [ana, bia], settlements, payments);
+    const data = await getDashboard(repo, "u", "2026-06");
+    const report = explainMonthEndGap({
+      accounts: [account],
+      people: [ana, bia],
+      transactions,
+      settlements,
+      cardBillPayments: payments,
+      month: "2026-06",
+      currentMonth: "2026-06",
+      competenceOf: billingCompetence([card], []),
+    });
+    // The lenses differ, and not by the receivables: the reasons are the rows that break the pairing.
+    expect(report.gapCents).not.toBe(0);
+    expect(report.gapCents).not.toBe(report.general.peopleCents);
+    expect(new Set(report.items.map((item) => item.reason))).toEqual(
+      new Set(["advance", "writeoff", "expected-reimbursement", "paid-bill", "share-without-cost"]),
+    );
+    expect(report.items.reduce((total, item) => total + item.cents, 0)).toBe(
+      data.projectedBalanceCents - data.projectedBalancePersonalCents,
+    );
+  });
+});
+
+describe("getDashboard — net worth over time (today = 2026-06-14)", () => {
+  /** The total at the end of `date`, read off the daily timeline. */
+  const totalOn = (data: Awaited<ReturnType<typeof getDashboard>>, date: string): number | undefined =>
+    data.netWorthDaily.valuesCents[daysBetween(data.netWorthDaily.startDate, date)];
+
+  it("compares the browsed month-end with the one before, each with everything dated up to it", async () => {
+    // Opening 100000; − 20000 on May 10; + 50000 booked for June 20 (after today, inside the month).
+    const repo = stubRepo([expense(), income()]);
+    expect((await getDashboard(repo, "u", "2026-05")).monthEndTotals).toEqual({
+      previousCents: 100000,
+      currentCents: 80000,
+    });
+    expect((await getDashboard(repo, "u", "2026-06")).monthEndTotals).toEqual({
+      previousCents: 80000,
+      currentCents: 130000, // the month-end counts the income already booked for the 20th
+    });
+    expect((await getDashboard(repo, "u", "2026-08")).monthEndTotals).toEqual({
+      previousCents: 130000,
+      currentCents: 130000,
+    });
+  });
+
+  it("lists one total per day through today, whatever month is browsed", async () => {
+    const repo = stubRepo([expense(), income()]);
+    const data = await getDashboard(repo, "u", "2026-06");
+    // The six trailing months, as the hero always showed: 1 Jan … 14 Jun.
+    expect(data.netWorthDaily.startDate).toBe("2026-01-01");
+    expect(data.netWorthDaily.valuesCents).toHaveLength(165);
+    expect(totalOn(data, "2026-01-01")).toBe(100000);
+    expect(totalOn(data, "2026-05-09")).toBe(100000);
+    expect(totalOn(data, "2026-05-10")).toBe(80000); // the expense, on its day
+    expect(totalOn(data, "2026-06-14")).toBe(80000);
+    // It ends today, on the live balance: what is booked for the 20th has not happened yet.
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents);
+
+    const browsingElsewhere = await getDashboard(repo, "u", "2026-09");
+    expect(browsingElsewhere.netWorthDaily).toEqual(data.netWorthDaily);
+  });
+
+  it("starts on the first day of the month anything first moved", async () => {
+    const old = expense({ date: "2025-03-17", amountCents: -5000, myShareCents: 5000, recurrence: null });
+    const data = await getDashboard(stubRepo([old]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2025-03-01");
+    expect(data.netWorthDaily.valuesCents).toHaveLength(daysBetween("2025-03-01", "2026-06-14") + 1);
+    expect(totalOn(data, "2025-03-16")).toBe(100000);
+    expect(totalOn(data, "2025-03-17")).toBe(95000);
+  });
+
+  it("goes back five years at most, with what came before already in the first total", async () => {
+    const ancient = expense({ date: "2015-01-10", amountCents: -5000, myShareCents: 5000, recurrence: null });
+    const data = await getDashboard(stubRepo([ancient]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2021-07-01");
+    expect(data.netWorthDaily.valuesCents[0]).toBe(95000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(95000);
+  });
+
+  it("is a flat line at the opening balances while nothing has moved", async () => {
+    // Only a movement still to come: nothing happened yet.
+    const data = await getDashboard(stubRepo([income()]), "u", "2026-06");
+    expect(data.netWorthDaily.startDate).toBe("2026-01-01");
+    expect(new Set(data.netWorthDaily.valuesCents)).toEqual(new Set([100000]));
+  });
+
+  it("counts the cash of settlements and fatura payments on the day it moved", async () => {
+    // Ana owes R$ 180 of a card charge and pays it back on June 12; the fatura (R$ 300) left the
+    // account on June 10. A write-off with no account moves nothing.
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const charge = expense({
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 12000,
+      splits: [{ personId: "p1", shareCents: 18000 }],
+      recurrence: null,
+    });
+    const settlements: Settlement[] = [
+      { id: "s-cash", personId: "p1", amountCents: 18000, date: "2026-06-12", accountId: "acc-1" },
+      { id: "s-paper", personId: "p1", amountCents: 500, date: "2026-06-13", accountId: null },
+    ];
+    const payments: CardBillPayment[] = [
+      {
+        id: "pay",
+        cardId: "card-1",
+        competence: "2026-06",
+        amountCents: 30000,
+        accountId: "acc-1",
+        date: "2026-06-10",
+      },
+    ];
+    const data = await getDashboard(stubRepo([charge], [card], [ana], settlements, payments), "u", "2026-06");
+    expect(totalOn(data, "2026-06-09")).toBe(100000); // the charge itself never touched the account
+    expect(totalOn(data, "2026-06-10")).toBe(70000); // the fatura left
+    expect(totalOn(data, "2026-06-11")).toBe(70000);
+    expect(totalOn(data, "2026-06-12")).toBe(88000); // the share came back
+    expect(totalOn(data, "2026-06-14")).toBe(88000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents);
+    expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 88000 });
+  });
+});
+
+describe("getDashboard — net-worth forecast (today = 2026-06-14)", () => {
+  it("continues the timeline from tomorrow to the end of next month", async () => {
+    // Opening 100000; the fixed − 20000 of May 10 (June's is still to be booked); + 50000 on June 20.
+    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-06");
+    expect(data.netWorthForecast.startDate).toBe("2026-06-15");
+    // 15 Jun … 31 Jul.
+    expect(data.netWorthForecast.valuesCents).toHaveLength(16 + 31);
+    expect(data.netWorthForecast.events.map((e) => [e.date, e.kind, e.deltaCents, e.label])).toEqual([
+      ["2026-06-15", "recurring", -20000, "Despesa"], // June's occurrence, late: assumed next
+      ["2026-06-20", "scheduled", 50000, "Salário"],
+      ["2026-07-10", "recurring", -20000, "Despesa"],
+    ]);
+    // It starts from the live balance…
+    expect(data.netWorthForecast.valuesCents[0]).toBe(data.totalBalanceCents - 20000);
+    // …and reaches the hero's "fim do mês" on the last day of the browsed month.
+    const lastOfJune = daysBetween("2026-06-15", "2026-06-30");
+    expect(data.netWorthForecast.valuesCents[lastOfJune]).toBe(data.projectedBalanceCents);
+    expect(data.netWorthForecast.valuesCents.at(-1)).toBe(data.projectedBalanceCents - 20000);
+  });
+
+  it("is the same line whatever month is browsed, and meets that month's figure when it is in range", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const shared = expense({
+      date: "2026-06-05",
+      amountCents: -10000,
+      myShareCents: 4000,
+      splits: [{ personId: "p1", shareCents: 6000 }],
+      recurrence: null,
+    });
+    const charge = expense({
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-06-10",
+      amountCents: -9000,
+      myShareCents: 9000,
+      recurrence: null,
+    });
+    const repo = stubRepo([shared, charge, income()], [card], [ana]);
+    const june = await getDashboard(repo, "u", "2026-06");
+    const july = await getDashboard(repo, "u", "2026-07");
+    const may = await getDashboard(repo, "u", "2026-05");
+    const december = await getDashboard(repo, "u", "2026-12");
+    for (const other of [july, may, december]) {
+      expect(other.netWorthForecast).toEqual(june.netWorthForecast);
+    }
+    const at = (date: string) => june.netWorthForecast.valuesCents[daysBetween("2026-06-15", date)];
+    expect(at("2026-06-30")).toBe(june.projectedBalanceCents);
+    expect(at("2026-07-31")).toBe(july.projectedBalanceCents);
+    // The card bill leaves on its due date, what Ana owes comes in on the last day of June.
+    expect(june.netWorthForecast.events.map((e) => [e.date, e.kind, e.deltaCents, e.label])).toEqual([
+      ["2026-06-20", "scheduled", 50000, "Salário"],
+      ["2026-06-30", "people", 6000, "Acertos com pessoas"],
+      ["2026-07-02", "card-bill", -9000, "Fatura C6"],
+    ]);
   });
 });

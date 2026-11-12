@@ -1,6 +1,21 @@
 import { create } from "zustand";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import type { TransactionKind } from "@/domain/entities/transaction";
 import type { SettleTarget } from "@/presentation/components/people/settle-person-modal";
+
+/**
+ * Values a NEW entry starts from when they come from outside the app's own rows: a bank line being
+ * checked against the statement. Nothing is saved until the user confirms the form.
+ */
+export interface TxDraft {
+  readonly date: string;
+  /** Signed: money out is negative. Says which side of a transfer the account is on. */
+  readonly amountCents: number;
+  readonly description: string;
+  /** Where the money moved: an account, or a card (a charge, or an estorno). */
+  readonly accountId?: string;
+  readonly cardId?: string;
+}
 
 /**
  * Cross-screen transaction modal state (detail → edit / delete-scope, plus the
@@ -26,6 +41,19 @@ interface TxUIState {
   readonly settling: SettleTarget | null;
   /** When set, the installment-group modal lists every parcela of this group. */
   readonly installmentGroupId: string | null;
+  /**
+   * When set, the "Novo lançamento" form is open on this kind — optionally seeded from an existing
+   * row ("Duplicar": same values, today's date, nothing saved until the user confirms), or from a
+   * draft (a bank line: its date, amount and description). Opened from the detail modal, from a
+   * `?novo=` link and from "Conferir extrato"; the header button and the FAB keep their own dialog.
+   */
+  readonly creating: {
+    readonly kind: TransactionKind;
+    readonly from: TransactionListItem | null;
+    readonly draft: TxDraft | null;
+  } | null;
+  openCreate: (kind: TransactionKind, from?: TransactionListItem, draft?: TxDraft) => void;
+  closeCreate: () => void;
   openDetail: (item: TransactionListItem, anchor?: TransactionListItem) => void;
   openEdit: (item: TransactionListItem) => void;
   openDelete: (item: TransactionListItem) => void;
@@ -51,6 +79,7 @@ const CLOSED = {
   receiving: null,
   settling: null,
   installmentGroupId: null,
+  creating: null,
 } as const;
 
 export const useTxUIStore = create<TxUIState>((set) => ({
@@ -62,6 +91,10 @@ export const useTxUIStore = create<TxUIState>((set) => ({
   receiving: null,
   settling: null,
   installmentGroupId: null,
+  creating: null,
+  openCreate: (kind, from, draft) =>
+    set({ ...CLOSED, creating: { kind, from: from ?? null, draft: draft ?? null } }),
+  closeCreate: () => set({ creating: null }),
   openDetail: (item, anchor) => set({ ...CLOSED, detail: item, detailAnchor: anchor ?? null }),
   openEdit: (item) => set({ ...CLOSED, editing: item }),
   openDelete: (item) => set({ ...CLOSED, deleting: item }),

@@ -1,8 +1,12 @@
+import { isLedgerOnly } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { generateInstallments } from "@/domain/services/installment.generator";
+import { settlementAfterEdit } from "@/domain/services/settlement-after-edit";
 import { calculateSplit } from "@/domain/services/split.calculator";
+import { todayInBrazil } from "@/shared/formatting/now";
 import { err, ok, type Result } from "@/shared/result";
 import type { UpdateTransactionInput } from "@/shared/schemas/transaction";
+import { loadWorkspaceCached } from "../loaders";
 import type {
   CreateTransactionCommand,
   FinanceRepository,
@@ -23,10 +27,12 @@ const PARCELABLE = new Set(["card", "loan", "financing", "boleto"]);
 /**
  * Build the in-place update command, recomputing the split server-side. Mirrors
  * the create use case, except a single row is touched and the kind is immutable.
- * `fixed` toggles the row's recurrence on/off.
+ * `fixed` toggles the row's recurrence on/off. `ledgerOnly` says the row being edited is a
+ * ledger-only debt, the one own-money expense allowed to have no account.
  */
 function buildCommand(
   input: UpdateTransactionInput,
+  ledgerOnly: boolean,
 ): Result<UpdateTransactionCommand, UpdateTransactionError> {
   if (input.kind === "transfer") {
     return ok({
@@ -63,7 +69,7 @@ function buildCommand(
   }
 
   // --- expense ---
-  const sourceError = validateExpenseSource(input);
+  const sourceError = validateExpenseSource(input, ledgerOnly);
   if (sourceError) return sourceError;
 
   const split = calculateSplit({
@@ -161,14 +167,37 @@ function buildInstallmentCommand(
   });
 }
 
-function validateExpenseSource(input: ExpenseUpdate): Result<never, UpdateTransactionError> | null {
+function validateExpenseSource(
+  input: ExpenseUpdate,
+  ledgerOnly = false,
+): Result<never, UpdateTransactionError> | null {
   if (input.source === "card" && !input.cardId) {
     return err({ code: "invalid_source", message: "Selecione um cartão." });
   }
-  if (input.source === "account" && !input.accountId) {
+  // An own-money expense debits an account — except the ledger-only debt, which has none by nature.
+  if (input.source === "account" && !input.accountId && !ledgerOnly) {
     return err({ code: "invalid_source", message: "Selecione uma carteira." });
   }
   return null;
+}
+
+/**
+ * A ledger-only debt stays one, whatever the form sends: no account, no instrument, no category, no
+ * recurrence, never a schedule. Only what the debt IS can change — its description, date, amount
+ * and who owes it. Giving it an account would turn a debt on paper into cash that never moved.
+ */
+function asLedgerOnly(input: ExpenseUpdate): ExpenseUpdate {
+  return {
+    ...input,
+    source: "account",
+    cardId: null,
+    accountId: null,
+    linkedAccountId: null,
+    categoryId: null,
+    fixed: false,
+    installment: null,
+    scope: "one",
+  };
 }
 
 function expenseSourceFields(input: ExpenseUpdate) {
@@ -184,22 +213,53 @@ function expenseSourceFields(input: ExpenseUpdate) {
  * immutable, recurrence toggled by `fixed`). When a non-installment expense is
  * converted to an installment, the original row is replaced by the generated
  * parcelas atomically.
+ *
+ * A received income and a paid obligation store their settlement (date, account, amount) apart
+ * from the row, and the balance reads the settlement. The edited row therefore takes its
+ * settlement along (see `settlementAfterEdit`): correcting a received income from 18,86 to 18,84
+ * must move the balance by those two cents, not only the figure on the list. Only the edited row
+ * is touched this way — siblings in the scope keep theirs, since their cash already landed where
+ * it landed.
+ *
+ * A ledger-only debt (a remainder rolled with the user's own money) keeps its nature through any
+ * edit: see `asLedgerOnly`.
  */
 export async function updateTransaction(
   repo: FinanceRepository,
   userId: string,
-  input: UpdateTransactionInput,
+  raw: UpdateTransactionInput,
 ): Promise<Result<number, UpdateTransactionError>> {
+  const workspace = await loadWorkspaceCached(repo, userId);
+  const current = workspace.transactions.find((tx) => tx.id === raw.id);
+  const ledgerOnly = current !== undefined && isLedgerOnly(current) && raw.kind === "expense";
+  const input = ledgerOnly && raw.kind === "expense" ? asLedgerOnly(raw) : raw;
+
   if (input.kind === "expense" && input.installment) {
     const command = buildInstallmentCommand(input);
     if (!command.ok) return command;
     await repo.replaceWithInstallment(userId, input.id, command.value);
     return ok(command.value.entries.length);
   }
-  const command = buildCommand(input);
+  const command = buildCommand(input, ledgerOnly);
   if (!command.ok) return command;
   // Transfers never carry a scope; expense/income edits propagate it to siblings.
   const scope = input.kind === "transfer" ? "one" : input.scope;
-  const count = await repo.updateTransaction(userId, command.value, scope);
+
+  const edited = command.value;
+  const settlement =
+    current && current.kind === edited.kind
+      ? settlementAfterEdit(
+          current,
+          {
+            date: edited.date,
+            amountCents: edited.amountCents,
+            accountId: edited.accountId ?? null,
+            cardId: edited.cardId ?? null,
+            source: edited.source ?? null,
+          },
+          todayInBrazil(),
+        )
+      : undefined;
+  const count = await repo.updateTransaction(userId, settlement ? { ...edited, settlement } : edited, scope);
   return ok(count);
 }

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getMonthly, type MonthlyItem } from "@/application/use-cases/get-monthly";
+import { getPeople } from "@/application/use-cases/get-people";
 import { settledItemCents } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { addMonths, isValidCompetenceMonth } from "@/domain/value-objects/competence-month";
@@ -33,11 +34,13 @@ export default async function MonthlyPage({
   const today = todayInBrazil();
   const label = monthLabel(month, { long: true });
 
-  const [data, workspace, dash] = await Promise.all([
+  const [data, workspace, dash, people] = await Promise.all([
     getMonthly(financeRepository, user.id, month),
     getWorkspaceView(financeRepository, user.id),
     // For the general "Entradas" total: reuse the exact same month "a receber" the dashboard shows.
     getDashboard(financeRepository, user.id, month),
+    // The settle modal opened from a receivable row caps at the person total through today.
+    getPeople(financeRepository, user.id, month),
   ]);
 
   // Card credits (estornos) live on the Cards screen, not in the monthly cash flow.
@@ -55,11 +58,19 @@ export default async function MonthlyPage({
   const totInProjected = incomes.filter((e) => e.projected).reduce((s, e) => s + incomeCents(e), 0);
   const totOutProjected = expenses.filter((e) => e.projected).reduce((s, e) => s + settledItemCents(e), 0);
 
+  const totalByPerson = new Map(people.map((p): [string, number] => [p.id, p.totalBalanceCents]));
   // People who owe you this month ("a receber") — shown inside the income group under
   // the general lens (the same month-scoped, projection-aware value the dashboard uses).
   const peopleReceivables = dash.people
     .filter((p) => p.balanceCents > 0)
-    .map((p) => ({ id: p.id, name: p.name.split(" ")[0] ?? p.name, amountCents: p.balanceCents }));
+    .map((p) => ({
+      id: p.id,
+      name: p.name.split(" ")[0] ?? p.name,
+      amountCents: p.balanceCents,
+      // The settle flow caps at the person TOTAL through today (the People profile figure), not the
+      // month snapshot, so paying more than the month but within the total is not a sobra.
+      totalBalanceCents: totalByPerson.get(p.id) ?? p.balanceCents,
+    }));
   const hasIncomeBlock = incomes.length > 0 || peopleReceivables.length > 0;
 
   // Groups by origin (mirrors the prototype's MonthlyScreen). `lens` lets the

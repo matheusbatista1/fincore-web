@@ -48,7 +48,10 @@ export interface ExpenseTransaction extends BaseTransaction {
   readonly source: ExpenseSource;
   /** Set when source === "card". */
   readonly cardId: string | null;
-  /** Set when source === "account" (debits the balance). */
+  /**
+   * Set when source === "account" (debits the balance). An account-source expense with NO account
+   * is a ledger-only debt: see {@link isLedgerOnly}.
+   */
   readonly accountId: string | null;
   /** Organizational link for boleto/loan/financing/overdraft (does NOT debit a balance). */
   readonly linkedAccountId: string | null;
@@ -147,6 +150,24 @@ export const isCardCredit = (t: Transaction): t is IncomeTransaction & { cardId:
  */
 export const isRolled = (t: Transaction): boolean =>
   isExpense(t) && t.rolledAt !== null && t.rolledAt !== undefined;
+
+/**
+ * A ledger-only debt: an "own money" expense with no account behind it. It is what a person owes
+ * the user on a date, and nothing else — no charge, no bill, no cash. The money it stands for
+ * already left through other rows: rolling a person's remainder with the user's own money settles
+ * those rows on paper and books this one on the new due date. So it counts in the person ledger
+ * (and in what the ledger feeds: receivables, statements, a later roll or payment) and nowhere
+ * else: never in a balance, an obligation, a spending total, a budget or a movement list.
+ */
+export const isLedgerOnly = (t: Transaction): boolean =>
+  isExpense(t) && t.source === "account" && t.accountId === null;
+
+/**
+ * A row that is neither a money movement nor spending: a rolled expense (abated, history only) or
+ * a ledger-only debt. Balances, totals, budgets and movement lists leave both out; they differ in
+ * the person ledger alone, which drops the first and keeps the second.
+ */
+export const isOffBooks = (t: Transaction): boolean => isRolled(t) || isLedgerOnly(t);
 
 /**
  * A PAID expense: a deferred obligation that has been settled. It debits its paying account on

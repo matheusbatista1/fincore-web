@@ -1,4 +1,4 @@
-﻿/* ===================== ported verbatim: components.css ===================== */
+/* ===================== ported verbatim: components.css ===================== */
 /* =============================================================================
  * FinCore â€” Components
  * ========================================================================== */
@@ -1170,11 +1170,337 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* sparkline area chart */
-.spark {
+/* ---------- Net-worth timeline (dashboard hero) ----------
+   One long day-by-day track, scrolled sideways under a fixed value axis. The sizes the maths needs
+   (track width, plot height, axis width) are set inline from net-worth-timeline.ts. */
+.dash-hero-spark {
+  background: linear-gradient(180deg, rgba(124, 92, 255, 0.05), transparent);
+  border-left: 1px solid var(--line);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nw-chart {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.nw-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+  margin-bottom: 8px;
+}
+/* On a narrow phone the title wraps rather than push the months out of the card; its "(i)" stays
+   with the last word. */
+.nw-head .kicker {
+  min-width: 0;
+}
+.nw-head .pill {
+  flex: none;
+}
+.nw-head-last {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.nw-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.nw-empty {
+  justify-content: center;
+  min-height: 128px;
+  font-size: 14px;
+  color: var(--text-lo);
+}
+.nw {
+  position: relative;
   width: 100%;
-  height: 220px;
+  min-width: 0;
+  margin: 0;
+}
+.nw-plot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 8px;
+}
+/* The value marks stay put while the track scrolls over them. */
+.nw-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nw-gridline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--line);
+}
+.nw-gridline.is-zero {
+  background: var(--line-3);
+}
+/* Hidden until placed on the right days: unplaced, it would flash its oldest ones. */
+.nw-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  outline: none;
+  visibility: hidden;
+  /* The track fades out at both sides instead of being cut: there is more that way. The 8px at the
+     right are EDGE_FADE in net-worth-timeline.ts: days under them are drawn, not read. */
+  -webkit-mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 8px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 8px), transparent);
+}
+.nw-scroll::-webkit-scrollbar {
+  display: none;
+}
+.nw-scroll.is-dragging {
+  cursor: grabbing;
+}
+.nw[data-ready="true"] .nw-scroll {
+  visibility: visible;
+  animation: nw-reveal 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+}
+@keyframes nw-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.nw-track {
+  position: relative;
+}
+.nw-svg {
   display: block;
+}
+.nw-month-rule {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.nw-wash-top {
+  stop-color: var(--purple-500);
+  stop-opacity: 0.34;
+}
+.nw-wash-bottom {
+  stop-color: var(--purple-500);
+  stop-opacity: 0;
+}
+.nw-line {
+  fill: none;
+  stroke: var(--purple-400);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+/* After today the line is a forecast: dashed, over a fainter wash. */
+.nw-line.is-expected {
+  stroke: var(--purple-300);
+  stroke-dasharray: 3 6;
+}
+.nw-wash-expected {
+  opacity: 0.45;
+}
+/* The month names, under the plot. Each sits centred over its own days and sticks to the plot's
+   edge while its month is only partly in view (inside the edge fade), so a name is never cut. */
+.nw-months {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.nw-month-slot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nw-month {
+  position: sticky;
+  left: 22px;
+  right: 10px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-lo);
+}
+.nw-month.is-browsed {
+  color: var(--text-hi);
+  font-weight: 700;
+}
+/* A month only just entering or leaving the plot has no room for its name: unnamed, not cut. */
+.nw-month.is-cut {
+  visibility: hidden;
+}
+/* The highest and the lowest day in view. The halo keeps the value legible over the line. */
+.nw-peak {
+  animation: fc-fade 0.2s ease both;
+}
+.nw-peak text {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  fill: var(--text-hi);
+  stroke: var(--surface-1);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+.nw-peak-date {
+  fill: var(--text-mid);
+  font-weight: 500;
+}
+.nw-peak-dot {
+  fill: var(--purple-300);
+  stroke: var(--surface-1);
+  stroke-width: 2;
+}
+.nw-cross {
+  stroke: var(--line-3);
+  stroke-width: 1;
+}
+.nw-cross-dot {
+  fill: var(--text-hi);
+  stroke: var(--surface-1);
+  stroke-width: 2.5;
+}
+/* Today, the live end of the line: the pulse says "now". */
+.nw-live-dot {
+  fill: var(--purple-400);
+  stroke: var(--surface-1);
+  stroke-width: 2.5;
+}
+.nw-live-ring {
+  fill: var(--purple-400);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nw-pulse 2.4s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+}
+@keyframes nw-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+.nw-tip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 1px;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--sh-1);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.nw-tip-value {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-hi);
+}
+.nw-tip-date {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-mid);
+}
+.nw-tip-change {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.nw-tip-change.up {
+  color: var(--mint-500);
+}
+.nw-tip-change.down {
+  color: var(--rose-500);
+}
+/* A forecast day names what is expected to move it: one line each, the name giving way to the amount. */
+.nw-tip.is-listing {
+  box-sizing: border-box;
+}
+.nw-tip-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.nw-tip-note-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-mid);
+}
+.nw-tip-note.is-late .nw-tip-note-label {
+  color: var(--amber-500);
+}
+.nw-tip-note .nw-tip-change {
+  flex: none;
+}
+.nw-axis {
+  position: absolute;
+  top: 0;
+  right: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nw-tick {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  font-size: 10.5px;
+  line-height: 12px;
+  color: var(--text-lo);
+  animation: fc-fade 0.25s ease both;
+}
+/* The keyboard / screen-reader control: out of sight, still focusable. Its focus rings the plot. */
+.nw-range {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.nw-range:focus-visible + .nw-plot {
+  outline: 2px solid var(--purple-400);
+  outline-offset: 3px;
 }
 
 /* ---------- Insights ---------- */
@@ -1285,6 +1611,13 @@
   font-weight: 600;
   color: var(--text-mid);
   margin-bottom: 8px;
+}
+/* A quiet remark beside a field's label (e.g. where a pre-selected value came from). */
+.field-aside {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--purple-300);
 }
 .input,
 .amount-input {
@@ -2615,6 +2948,10 @@ select.input {
   display: flex;
   align-items: center;
   gap: 15px;
+  /* The row is a <button>: left alone it shrink-wraps its content (and cannot get narrower than
+     it, so a long row pushes the page sideways on a phone) and centres its text. */
+  width: 100%;
+  text-align: left;
   padding: 15px 12px;
   border-radius: var(--r-md);
   border-bottom: 1px solid var(--line);
@@ -2648,7 +2985,10 @@ select.input {
 .acct-name {
   display: flex;
   align-items: center;
-  gap: 9px;
+  /* Badges drop to the next line instead of pushing the balance out of the row. */
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  min-width: 0;
   font-size: 15.5px;
   font-weight: 700;
   color: var(--text-hi);
@@ -2702,6 +3042,7 @@ select.input {
   font-weight: 600;
   color: var(--text-hi);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .acct-bal .ab-pct {
   font-size: 12px;
@@ -3212,8 +3553,36 @@ html {
   .dist-legend {
     gap: 12px;
   }
+  /* A phone row: avatar, name (+ badges, wrapping), balance. The card already pads the sides, the
+     hover chevron has no hover to answer to, and the balance takes only the room its figure needs. */
+  .acct-row {
+    gap: 12px;
+    padding: 14px 0;
+    /* No hover highlight to round off here: a square row keeps the separator straight. */
+    border-radius: 0;
+  }
+  .acct-ava {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
   .acct-bal {
-    min-width: 96px;
+    flex: none;
+    min-width: 0;
+  }
+  .acct-bal .ab-val {
+    font-size: 17px;
+  }
+  .acct-edit {
+    display: none;
+  }
+  .acct-name .type-badge {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .wallets-hero-head {
     flex-direction: column;
@@ -3276,8 +3645,12 @@ html {
   }
 
   /* charts nÃ£o estouram */
-  .spark {
-    height: 180px;
+  /* The hero stacks: the timeline sits under the balance, separated by a top hairline, with
+     narrower side padding so the plot shows about three months on a phone. */
+  .dash-hero-spark {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 18px 16px 16px;
   }
   .donut-wrap {
     flex-direction: column;
@@ -3445,6 +3818,12 @@ html {
     font-size: 10.5px;
   }
 }
+/* The narrowest phones (~320px): the two Carteiras hero buttons stack instead of sticking out. */
+@media (max-width: 340px) {
+  .wallets-hero-head > .row.gap-3 {
+    flex-wrap: wrap;
+  }
+}
 @media (max-width: 480px) {
   .modal-head {
     padding: 18px 16px;
@@ -3598,4 +3977,246 @@ html {
 .swipe-actions svg {
   width: 18px;
   height: 18px;
+}
+
+/* ---------- Conferir extrato ---------- */
+.rc-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 18px;
+  border: 1.5px dashed var(--line-3);
+  border-radius: var(--r-md);
+  text-align: center;
+  cursor: pointer;
+}
+.rc-drop:hover {
+  border-color: var(--purple-400);
+}
+.rc-drop-title {
+  font-weight: 600;
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+.rc-drop-sub {
+  font-size: 13px;
+  color: var(--text-lo);
+}
+.rc-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-lo);
+}
+.rc-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-lo);
+}
+.rc-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.rc-verdict h3 {
+  margin: 0 0 3px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-hi);
+}
+.rc-verdict-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.rc-verdict-ic.ok {
+  background: var(--mint-soft);
+  color: var(--mint-500);
+}
+.rc-verdict-ic.todo {
+  background: var(--amber-soft);
+  color: var(--amber-500);
+}
+/* Both sides' totals: what, how many, how much. */
+.rc-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 7px 14px;
+  align-items: baseline;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+.rc-figures .k {
+  color: var(--text-mid);
+}
+.rc-figures .n {
+  font-size: 12.5px;
+  color: var(--text-lo);
+  text-align: right;
+  white-space: nowrap;
+}
+.rc-figures .v {
+  font-weight: 600;
+  color: var(--text-hi);
+  text-align: right;
+  white-space: nowrap;
+}
+.rc-figures .strong {
+  font-weight: 700;
+  color: var(--text-hi);
+}
+.rc-balance {
+  display: grid;
+  gap: 8px;
+}
+.rc-balance-say {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+.rc-balance-say.ok {
+  background: var(--mint-soft);
+  color: var(--mint-500);
+  font-weight: 600;
+}
+.rc-balance-say.todo {
+  background: var(--amber-soft);
+  color: var(--text-hi);
+}
+.rc-list {
+  padding-top: 10px;
+  padding-bottom: 12px;
+}
+/* One line of either side: [check] name + day | amount + action. */
+.rc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 0;
+}
+.rc-row.has-lead {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.rc-row + .rc-row {
+  border-top: 1px solid var(--line);
+}
+.rc-main {
+  min-width: 0;
+}
+.rc-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.rc-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.rc-amount {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rc-amount.out {
+  color: var(--rose-500);
+}
+.rc-amount.in {
+  color: var(--mint-500);
+}
+.rc-check {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--purple-500);
+}
+/* Stays in sight while the lines to join are being ticked further down. */
+.rc-join {
+  position: sticky;
+  top: 80px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--purple-500);
+  font-size: 13.5px;
+  color: var(--text-hi);
+}
+.rc-group + .rc-group {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.rc-group-title {
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--purple-300);
+}
+.rc-group-parts {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-2);
+}
+.rc-group-parts .rc-row {
+  padding: 6px 0;
+  border-top: 0;
+}
+.rc-group-parts .rc-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-mid);
+}
+.rc-group-parts .rc-amount {
+  font-size: 13px;
+  font-weight: 600;
+}
+.rc-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 14.5px;
+  color: var(--text-mid);
+}
+.rc-details > summary::-webkit-details-marker {
+  display: none;
+}
+.rc-details > summary strong {
+  color: var(--text-hi);
+}
+.rc-details > summary svg {
+  transition: transform 0.15s ease;
+}
+.rc-details[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.rc-details[open] > summary svg {
+  transform: rotate(90deg);
 }

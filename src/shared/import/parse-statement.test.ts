@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { detectFormat, parseAmountToCents, parseDate, parseStatement } from "./parse-statement";
+import {
+  detectFormat,
+  parseAmountToCents,
+  parseClosingBalance,
+  parseDate,
+  parseStatement,
+} from "./parse-statement";
 
 describe("parseAmountToCents", () => {
   it("parses pt-BR thousands/decimal", () => {
@@ -125,5 +131,27 @@ describe("detectFormat", () => {
     expect(detectFormat("extrato.ofx", "")).toBe("ofx");
     expect(detectFormat("x.txt", "<OFX>...")).toBe("ofx");
     expect(detectFormat("extrato.csv", "a,b,c")).toBe("csv");
+  });
+});
+
+describe("parseClosingBalance", () => {
+  const ofx = (balance: string) =>
+    `<OFX><BANKTRANLIST><STMTTRN><DTPOSTED>20261110<TRNAMT>-45.90<MEMO>IFOOD</STMTTRN></BANKTRANLIST>${balance}</OFX>`;
+
+  it("reads the balance an OFX file closes on, and its day", () => {
+    expect(
+      parseClosingBalance(ofx("<LEDGERBAL><BALAMT>1234.56<DTASOF>20261112100000[-3:BRT]</LEDGERBAL>"), "ofx"),
+    ).toEqual({ cents: 123_456, date: "2026-11-12" });
+    // Overdrawn, and with no day.
+    expect(parseClosingBalance(ofx("<LEDGERBAL><BALAMT>-656.09</LEDGERBAL>"), "ofx")).toEqual({
+      cents: -65_609,
+      date: null,
+    });
+  });
+
+  it("has nothing to say when the file states no balance, or is a CSV", () => {
+    expect(parseClosingBalance(ofx(""), "ofx")).toBeNull();
+    expect(parseClosingBalance(ofx("<LEDGERBAL><BALAMT></LEDGERBAL>"), "ofx")).toBeNull();
+    expect(parseClosingBalance("Data;Valor;Saldo\n10/11/2026;-45,90;1234,56", "csv")).toBeNull();
   });
 });

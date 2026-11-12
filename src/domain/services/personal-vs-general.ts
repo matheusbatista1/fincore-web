@@ -29,7 +29,7 @@ import type { Transaction } from "../entities/transaction";
 import {
   isExpense,
   isIncome,
-  isRolled,
+  isOffBooks,
   settledExpenseCents,
   settledIncomeCents,
   settledMyShareCents,
@@ -75,8 +75,9 @@ export function computeViewTotals(
   const expenseParts: Money[] = [];
 
   for (const tx of inScope) {
-    // A rolled (abated) expense is excluded — the new rolled-into debt counts instead.
-    if (isRolled(tx)) continue;
+    // A rolled (abated) expense is excluded — the new rolled-into debt counts instead. A
+    // ledger-only debt is no spending in either lens: it is only what a person owes.
+    if (isOffBooks(tx)) continue;
     if (isIncome(tx)) {
       // A card credit (estorno/reembolso) only reduces a card bill — it is never
       // income in either lens.

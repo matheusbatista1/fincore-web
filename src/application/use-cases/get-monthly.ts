@@ -1,6 +1,7 @@
 import {
   incomeEffectiveDate,
   isExpense,
+  isOffBooks,
   isPaid,
   isPayableObligation,
   isReceivableIncome,
@@ -109,9 +110,10 @@ export async function getMonthly(
   const { real, projected } = transactionsForMonth(ws.transactions, month, competenceOf);
 
   // A rolled (abated) debt is kept only for history — it must not count in the statement's
-  // totals, groups or rows (it's already excluded from every other section).
+  // totals, groups or rows (it's already excluded from every other section). A ledger-only debt
+  // is no movement either: it is only what a person owes, and lives on the People screens.
   const realItems: MonthlyItem[] = real
-    .filter((tx) => !isRolled(tx))
+    .filter((tx) => !isOffBooks(tx))
     .map((tx) => ({ ...map(tx), projected: false, anchor: null }));
 
   // Settlements ("Acerto" — a person paying you back, or you paying them) are real cash
@@ -178,7 +180,7 @@ export async function getMonthly(
     });
   realItems.push(...settlementItems);
   const projectedItems: MonthlyItem[] = projected
-    .filter((p) => !isRolled(p.source))
+    .filter((p) => !isOffBooks(p.source))
     .map((p) => {
       const anchor = map(p.source);
       // A projection is a not-yet-realized forecast, never a copy of the anchor's settlement state:

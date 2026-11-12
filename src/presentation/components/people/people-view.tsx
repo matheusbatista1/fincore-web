@@ -29,6 +29,7 @@ import { openTxDetail } from "@/presentation/stores/tx-ui-store";
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { monthLabel, relativeDateLabel } from "@/shared/formatting/dates";
+import { AssumeDebtBody } from "./assume-debt-modal";
 import { type AccountOption, SettleBody } from "./settle-person-modal";
 
 /** A card option enriched with its billing cycle, so the roll modal can name the target fatura. */
@@ -93,6 +94,7 @@ export function PeopleView({
   const [settleId, setSettleId] = useState<string | null>(null);
   const [editSettlement, setEditSettlement] = useState<SettlementView | null>(null);
   const [rollId, setRollId] = useState<string | null>(null);
+  const [assumeId, setAssumeId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
 
   // List + totals are the browsed month's nets (projection-aware for future months).
@@ -102,6 +104,7 @@ export function PeopleView({
 
   const open = people.find((p) => p.id === openId) ?? null;
   const roll = people.find((p) => p.id === rollId) ?? null;
+  const assume = people.find((p) => p.id === assumeId) ?? null;
   // The person's open debts in the BROWSED MONTH (their share of a shared expense whose
   // competence is this month and is not yet rolled) — what "Rolar dívida" acts on. Scoping
   // to the month means rolling abates the parcela that actually weighs on the month's
@@ -232,6 +235,9 @@ export function PeopleView({
               const owes = bal > 0;
               const owed = bal < 0;
               const settled = bal === 0;
+              // A settled person with money parked shows the credit AS the row's figure (sky, labelled
+              // "crédito"): a longer sub-label would widen the right column and squeeze the name on phones.
+              const credit = settled && p.advanceCents > 0;
               return (
                 <div
                   role="button"
@@ -253,10 +259,21 @@ export function PeopleView({
                     <div className="l-sub">{p.relationship}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}>
-                      {settled ? "—" : <Money cents={Math.abs(bal)} withSign={false} />}
+                    <div
+                      className={`l-amt ${owes ? "pos" : owed ? "neg" : ""}`}
+                      style={credit ? { color: "var(--sky-500)" } : undefined}
+                    >
+                      {credit ? (
+                        <Money cents={p.advanceCents} withSign={false} />
+                      ) : settled ? (
+                        "—"
+                      ) : (
+                        <Money cents={Math.abs(bal)} withSign={false} />
+                      )}
                     </div>
-                    <div className="l-sub">{owes ? "te deve" : owed ? "você deve" : "em dia"}</div>
+                    <div className="l-sub">
+                      {owes ? "te deve" : owed ? "você deve" : credit ? "crédito" : "em dia"}
+                    </div>
                   </div>
                   <Icon
                     name="chevron-right"
@@ -319,6 +336,10 @@ export function PeopleView({
                   setOpenId(null);
                   setRollId(open.id);
                 }}
+                onAssume={() => {
+                  setOpenId(null);
+                  setAssumeId(open.id);
+                }}
                 onEditSettlement={(s) => {
                   setOpenId(null);
                   setEditSettlement(s);
@@ -345,6 +366,7 @@ export function PeopleView({
                 // future/"futura" loan parcela is settleable, matching the visible "no total").
                 prefillCents: settleTarget.monthBalanceCents,
                 capCents: settleTarget.totalBalanceCents,
+                throughMonth: month,
               }}
               accounts={accounts}
               editing={editSettlement}
@@ -363,6 +385,23 @@ export function PeopleView({
               cards={cards}
               debts={rollDebts}
               onDone={() => setRollId(null)}
+            />
+          )}
+        </Dialog>
+
+        {/* Assumir dívida */}
+        <Dialog open={assume !== null} onOpenChange={(v) => !v && setAssumeId(null)}>
+          {assume && (
+            <AssumeDebtBody
+              target={{
+                id: assume.id,
+                name: assume.name,
+                // The figures the profile shows; the server caps at the BOOKED pending.
+                monthPendingCents: assume.monthBalanceCents,
+                totalPendingCents: assume.totalBalanceCents,
+              }}
+              month={month}
+              onDone={() => setAssumeId(null)}
             />
           )}
         </Dialog>
@@ -389,6 +428,7 @@ function ProfileBody({
   settlements,
   onSettle,
   onRoll,
+  onAssume,
   onEditSettlement,
   onDeleteSettlement,
   onRemind,
@@ -401,6 +441,7 @@ function ProfileBody({
   settlements: SettlementView[];
   onSettle: () => void;
   onRoll: () => void;
+  onAssume: () => void;
   onEditSettlement: (s: SettlementView) => void;
   onDeleteSettlement: (id: string) => void;
   onRemind: () => void;
@@ -469,6 +510,29 @@ function ProfileBody({
             </>
           )}
         </div>
+        {person.advanceCents !== 0 && (
+          // The excess of an account-backed acerto: the total above clamps at zero, so a person who
+          // paid more than they owed reads "quitado" here and the parked amount is told apart.
+          <div style={{ fontSize: 12.5, color: "var(--text-lo)", marginTop: 4 }}>
+            {person.advanceCents > 0 ? (
+              <>
+                {first} tem{" "}
+                <b style={{ color: "var(--sky-500)" }}>
+                  <Money cents={person.advanceCents} withSign={false} />
+                </b>{" "}
+                de crédito · abate a próxima cota
+              </>
+            ) : (
+              <>
+                Você tem{" "}
+                <b style={{ color: "var(--sky-500)" }}>
+                  <Money cents={-person.advanceCents} withSign={false} />
+                </b>{" "}
+                de crédito com {first}
+              </>
+            )}
+          </div>
+        )}
         {canSettle && (
           <div className="row gap-3" style={{ justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
             {realOwes && (
@@ -481,6 +545,12 @@ function ProfileBody({
               <button type="button" className="btn btn-ghost btn-sm" onClick={onRoll}>
                 <Icon name="repeat" size={16} />
                 Rolar dívida
+              </button>
+            )}
+            {realOwes && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={onAssume}>
+                <Icon name="handshake" size={16} />
+                Assumir dívida
               </button>
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={onSettle}>
@@ -539,6 +609,11 @@ function ProfileBody({
                     Rolada
                   </span>
                 )}
+                {t.ledgerOnly && (
+                  <span className="parc-badge" style={{ marginLeft: 8 }}>
+                    Sem movimentação
+                  </span>
+                )}
               </div>
               <div className="l-sub">
                 {relativeDateLabel(t.date, today)}
@@ -569,6 +644,13 @@ function ProfileBody({
                 <div className="l-sub">
                   {relativeDateLabel(s.date, today)} · {s.accountLabel ?? "sem conta"}
                 </div>
+                {s.note && (
+                  // The trail the app writes on an acerto ("Rolagem — …", "Acerto · R$ X de crédito",
+                  // "Recebeu R$ X · R$ Y de gorjeta") explains an amount that differs from what was paid.
+                  <div className="l-sub" style={{ marginTop: 2, whiteSpace: "normal" }}>
+                    {s.note}
+                  </div>
+                )}
               </div>
               <div className="row gap-2">
                 <button
@@ -604,9 +686,11 @@ const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
   { id: "account", label: "Meu próprio dinheiro" },
 ];
 
-/** Instruments a POOL roll can target: debt instruments only — `account`/`overdraft` would debit
- * real cash at roll time, but a pool roll moves no money (the debt just changes shape). */
-const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan");
+/** Instruments a POOL roll can target. A pool roll moves no money (the debt just changes shape), so
+ * it is a debt instrument (card / loan: a new charge the person owes) or the user's own money, which
+ * here debits nothing: the person's share already left through the month's own rows, and the new
+ * debt is only what they owe on the new date. `overdraft` stays out — it would debit real cash. */
+const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan" || i.id === "account");
 
 /** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
 function RollDebtBody({
@@ -670,6 +754,9 @@ function RollDebtBody({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Rolling the month's remainder with the user's own money: nothing is charged and no account
+  // moves, so there is no card/account to pick, no cash landing anywhere and no juros to pass on.
+  const ownMoneyPool = mode === "month" && instrument === "account";
   const canInstallment = instrument === "card" || instrument === "loan";
   const usesCard = instrument === "card";
   // Live label: where the chosen date actually lands — the card's FATURA month, or the calendar
@@ -680,12 +767,15 @@ function RollDebtBody({
       ? `fatura de ${monthLabel(cardBillMonth(date as never, selectedCard.closingDay, selectedCard.dueDay), { long: true })}`
       : `${monthLabel(date.slice(0, 7), { long: true })}`
     : null;
-  const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
-  const total = principal + juros;
+  // loan/overdraft/account all reference an account (loan's is optional) — except own money in a
+  // pool roll, which names none.
+  const usesAccount = !usesCard && !ownMoneyPool;
+  const appliedJuros = ownMoneyPool ? 0 : juros;
+  const total = principal + appliedJuros;
   const valid =
     (mode === "month" || debtId !== null) &&
     principal > 0 &&
-    (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+    (usesCard ? cardId !== null : instrument === "loan" || ownMoneyPool ? true : acctId !== null);
 
   const pickMode = (next: "month" | "item") => {
     setMode(next);
@@ -716,18 +806,22 @@ function RollDebtBody({
     const shared = {
       personId: person.id,
       principalCents: principal,
-      jurosCents: juros,
+      jurosCents: appliedJuros,
       date,
       source: instrument,
       cardId: usesCard ? cardId : null,
-      accountId: instrument === "account" ? acctId : null,
+      accountId: instrument === "account" && !ownMoneyPool ? acctId : null,
       linkedAccountId: instrument === "overdraft" || instrument === "loan" ? acctId : null,
       installments: canInstallment ? installments : 1,
       description: `Dívida de ${first}`,
     };
     const res =
       mode === "month"
-        ? await rollPersonMonthDebtAction({ ...shared, month, cashAccountId: cashAcctId || null })
+        ? await rollPersonMonthDebtAction({
+            ...shared,
+            month,
+            cashAccountId: ownMoneyPool ? null : cashAcctId || null,
+          })
         : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
@@ -739,7 +833,13 @@ function RollDebtBody({
     onDone();
   }
 
-  const moneyField = (value: number, onChange: (cents: number) => void, label: string, id: string) => (
+  const moneyField = (
+    value: number,
+    onChange: (cents: number) => void,
+    label: string,
+    id: string,
+    locked = false,
+  ) => (
     <div style={{ marginBottom: 12 }}>
       <label
         htmlFor={id}
@@ -756,7 +856,8 @@ function RollDebtBody({
           onChange(digits ? Number.parseInt(digits, 10) : 0);
         }}
         inputMode="numeric"
-        style={{ width: "100%" }}
+        disabled={locked}
+        style={{ width: "100%", opacity: locked ? 0.55 : 1 }}
       />
     </div>
   );
@@ -830,7 +931,15 @@ function RollDebtBody({
           mode === "month" ? "Valor rolado (o que falta do mês)" : "Valor abatido (dívida original)",
           "roll-principal",
         )}
-        {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
+        {/* Kept in place (locked at zero) with own money, so the fields below do not jump when the
+            instrument changes; the amount typed for a card/loan comes back if the user switches. */}
+        {moneyField(
+          appliedJuros,
+          setJuros,
+          ownMoneyPool ? "Juros / acréscimo (não se aplica)" : "Juros / acréscimo (a pessoa paga)",
+          "roll-juros",
+          ownMoneyPool,
+        )}
 
         <label
           htmlFor="roll-instrument"
@@ -857,6 +966,18 @@ function RollDebtBody({
             </option>
           ))}
         </select>
+
+        {ownMoneyPool && (
+          <div
+            role="note"
+            style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--text-lo)", marginBottom: 12 }}
+          >
+            Nada é cobrado em cartão e nenhuma conta é movimentada: a parte de{" "}
+            <b style={{ color: "var(--text-hi)" }}>{first}</b> já saiu do seu dinheiro quando você pagou as
+            contas do mês. O valor só volta a ser devido na nova data, sem juros — se vier a mais, você
+            registra como gorjeta ao receber.
+          </div>
+        )}
 
         {usesCard ? (
           <select
@@ -896,7 +1017,7 @@ function RollDebtBody({
           )
         )}
 
-        {mode === "month" && (
+        {mode === "month" && !ownMoneyPool && (
           <>
             <label
               htmlFor="roll-cash"
@@ -947,7 +1068,7 @@ function RollDebtBody({
               htmlFor="roll-date"
               style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
             >
-              Vencimento
+              {ownMoneyPool ? "Nova data para pagar" : "Vencimento"}
             </label>
             <input
               id="roll-date"

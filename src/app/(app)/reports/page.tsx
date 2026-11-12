@@ -1,3 +1,4 @@
+import { getProfileCached } from "@/application/loaders";
 import { getDashboard } from "@/application/use-cases/get-dashboard";
 import { getPersonStatements } from "@/application/use-cases/get-person-statements";
 import { getReports } from "@/application/use-cases/get-reports";
@@ -47,13 +48,15 @@ export default async function ReportsPage({
   }
   if (monthsBetween(from, to) < 0) [from, to] = [to, from];
 
-  const [data, workspace, dash, transactions, personStatements] = await Promise.all([
+  const [data, workspace, dash, transactions, personStatements, profile] = await Promise.all([
     getReports(financeRepository, user.id, { from, to, categoryFrom: from, categoryTo: to }),
     getWorkspaceView(financeRepository, user.id),
     // The export "Resumo" is the current-month snapshot, independent of the report window.
     getDashboard(financeRepository, user.id, current),
     getTransactions(financeRepository, user.id),
-    getPersonStatements(financeRepository, user.id, { from, to }),
+    // `asOf` lets a past window's statement also say how things stand today.
+    getPersonStatements(financeRepository, user.id, { from, to, asOf: current }),
+    getProfileCached(financeRepository, user.id),
   ]);
 
   // "Gasto por cartão" over the selected window (period-aware, follows from/to).
@@ -66,6 +69,7 @@ export default async function ReportsPage({
     transactions,
     personStatements,
     today: todayInBrazil(),
+    profile,
   });
 
   return (

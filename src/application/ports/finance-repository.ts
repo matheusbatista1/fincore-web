@@ -13,6 +13,7 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
+import type { RecordedSettlement } from "@/domain/services/settlement-after-edit";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import type { ModuleKey } from "@/shared/modules";
 import type {
@@ -125,6 +126,11 @@ export interface UpdateTransactionCommand {
   readonly transferToAccountId?: string | null;
   readonly transferValueCents?: number | null;
   readonly splits?: ReadonlyArray<{ personId: string; shareCents: number }>;
+  /**
+   * The receipt/payment the row must carry after the edit (see `settlementAfterEdit`): written
+   * together with the row, so the balance follows what the list shows. Omitted = left untouched.
+   */
+  readonly settlement?: RecordedSettlement;
 }
 
 export interface SettlementData {
@@ -132,6 +138,7 @@ export interface SettlementData {
   readonly amountCents: number;
   readonly date: IsoDate;
   readonly accountId?: string | null;
+  /** On create: `undefined` stores no note. On update: `undefined` keeps the stored note. */
   readonly note?: string;
 }
 
@@ -246,6 +253,17 @@ export interface FinanceRepository {
     command: CreateTransactionCommand,
   ): Promise<void>;
   /**
+   * "Assumir dívida": move part of a person's shares onto the user. Each item lowers that person's
+   * split on the transaction by `assumeCents` (deleting it when fully taken) and raises the row's
+   * `myShareCents` by the same amount, appending `note` to the row — atomically, no cash moved.
+   * Returns the number of rows touched.
+   */
+  assumePersonShares(
+    userId: string,
+    items: ReadonlyArray<{ transactionId: string; personId: string; assumeCents: number }>,
+    note: string,
+  ): Promise<number>;
+  /**
    * Persist a single-entry command and return the new transaction's id — for flows that must act
    * on the row right after creating it (paying a recurring occurrence ahead of its day).
    */
@@ -293,7 +311,16 @@ export interface FinanceRepository {
   setBillMonthOverride(userId: string, id: string, month: string | null): Promise<void>;
 
   createSettlement(userId: string, input: SettlementData): Promise<void>;
-  /** Edit a settlement (amount, date, account, note) in place. */
+  /**
+   * Persist a settlement and a transaction atomically — an acerto capped at the pending plus the
+   * surplus booked as income of the user (a gorjeta). Both rows land or neither does.
+   */
+  createSettlementWithTransaction(
+    userId: string,
+    settlement: SettlementData,
+    command: CreateTransactionCommand,
+  ): Promise<void>;
+  /** Edit a settlement (amount, date, account, note) in place. An omitted `note` keeps the stored one. */
   updateSettlement(userId: string, id: string, input: SettlementData): Promise<void>;
   /** Soft-delete a settlement (revert a person payment). */
   deleteSettlement(userId: string, id: string): Promise<void>;

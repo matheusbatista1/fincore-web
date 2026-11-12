@@ -255,6 +255,22 @@ function parseOfx(content: string): ParsedEntry[] {
   return entries;
 }
 
+/**
+ * The balance an OFX file says the account closed on (`LEDGERBAL`), and the day it is of. `null`
+ * when the file states none — a CSV never does.
+ */
+export function parseClosingBalance(
+  content: string,
+  format: StatementFormat,
+): { readonly cents: number; readonly date: IsoDate | null } | null {
+  if (format !== "ofx") return null;
+  const block = content.split(/<LEDGERBAL>/i)[1];
+  if (block === undefined) return null;
+  const cents = parseAmountToCents(tag(block, "BALAMT") ?? "");
+  if (cents === null) return null;
+  return { cents, date: parseDate(tag(block, "DTASOF") ?? "") };
+}
+
 /** Parse a statement file's text into normalized, signed-cents entries. */
 export function parseStatement(content: string, format: StatementFormat): ParsedEntry[] {
   // Strip a leading UTF-8 BOM (common in Excel/online-banking exports) so it
