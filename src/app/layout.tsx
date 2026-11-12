@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { ServiceWorkerRegister } from "@/presentation/components/pwa/service-worker-register";
+import { ErrorReporter } from "@/presentation/components/shell/error-reporter";
 import { Toaster } from "@/presentation/components/ui/toaster";
 import { clashDisplay, satoshi } from "./_fonts";
 import "./globals.css";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {children}
         <Toaster />
         <ServiceWorkerRegister />
+        <ErrorReporter />
       </body>
     </html>
   );
