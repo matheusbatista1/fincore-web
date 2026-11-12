@@ -2615,6 +2615,10 @@ select.input {
   display: flex;
   align-items: center;
   gap: 15px;
+  /* The row is a <button>: left alone it shrink-wraps its content (and cannot get narrower than
+     it, so a long row pushes the page sideways on a phone) and centres its text. */
+  width: 100%;
+  text-align: left;
   padding: 15px 12px;
   border-radius: var(--r-md);
   border-bottom: 1px solid var(--line);
@@ -2648,7 +2652,10 @@ select.input {
 .acct-name {
   display: flex;
   align-items: center;
-  gap: 9px;
+  /* Badges drop to the next line instead of pushing the balance out of the row. */
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  min-width: 0;
   font-size: 15.5px;
   font-weight: 700;
   color: var(--text-hi);
@@ -2702,6 +2709,7 @@ select.input {
   font-weight: 600;
   color: var(--text-hi);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .acct-bal .ab-pct {
   font-size: 12px;
@@ -3212,8 +3220,36 @@ html {
   .dist-legend {
     gap: 12px;
   }
+  /* A phone row: avatar, name (+ badges, wrapping), balance. The card already pads the sides, the
+     hover chevron has no hover to answer to, and the balance takes only the room its figure needs. */
+  .acct-row {
+    gap: 12px;
+    padding: 14px 0;
+    /* No hover highlight to round off here: a square row keeps the separator straight. */
+    border-radius: 0;
+  }
+  .acct-ava {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
   .acct-bal {
-    min-width: 96px;
+    flex: none;
+    min-width: 0;
+  }
+  .acct-bal .ab-val {
+    font-size: 17px;
+  }
+  .acct-edit {
+    display: none;
+  }
+  .acct-name .type-badge {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .wallets-hero-head {
     flex-direction: column;
@@ -3443,6 +3479,12 @@ html {
   }
   .mt-note {
     font-size: 10.5px;
+  }
+}
+/* The narrowest phones (~320px): the two Carteiras hero buttons stack instead of sticking out. */
+@media (max-width: 340px) {
+  .wallets-hero-head > .row.gap-3 {
+    flex-wrap: wrap;
   }
 }
 @media (max-width: 480px) {
