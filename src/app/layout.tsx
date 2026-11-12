@@ -20,7 +20,13 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" className={`dark ${satoshi.variable} ${clashDisplay.variable}`}>
+    // `data-scroll-behavior`: the stylesheet scrolls smoothly (for in-page moves); since Next 16 a
+    // route change would be animated too unless the root says so. With it, navigating jumps at once.
+    <html
+      lang="pt-BR"
+      className={`dark ${satoshi.variable} ${clashDisplay.variable}`}
+      data-scroll-behavior="smooth"
+    >
       <body>
         <div className="app-aura" aria-hidden="true" />
         <div className="app-grain" aria-hidden="true" />
