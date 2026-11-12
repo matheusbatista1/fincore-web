@@ -99,13 +99,6 @@ export default async function DashboardPage({
   const aReceberCents = dash.aReceberCents;
   const othersCents = Math.max(0, dash.general.expenseCents - dash.personal.expenseCents);
 
-  const prev = dash.monthEndTotals.previousCents;
-  const last = dash.monthEndTotals.currentCents;
-  // Guard against a near-zero base (e.g., empty accounts before a salary lands) and
-  // against absurd magnitudes — either way the month-over-month % is meaningless.
-  const rawDelta = Math.abs(prev) >= 100 ? ((last - prev) / Math.abs(prev)) * 100 : null;
-  const deltaPct = rawDelta !== null && Math.abs(rawDelta) <= 999 ? rawDelta : null;
-
   const toBar = (m: { label: string; incomeCents: number; expenseCents: number; projected: boolean }) => ({
     label: m.label,
     incomeCents: m.incomeCents,
@@ -136,7 +129,7 @@ export default async function DashboardPage({
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
     personal: { incomeCents: dash.personal.incomeCents, expenseCents: dash.personal.expenseCents },
     othersCents,
-    deltaPct,
+    monthChangeCents: dash.monthEndTotals.currentCents - dash.monthEndTotals.previousCents,
     netWorth: dash.netWorthDaily,
     months: reports.months.map(toBar),
     monthsPersonal: reports.monthsPersonal.map(toBar),
