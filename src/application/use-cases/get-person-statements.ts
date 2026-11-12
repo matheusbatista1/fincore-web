@@ -1,4 +1,4 @@
-import { isExpense } from "@/domain/entities/transaction";
+import { isExpense, isLedgerOnly } from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import {
   type CashMovement,
@@ -10,16 +10,22 @@ import { DEFAULT_CATEGORY_COLOR } from "@/shared/theme/category-colors";
 import { loadWorkspaceCached } from "../loaders";
 import type { FinanceRepository, Workspace } from "../ports/finance-repository";
 import { createTransactionMapper } from "./get-transactions";
+import { isRolloverNote, ROLLOVER_NOTE_PREFIX } from "./roll-person-month-debt";
 
 /**
  * What a statement row is, from the person's point of view:
  *  - `purchase`: their part of a shared expense (adds to what they owe);
+ *  - `carried`: a remainder of an earlier period, back on its new date — the other half of a
+ *    rollover covered with the user's own money. It adds to what they owe but is no new purchase;
  *  - `payment`: money they paid you (a received income from them, or an account-backed acerto);
  *  - `refund`: money you paid them back (an account-backed acerto against a balance in their favour);
  *  - `writeoff`: a "sem conta" acerto — a baixa/perdão (usually reduces what they owe; a positive
- *    one abates credit they had).
+ *    one abates credit they had);
+ *  - `rollover`: the acerto "Rolar dívida" writes. Nothing was paid and nothing forgiven: that
+ *    amount left this period and is owed again as a new debt, on a later date. With or without an
+ *    account behind it — where the user got the money to cover it is not the person's business.
  */
-export type PersonStatementRowKind = "purchase" | "payment" | "refund" | "writeoff";
+export type PersonStatementRowKind = "purchase" | "carried" | "payment" | "refund" | "writeoff" | "rollover";
 
 /** One line of a person's statement, with the running figure after it. */
 export interface PersonStatementRow {
@@ -30,7 +36,7 @@ export interface PersonStatementRow {
   readonly description: string;
   /** The acerto's note (the app writes "Acerto · R$ X de crédito", "Rolagem — …") or the expense note. */
   readonly note: string | null;
-  /** "Cartão Nubank", "Itaú · Conta", "Boleto", … or "sem conta" for a baixa/perdão. */
+  /** "Cartão Nubank", "Itaú · Conta", "Boleto", … "sem conta" for a baixa/perdão, "Rolagem" for a rollover. */
   readonly originLabel: string;
   readonly categoryName: string | null;
   readonly categoryColor: string | null;
@@ -53,8 +59,8 @@ export interface PersonStatementRow {
 /**
  * A person's statement over `[from, to]`, in the money view a lay reader expects: every row moves
  * the cash it really moved (an acerto above the debt is NOT clamped away), so
- * `opening + purchases + refunds − payments + writeoffs === closing`, and `closing` is the profile's
- * "no total" minus its "crédito" line (`ledgerClosingCents − advance`).
+ * `opening + purchases + carried + refunds − payments + writeoffs + rollovers === closing`, and
+ * `closing` is the profile's "no total" minus its "crédito" line (`ledgerClosingCents − advance`).
  */
 export interface PersonStatement {
   readonly id: string;
@@ -68,12 +74,16 @@ export interface PersonStatement {
   readonly rows: PersonStatementRow[];
   /** Σ of purchase rows (their part of shared expenses in the window). */
   readonly purchasesCents: number;
+  /** Σ of carried rows: remainders of earlier periods that fall due in the window. */
+  readonly carriedCents: number;
   /** Σ of what they paid in the window (positive magnitude). */
   readonly paymentsCents: number;
   /** Σ of what you paid them back in the window (positive magnitude). */
   readonly refundsCents: number;
   /** Σ of baixa/perdão rows, signed (usually ≤ 0: a discount on what they owed). */
   readonly writeoffsCents: number;
+  /** Σ of rollover rows, signed (≤ 0 when they owed): what was moved to a later date, not paid. */
+  readonly rolloversCents: number;
   /** `> 0` they still owe, `< 0` credit in their favour, 0 all settled. */
   readonly closingCents: number;
   /** The clamped ledger figure (`computePersonBalancesThrough(to)`), kept for reconciliation. */
@@ -202,15 +212,31 @@ export async function getPersonStatements(
     asOfCashByPerson.set(mv.personId, (asOfCashByPerson.get(mv.personId) ?? 0) + mv.cashDeltaCents);
   }
 
+  // A rollover is never a payment of theirs, even when the user's borrowed money landed in an account.
   const isPayment = (mv: CashMovement): boolean =>
     mv.cashDeltaCents < 0 &&
     (mv.source.type === "payment" ||
-      (mv.source.type === "settlement" && mv.source.settlement.accountId !== null));
+      (mv.source.type === "settlement" &&
+        mv.source.settlement.accountId !== null &&
+        !isRolloverNote(mv.source.settlement.note)));
 
   const toRow = (personId: string, mv: CashMovement, runningCents: number): PersonStatementRow => {
     const base = { date: mv.date, competence: mv.competence, cashCents: mv.cashDeltaCents, runningCents };
     if (mv.source.type === "settlement") {
       const s = mv.source.settlement;
+      if (isRolloverNote(s.note)) {
+        // What the app wrote after the prefix ("Dívida de Ana · nova data 20/12/2026") is the detail.
+        const detail = (s.note ?? "").slice(ROLLOVER_NOTE_PREFIX.length).trim();
+        return {
+          ...base,
+          ...EMPTY_PURCHASE,
+          kind: "rollover",
+          description: "Saldo adiado",
+          note: detail || null,
+          originLabel: "Rolagem",
+          projected: false,
+        };
+      }
       const kind: PersonStatementRowKind =
         s.accountId === null ? "writeoff" : mv.cashDeltaCents < 0 ? "payment" : "refund";
       const description =
@@ -249,7 +275,8 @@ export async function getPersonStatements(
     const group = installment ? groups.get(installment.groupId) : undefined;
     return {
       ...base,
-      kind: "purchase",
+      // A ledger-only debt is what a rollover left to be paid later: owed, but not a purchase.
+      kind: isLedgerOnly(tx) ? "carried" : "purchase",
       description: item.description,
       note: item.note,
       originLabel: item.sourceLabel ?? "Outros",
@@ -285,14 +312,26 @@ export async function getPersonStatements(
         period.push(mv);
       }
     }
-    // Chronological display order (stable: shares and payments stay ahead of same-day acertos).
-    period.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Chronological display order (stable: shares and payments stay ahead of same-day acertos). A
+    // rollover is listed at the end of its month: it settles what the month left open, including
+    // rows dated after the day it was made — in date order the running figure would dip into a
+    // "credit" nobody has until those rows came.
+    const displayOrder = (mv: CashMovement): string =>
+      mv.source.type === "settlement" && isRolloverNote(mv.source.settlement.note)
+        ? `${mv.competence}-99`
+        : mv.date;
+    period.sort((a, b) => {
+      const [ka, kb] = [displayOrder(a), displayOrder(b)];
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
 
     let running = openingCents;
     let purchasesCents = 0;
+    let carriedCents = 0;
     let paymentsCents = 0;
     let refundsCents = 0;
     let writeoffsCents = 0;
+    let rolloversCents = 0;
     let projectedCount = 0;
     let projectedCents = 0;
     const rows: PersonStatementRow[] = [];
@@ -304,8 +343,10 @@ export async function getPersonStatements(
       const row = toRow(p.id, mv, running);
       rows.push(row);
       if (row.kind === "purchase") purchasesCents += row.cashCents;
+      else if (row.kind === "carried") carriedCents += row.cashCents;
       else if (row.kind === "payment") paymentsCents -= row.cashCents;
       else if (row.kind === "refund") refundsCents += row.cashCents;
+      else if (row.kind === "rollover") rolloversCents += row.cashCents;
       else writeoffsCents += row.cashCents;
       if (row.projected) {
         projectedCount += 1;
@@ -328,8 +369,13 @@ export async function getPersonStatements(
       .sort((a, b) =>
         a.name === NO_CATEGORY_LABEL ? 1 : b.name === NO_CATEGORY_LABEL ? -1 : b.totalCents - a.totalCents,
       );
-    const first = rows[0];
-    const last = rows[rows.length - 1];
+    // Earliest and latest dates, not the first and last rows: a rollover is listed out of date order.
+    let first: IsoDate | null = null;
+    let last: IsoDate | null = null;
+    for (const row of rows) {
+      if (first === null || row.date < first) first = row.date;
+      if (last === null || row.date > last) last = row.date;
+    }
 
     return {
       id: p.id,
@@ -341,15 +387,17 @@ export async function getPersonStatements(
       openingCents,
       rows,
       purchasesCents,
+      carriedCents,
       paymentsCents,
       refundsCents,
       writeoffsCents,
+      rolloversCents,
       closingCents: running,
       ledgerClosingCents: ledger.balances.get(p.id)?.cents ?? 0,
       projectedCount,
       projectedCents,
       lastPaymentBefore,
-      rowsDateSpan: first && last ? { first: first.date, last: last.date } : null,
+      rowsDateSpan: first !== null && last !== null ? { first, last } : null,
       byCategory,
       asOf: asOfMonth ? { month: asOfMonth, closingCents: asOfCashByPerson.get(p.id) ?? 0 } : null,
     };

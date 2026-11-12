@@ -114,7 +114,7 @@ function stubRepo(
 const range = { from: "2026-05", to: "2026-06" } as const;
 
 describe("getPersonStatements — the reader view", () => {
-  it("reconciles opening + purchases + refunds − payments + writeoffs == closing", async () => {
+  it("reconciles opening + purchases + carried + refunds − payments + writeoffs + rollovers == closing", async () => {
     const repo = stubRepo(
       [person("p")],
       [
@@ -128,9 +128,15 @@ describe("getPersonStatements — the reader view", () => {
     expect(st).toBeDefined();
     if (!st) return;
     expect(st.openingCents).toBe(8000); // April charge carried in: they already owed
-    expect(st.openingCents + st.purchasesCents + st.refundsCents - st.paymentsCents + st.writeoffsCents).toBe(
-      st.closingCents,
-    );
+    expect(
+      st.openingCents +
+        st.purchasesCents +
+        st.carriedCents +
+        st.refundsCents -
+        st.paymentsCents +
+        st.writeoffsCents +
+        st.rolloversCents,
+    ).toBe(st.closingCents);
     expect(st.closingCents).toBe(9000);
     expect(st.ledgerClosingCents).toBe(9000);
     expect(st.rows.at(-1)?.runningCents).toBe(9000);
@@ -208,6 +214,105 @@ describe("getPersonStatements — the reader view", () => {
     expect(writeoff?.cashCents).toBe(-5000);
     expect(st?.writeoffsCents).toBe(-5000);
     expect(st?.closingCents).toBe(0);
+  });
+
+  it("a rollover is a postponement: neither a discount nor a payment, and the debt returns later", async () => {
+    // June: 50,00 owed. Rolled on the 15th with the user's own money to July 20.
+    const repo = stubRepo(
+      [person("p")],
+      [
+        expense({ date: "2026-06-01", splits: [{ personId: "p", shareCents: 5000 }] }),
+        expense({
+          description: "Dívida de p",
+          date: "2026-07-20",
+          amountCents: -5000,
+          note: "Saldo de Junho 2026 adiado",
+          accountId: null, // ledger-only: owed, nothing behind it
+          splits: [{ personId: "p", shareCents: 5000 }],
+        }),
+      ],
+      [
+        settlement({
+          personId: "p",
+          date: "2026-06-15",
+          amountCents: 5000,
+          note: "Rolagem — Dívida de p · nova data 20/07/2026",
+        }),
+      ],
+    );
+    const [june] = await getPersonStatements(repo, "u", { from: "2026-06", to: "2026-06" });
+    const rolled = june?.rows.find((r) => r.kind === "rollover");
+    expect(rolled).toMatchObject({
+      description: "Saldo adiado",
+      originLabel: "Rolagem",
+      note: "Dívida de p · nova data 20/07/2026",
+      cashCents: -5000,
+      runningCents: 0,
+    });
+    expect(june?.rolloversCents).toBe(-5000);
+    expect(june?.writeoffsCents).toBe(0);
+    expect(june?.paymentsCents).toBe(0);
+    expect(june?.closingCents).toBe(0);
+
+    const [july] = await getPersonStatements(repo, "u", { from: "2026-07", to: "2026-07" });
+    expect(july?.openingCents).toBe(0);
+    expect(july?.rows).toHaveLength(1);
+    expect(july?.rows[0]).toMatchObject({
+      kind: "carried", // owed again, but not something bought in July
+      description: "Dívida de p",
+      originLabel: "Dívida rolada",
+      note: "Saldo de Junho 2026 adiado",
+      cashCents: 5000,
+    });
+    expect(july?.carriedCents).toBe(5000);
+    expect(july?.purchasesCents).toBe(0);
+    expect(july?.byCategory).toEqual([]);
+    expect(july?.closingCents).toBe(5000);
+    // It was never paid: the statement must not remember a payment.
+    expect(july?.lastPaymentBefore).toBeNull();
+  });
+
+  it("lists a rollover after the month's rows it settles, even those dated after the day it was made", async () => {
+    // Rolled on the 12th: the month's remainder includes a parcela that only falls on the 18th.
+    const repo = stubRepo(
+      [person("p")],
+      [
+        expense({ date: "2026-06-02", splits: [{ personId: "p", shareCents: 2400 }] }),
+        expense({ date: "2026-06-18", splits: [{ personId: "p", shareCents: 34765 }] }),
+      ],
+      [settlement({ personId: "p", date: "2026-06-12", amountCents: 37165, note: "Rolagem — Dívida de p" })],
+    );
+    const [st] = await getPersonStatements(repo, "u", { from: "2026-06", to: "2026-06" });
+    expect(st?.rows.map((r) => [r.date, r.kind, r.runningCents])).toEqual([
+      ["2026-06-02", "purchase", 2400],
+      ["2026-06-18", "purchase", 37165],
+      ["2026-06-12", "rollover", 0], // never a passing "credit" of 347,65 in between
+    ]);
+    // The span still reads the calendar, whatever the listing order.
+    expect(st?.rowsDateSpan).toEqual({ first: "2026-06-02", last: "2026-06-18" });
+  });
+
+  it("a rollover backed by an account (the user's borrowed money landed there) is still not their payment", async () => {
+    const repo = stubRepo(
+      [person("p")],
+      [expense({ date: "2026-06-01", splits: [{ personId: "p", shareCents: 5000 }] })],
+      [
+        settlement({
+          personId: "p",
+          date: "2026-06-15",
+          amountCents: 5000,
+          accountId: "acc-1",
+          note: "Rolagem — Dívida de p",
+        }),
+      ],
+    );
+    const [st] = await getPersonStatements(repo, "u", range);
+    expect(st?.rows.map((r) => r.kind)).toEqual(["purchase", "rollover"]);
+    expect(st?.rows[1]).toMatchObject({ description: "Saldo adiado", note: "Dívida de p", cashCents: -5000 });
+    expect(st?.paymentsCents).toBe(0);
+    expect(st?.rolloversCents).toBe(-5000);
+    const [later] = await getPersonStatements(repo, "u", { from: "2026-07", to: "2026-07" });
+    expect(later?.lastPaymentBefore).toBeNull();
   });
 
   it("drops a no-op 'sem conta' acerto (against a zero balance) from the rows", async () => {
@@ -448,6 +553,7 @@ describe("getPersonStatements — the reader view", () => {
       month: monthArb,
       cents: fc.integer({ min: 1, max: 100_000 }),
       withAccount: fc.boolean(),
+      rollover: fc.boolean(),
     });
     await fc.assert(
       fc.asyncProperty(
@@ -470,13 +576,24 @@ describe("getPersonStatements — the reader view", () => {
               date: `${s.month}-12`,
               amountCents: s.cents,
               accountId: s.withAccount ? "acc-1" : null,
+              ...(s.rollover ? { note: "Rolagem — Dívida de p" } : {}),
             }),
           );
           const [st] = await getPersonStatements(stubRepo([person("p")], txs, acertos), "u", { from, to });
           if (!st) throw new Error("missing statement");
           expect(
-            st.openingCents + st.purchasesCents + st.refundsCents - st.paymentsCents + st.writeoffsCents,
+            st.openingCents +
+              st.purchasesCents +
+              st.carriedCents +
+              st.refundsCents -
+              st.paymentsCents +
+              st.writeoffsCents +
+              st.rolloversCents,
           ).toBe(st.closingCents);
+          // A rollover never reads as money the person paid, nor as a discount.
+          for (const row of st.rows) {
+            if (row.kind === "rollover") expect(row.description).toBe("Saldo adiado");
+          }
           if (st.rows.length > 0) expect(st.rows.at(-1)?.runningCents).toBe(st.closingCents);
           for (const row of st.rows) expect(row.cashCents).not.toBe(0);
           const advance =

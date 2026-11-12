@@ -4,6 +4,7 @@ import type { PdfCell, PdfDocument, PdfSection } from "@/presentation/lib/export
 import {
   balanceWords,
   buildPersonStatementPdf,
+  closingWords,
   personStatementFilename,
   rowLines,
   runningWords,
@@ -39,9 +40,11 @@ const statement = (over: Partial<PersonStatement> = {}): PersonStatement => ({
   openingCents: -108_803,
   rows: [row()],
   purchasesCents: 8890,
+  carriedCents: 0,
   paymentsCents: 0,
   refundsCents: 0,
   writeoffsCents: 0,
+  rolloversCents: 0,
   closingCents: -99_913,
   ledgerClosingCents: 0,
   projectedCount: 0,
@@ -80,6 +83,22 @@ describe("balanceWords / runningWords", () => {
     expect(balanceWords(0)).toEqual({ label: "Tudo pago", value: "R$ 0,00", tone: "pos" });
     expect(runningWords(9306)).toBe("R$ 93,06");
     expect(runningWords(-107_704)).toEqual({ content: ["R$ 1.077,04", "crédito"], tone: "pos" });
+  });
+});
+
+describe("closingWords", () => {
+  it("follows balanceWords while there is something open or in credit", () => {
+    expect(closingWords({ closingCents: 1500, rolloversCents: -4000 })).toEqual(balanceWords(1500));
+    expect(closingWords({ closingCents: -1500, rolloversCents: 0 })).toEqual(balanceWords(-1500));
+    expect(closingWords({ closingCents: 0, rolloversCents: 0 }).label).toBe("Tudo pago");
+  });
+
+  it("does not call a period emptied by a rollover 'paid'", () => {
+    expect(closingWords({ closingCents: 0, rolloversCents: -4000 })).toEqual({
+      label: "Nada a pagar neste período",
+      value: "R$ 0,00",
+      tone: "pos",
+    });
   });
 });
 
@@ -280,6 +299,109 @@ describe("buildPersonStatementPdf", () => {
       ["Mercado", "2", "R$ 75,00", "75%"],
       ["Sem categoria", "1", "R$ 25,00", "25%"],
     ]);
+  });
+
+  it("words a rollover as a postponement: its own line, no 'tudo pago', a note and a legend entry", () => {
+    const doc = buildPersonStatementPdf(
+      statement({
+        openingCents: 0,
+        lastPaymentBefore: null,
+        rows: [
+          row({ cashCents: 40_000, runningCents: 40_000 }),
+          row({
+            kind: "rollover",
+            description: "Saldo adiado",
+            originLabel: "Rolagem",
+            note: "Dívida de Ana · nova data 20/12/2026",
+            categoryName: null,
+            date: "2026-11-12",
+            competence: "2026-11",
+            cashCents: -40_000,
+            runningCents: 0,
+          }),
+        ],
+        purchasesCents: 40_000,
+        rolloversCents: -40_000,
+        closingCents: 0,
+      }),
+      ctx,
+    );
+    // Not "Tudo pago": the debt left the period, it was not paid.
+    expect(doc.summary?.headline).toEqual({
+      label: "Nada a pagar neste período",
+      value: "R$ 0,00",
+      tone: "pos",
+    });
+    expect(doc.summary?.lines.map((l) => [l.label, l.value, l.tone ?? null])).toEqual([
+      ["Suas compras no período (sua parte)", "+ R$ 400,00", null],
+      ["Pagamentos que você fez para Matheus", "– R$ 0,00", "pos"],
+      ["Adiado para outra data", "– R$ 400,00", null],
+      ["Nada a pagar neste período", "R$ 0,00", "pos"],
+    ]);
+    expect(doc.summary?.notes?.[0]).toBe(
+      "R$ 400,00 deste período ficou para outra data: não foi pago nem perdoado, e volta no extrato do mês combinado.",
+    );
+    const table = tableOf(doc, "Lançamentos");
+    expect(table?.body[1]?.[1]).toEqual({
+      content: ["Saldo adiado", "Rolagem · Dívida de Ana · nova data 20/12/2026"],
+    });
+    // The amount lowers what is open, in the neutral tone — it is not money received.
+    expect(table?.body[1]?.[4]).toEqual({ content: "R$ 400,00", tone: "neutral" });
+    expect(table?.foot?.map(text)[1]).toBe("Totais do período — nada a pagar neste período");
+    const legend = doc.sections.find((sec) => sec.heading === "Como ler este extrato");
+    expect(legend && "paragraphs" in legend ? legend.paragraphs.at(-1) : null).toContain("Saldo adiado");
+  });
+
+  it("in the month it falls due, a carried debt is owed again but is not a purchase", () => {
+    const doc = buildPersonStatementPdf(
+      statement({
+        openingCents: 0,
+        lastPaymentBefore: null,
+        rows: [
+          row({ cashCents: 8890, runningCents: 8890 }),
+          row({
+            kind: "carried",
+            description: "Dívida de Ana",
+            originLabel: "Dívida rolada",
+            note: "Saldo de Novembro 2026 adiado",
+            categoryName: null,
+            date: "2026-12-20",
+            competence: "2026-12",
+            purchaseTotalCents: 40_000,
+            cashCents: 40_000,
+            runningCents: 48_890,
+          }),
+        ],
+        purchasesCents: 8890,
+        carriedCents: 40_000,
+        closingCents: 48_890,
+      }),
+      ctx,
+    );
+    expect(doc.summary?.lines.map((l) => [l.label, l.value])).toEqual([
+      ["Suas compras no período (sua parte)", "+ R$ 88,90"],
+      ["Saldo adiado de outro mês", "+ R$ 400,00"],
+      ["Pagamentos que você fez para Matheus", "– R$ 0,00"],
+      ["Falta pagar", "R$ 488,90"],
+    ]);
+    const table = tableOf(doc, "Lançamentos");
+    expect(table?.body[1]?.[1]).toEqual({
+      content: ["Dívida de Ana", "Dívida rolada · Saldo de Novembro 2026 adiado"],
+    });
+    expect(text(table?.body[1]?.[3])).toBe("R$ 400,00"); // adds to what is open: the Compra column
+    const legend = doc.sections.find((sec) => sec.heading === "Como ler este extrato");
+    expect(legend && "paragraphs" in legend ? legend.paragraphs.at(-1) : null).toContain("Saldo adiado");
+  });
+
+  it("keeps 'Tudo pago' and the plain legend when nothing was rolled", () => {
+    const doc = buildPersonStatementPdf(
+      statement({ openingCents: 0, purchasesCents: 8890, paymentsCents: 8890, closingCents: 0 }),
+      ctx,
+    );
+    expect(doc.summary?.headline.label).toBe("Tudo pago");
+    expect(doc.summary?.lines.some((l) => l.label === "Adiado para outra data")).toBe(false);
+    const legend = doc.sections.find((sec) => sec.heading === "Como ler este extrato");
+    expect(legend && "paragraphs" in legend ? legend.paragraphs.join(" ") : "").not.toContain("Saldo adiado");
   });
 
   it("shows an empty window honestly", () => {

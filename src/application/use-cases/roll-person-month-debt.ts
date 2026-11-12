@@ -16,6 +16,17 @@ export interface RollMonthDebtError {
   readonly message: string;
 }
 
+/**
+ * How the note of every rollover settlement starts. It is the only trail that tells a rollover from
+ * a plain acerto (both are settlements), so readers of the ledger — the person's statement — key on
+ * it to say "adiado" instead of "pago" or "perdoado".
+ */
+export const ROLLOVER_NOTE_PREFIX = "Rolagem — ";
+
+/** Whether a settlement note is the one a rollover writes. */
+export const isRolloverNote = (note: string | null | undefined): boolean =>
+  note?.startsWith(ROLLOVER_NOTE_PREFIX) ?? false;
+
 /** `2026-12-20` → `20/12/2026`. */
 const fullDate = (date: IsoDate): string => date.split("-").reverse().join("/");
 
@@ -142,8 +153,8 @@ export async function rollPersonMonthDebt(
       accountId: input.cashAccountId,
       // With the user's own money nothing else tells where the debt went, so the trail says when.
       note: ownMoney
-        ? `Rolagem — ${description} · nova data ${fullDate(input.date)}`
-        : `Rolagem — ${description}`,
+        ? `${ROLLOVER_NOTE_PREFIX}${description} · nova data ${fullDate(input.date)}`
+        : `${ROLLOVER_NOTE_PREFIX}${description}`,
     },
     command.value,
   );
