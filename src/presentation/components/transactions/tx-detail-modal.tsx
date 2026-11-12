@@ -36,6 +36,7 @@ export function TxDetailModal({ today }: { today: string }) {
   const ruleAnchor = useTxUIStore((s) => s.detailAnchor);
   const closeDetail = useTxUIStore((s) => s.closeDetail);
   const openEdit = useTxUIStore((s) => s.openEdit);
+  const openCreate = useTxUIStore((s) => s.openCreate);
   const openDelete = useTxUIStore((s) => s.openDelete);
   const openPay = useTxUIStore((s) => s.openPay);
   const openReceive = useTxUIStore((s) => s.openReceive);
@@ -391,6 +392,20 @@ export function TxDetailModal({ today }: { today: string }) {
                   ))}
                 </div>
               </div>
+            )}
+
+            {/* A new one with the same values, dated today; nothing is saved until confirmed. Not for
+                a synthetic row (nothing to copy) nor a debt with nothing behind it. */}
+            {!synthetic && !tx.ledgerOnly && (
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                style={{ marginTop: 16 }}
+                onClick={() => openCreate(tx.kind, tx)}
+              >
+                <Icon name="copy" size={14} />
+                Duplicar lançamento
+              </button>
             )}
           </div>
 

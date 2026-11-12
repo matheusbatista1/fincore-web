@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type ReactNode, useId, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useId, useState } from "react";
 import { createTransactionAction, updateTransactionAction } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import type { ExpenseSource } from "@/domain/entities/transaction";
@@ -12,6 +12,7 @@ import { paidBillNotice } from "@/presentation/components/forms/paid-bill-notice
 import { Dialog, DialogClose, DialogModal, DialogTrigger } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { InfoHint } from "@/presentation/components/ui/info-hint";
+import { useCategoryHints } from "@/presentation/providers/category-hints-provider";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
@@ -22,6 +23,7 @@ import {
   type EditScope,
   updateTransactionSchema,
 } from "@/shared/schemas/transaction";
+import { suggestCategory } from "@/shared/suggestions/category-hints";
 import { resolveBankTheme } from "@/shared/theme/bank-themes";
 
 export interface TxFormAccount {
@@ -205,6 +207,45 @@ export function EditTransactionModal({
   );
 }
 
+/**
+ * Novo lançamento opened by the app rather than by a button: "Duplicar" in the detail modal (the
+ * form starts with that row's values and today's date) and a `?novo=` link. Controlled by the
+ * tx-ui-store; nothing is saved until the user confirms.
+ */
+export function CreateTransactionModal({
+  accounts,
+  cards,
+  people,
+  categories,
+}: {
+  accounts: TxFormAccount[];
+  cards: TxFormCard[];
+  people: TxFormPerson[];
+  categories: TxFormCategory[];
+}) {
+  const creating = useTxUIStore((s) => s.creating);
+  const closeCreate = useTxUIStore((s) => s.closeCreate);
+
+  return (
+    <Dialog open={creating !== null} onOpenChange={(v) => !v && closeCreate()}>
+      {creating && (
+        <DialogModal title="Novo lançamento">
+          <TransactionForm
+            key={creating.from?.id ?? creating.kind}
+            accounts={accounts}
+            cards={cards}
+            people={people}
+            categories={categories}
+            defaultTab={creating.kind}
+            {...(creating.from ? { prefill: creating.from } : {})}
+            onDone={closeCreate}
+          />
+        </DialogModal>
+      )}
+    </Dialog>
+  );
+}
+
 function TransactionForm({
   accounts,
   cards,
@@ -212,6 +253,7 @@ function TransactionForm({
   categories,
   defaultTab,
   initial,
+  prefill,
   onDone,
 }: {
   accounts: TxFormAccount[];
@@ -221,9 +263,17 @@ function TransactionForm({
   defaultTab: Tab;
   /** Edit mode (prototype: NovaTransacao with `initial`) — kind locked, no fixed/installment. */
   initial?: TransactionListItem;
+  /**
+   * A NEW transaction that starts from an existing row's values ("Duplicar"): what was bought,
+   * how much, how it was paid and who shares it — never its date (today), its recurrence or its
+   * installment plan, and nothing of its id or paid state.
+   */
+  prefill?: TransactionListItem;
   onDone: () => void;
 }) {
   const editing = initial !== undefined;
+  // Where the fields start from: the row being edited, or the one being duplicated.
+  const seed = initial ?? prefill;
   // A ledger-only debt (a remainder rolled with the user's own money) has no account, instrument,
   // category or recurrence, and must not gain one here: only its amount, date, description and who
   // owes it are editable. The server enforces the same (see update-transaction).
@@ -231,7 +281,7 @@ function TransactionForm({
   // Without the People module there's no expense split or income-from-person:
   // the form behaves as a plain personal transaction (split stays 100% "me").
   const peopleOn = useModuleEnabled("people");
-  const initialShares = peopleOn ? (initial?.shares ?? []) : [];
+  const initialShares = peopleOn ? (seed?.shares ?? []) : [];
   // "Equal" only when the person shares match each other AND my share fits the
   // same even division (within rounding remainders) — otherwise saving an
   // untouched form would silently re-equalize a custom split.
@@ -239,30 +289,32 @@ function TransactionForm({
   const sharesEqual =
     initialShares.length === 0 ||
     (initialShares.every((s) => s.shareCents === firstShare) &&
-      (initial?.myShareCents == null ||
-        initial.myShareCents === 0 ||
-        Math.abs(initial.myShareCents - firstShare) <= initialShares.length + 1));
+      (seed?.myShareCents == null ||
+        seed.myShareCents === 0 ||
+        Math.abs(seed.myShareCents - firstShare) <= initialShares.length + 1));
 
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [cents, setCents] = useState(
-    initial
-      ? Math.abs(initial.kind === "transfer" ? (initial.transferValueCents ?? 0) : initial.amountCents)
-      : 0,
+    seed ? Math.abs(seed.kind === "transfer" ? (seed.transferValueCents ?? 0) : seed.amountCents) : 0,
   );
-  const [desc, setDesc] = useState(initial?.description ?? "");
+  const [desc, setDesc] = useState(seed?.description ?? "");
   const [ymd, setYmd] = useState(initial?.date ?? todayIso());
   const [fixed, setFixed] = useState(initial?.isFixed ?? false);
 
   // expense — when editing, a null category stays null (no silent assignment on save).
   const [catId, setCatId] = useState<string | null>(
-    editing ? (initial?.categoryId ?? null) : (categories[0]?.id ?? null),
+    editing ? (initial?.categoryId ?? null) : (prefill?.categoryId ?? categories[0]?.id ?? null),
   );
+  // Once the category was chosen by hand (or came with a duplicated row), the history stops
+  // suggesting: a suggestion never overrides a decision.
+  const [catChosen, setCatChosen] = useState(prefill !== undefined);
+  const categoryHints = useCategoryHints();
   // Local copy so a category created inline ("+ Nova categoria") shows + selects immediately.
   const [cats, setCats] = useState<TxFormCategory[]>(categories);
-  const [srcType, setSrcType] = useState<ExpenseSource>(initial?.source ?? "card");
-  const [cardId, setCardId] = useState<string | null>(initial?.cardId ?? cards[0]?.id ?? null);
-  const [acctId, setAcctId] = useState<string | null>(initial?.accountId ?? accounts[0]?.id ?? null);
-  const [linkedAccount, setLinkedAccount] = useState<string | null>(initial?.linkedAccountId ?? null);
+  const [srcType, setSrcType] = useState<ExpenseSource>(seed?.source ?? "card");
+  const [cardId, setCardId] = useState<string | null>(seed?.cardId ?? cards[0]?.id ?? null);
+  const [acctId, setAcctId] = useState<string | null>(seed?.accountId ?? accounts[0]?.id ?? null);
+  const [linkedAccount, setLinkedAccount] = useState<string | null>(seed?.linkedAccountId ?? null);
   const [parcelado, setParcelado] = useState(false);
   const [parcN, setParcN] = useState("2");
   const [parcCur, setParcCur] = useState("1");
@@ -270,7 +322,7 @@ function TransactionForm({
   const [parcPrev, setParcPrev] = useState(false);
   const [method, setMethod] = useState<"equal" | "custom">(editing && !sharesEqual ? "custom" : "equal");
   const [meIn, setMeIn] = useState(
-    initial ? initial.myShareCents === null || initial.myShareCents > 0 || initialShares.length === 0 : true,
+    seed ? seed.myShareCents === null || seed.myShareCents > 0 || initialShares.length === 0 : true,
   );
   const [selected, setSelected] = useState<string[]>(initialShares.map((s) => s.personId));
   const [custom, setCustom] = useState<Record<string, string>>(() => {
@@ -282,22 +334,29 @@ function TransactionForm({
   });
 
   // income
-  const [fromPerson, setFromPerson] = useState<string | null>(initial?.fromPersonId ?? null);
+  const [fromPerson, setFromPerson] = useState<string | null>(seed?.fromPersonId ?? null);
   // Income destination: a normal account, or a credit card (estorno/reembolso).
   const [incomeDest, setIncomeDest] = useState<"account" | "card">(
-    initial?.kind === "income" && initial.cardId ? "card" : "account",
+    seed?.kind === "income" && seed.cardId ? "card" : "account",
   );
 
   // transfer
   const [fromAcct, setFromAcct] = useState<string | null>(
-    initial?.transferFromAccountId ?? accounts[0]?.id ?? null,
+    seed?.transferFromAccountId ?? accounts[0]?.id ?? null,
   );
   const [toAcct, setToAcct] = useState<string | null>(
-    initial?.transferToAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? null,
+    seed?.transferToAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? null,
   );
 
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // The category this description was filed under before, while the user has not picked one.
+  const hinted = !editing && !catChosen && tab === "expense" ? suggestCategory(desc, categoryHints) : null;
+  const suggestedCat = hinted !== null && cats.some((c) => c.id === hinted) ? hinted : null;
+  useEffect(() => {
+    if (suggestedCat !== null) setCatId(suggestedCat);
+  }, [suggestedCat]);
 
   // An existing installment parcela can't change its fixed/installment nature here.
   const isInstallment = editing && initial?.parcela != null;
@@ -999,14 +1058,22 @@ function TransactionForm({
             {!ledgerOnly && (
               <>
                 <div className="field">
-                  <label>Categoria</label>
+                  <label>
+                    Categoria
+                    {suggestedCat !== null && catId === suggestedCat && (
+                      <span className="field-aside">sugerida pelo seu histórico</span>
+                    )}
+                  </label>
                   <div className="chip-select">
                     {cats.map((c) => (
                       <button
                         type="button"
                         key={c.id}
                         className={`person-chip${catId === c.id ? " on" : ""}`}
-                        onClick={() => setCatId(c.id)}
+                        onClick={() => {
+                          setCatId(c.id);
+                          setCatChosen(true);
+                        }}
                       >
                         <span className="pa" style={{ background: c.color, width: 24, height: 24 }}>
                           <Icon name={c.icon} size={13} />
@@ -1018,6 +1085,7 @@ function TransactionForm({
                       onCreated={(c) => {
                         setCats((prev) => [...prev, c]);
                         setCatId(c.id);
+                        setCatChosen(true);
                       }}
                       trigger={
                         <button type="button" className="person-chip" style={{ borderStyle: "dashed" }}>
