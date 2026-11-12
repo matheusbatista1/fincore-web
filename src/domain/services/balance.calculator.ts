@@ -228,6 +228,12 @@ export interface BalanceMovementSource {
   readonly upToDate?: IsoDate | undefined;
 }
 
+/** Where a balance movement comes from — enough for a caller to name it. */
+export type BalanceMovementOrigin =
+  | { readonly kind: "transaction"; readonly transaction: Transaction }
+  | { readonly kind: "settlement"; readonly settlement: Settlement }
+  | { readonly kind: "bill-payment"; readonly payment: CardBillPayment };
+
 /**
  * Walks every dated change to an account balance — the single source of WHAT moves cash and WHEN.
  * {@link computeAccountBalances} sums it per account; the balance timeline sums it per day, so a
@@ -239,7 +245,7 @@ export interface BalanceMovementSource {
 export function forEachBalanceMovement(
   source: BalanceMovementSource,
   reports: (accountId: string) => boolean,
-  visit: (date: IsoDate, accountId: string, delta: Money) => void,
+  visit: (date: IsoDate, accountId: string, delta: Money, origin: BalanceMovementOrigin) => void,
 ): void {
   const { transactions, settlements, cardBillPayments, lens, competenceOf, upToDate } = source;
   const landed = (date: IsoDate): boolean => upToDate === undefined || date <= upToDate;
@@ -249,8 +255,9 @@ export function forEachBalanceMovement(
   for (const tx of transactions) {
     const date = balanceEffectiveDate(tx);
     if (!landed(date)) continue;
+    const origin: BalanceMovementOrigin = { kind: "transaction", transaction: tx };
     for (const [accountId, delta] of accountDeltas(tx, lens)) {
-      if (reports(accountId)) visit(date, accountId, delta);
+      if (reports(accountId)) visit(date, accountId, delta, origin);
     }
   }
 
@@ -266,7 +273,10 @@ export function forEachBalanceMovement(
       if (!landed(s.date)) continue;
       if (!reports(s.accountId)) continue;
       const owedToYou = !(personBalances.get(s.personId) ?? Money.zero()).isNegative();
-      visit(s.date, s.accountId, Money.fromCents(owedToYou ? s.amountCents : -s.amountCents));
+      visit(s.date, s.accountId, Money.fromCents(owedToYou ? s.amountCents : -s.amountCents), {
+        kind: "settlement",
+        settlement: s,
+      });
     }
   }
 
@@ -284,7 +294,7 @@ export function forEachBalanceMovement(
       lens === "personal" && competenceOf !== undefined
         ? faturaPersonalDebit(p, transactions, competenceOf)
         : Money.fromCents(p.amountCents);
-    visit(p.date, p.accountId, debit.negate());
+    visit(p.date, p.accountId, debit.negate(), { kind: "bill-payment", payment: p });
   }
 }
 
