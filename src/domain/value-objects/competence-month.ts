@@ -49,6 +49,25 @@ export function dateInMonth(month: CompetenceMonth, day: number): IsoDate {
   return `${year}-${pad2(monthIndex)}-${pad2(clamped)}`;
 }
 
+const MS_PER_DAY = 86_400_000;
+
+/** A date's UTC midnight, in ms — day arithmetic on it never drifts with a timezone or DST. */
+function utcMidnight(date: IsoDate): number {
+  const [year, monthIndex, day] = date.split("-").map(Number) as [number, number, number];
+  return Date.UTC(year, monthIndex - 1, day);
+}
+
+/** Shift a date by `delta` whole days (can be negative). */
+export function addDays(date: IsoDate, delta: number): IsoDate {
+  const shifted = new Date(utcMidnight(date) + delta * MS_PER_DAY);
+  return `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(shifted.getUTCDate())}`;
+}
+
+/** Signed number of whole days from `a` to `b` (`b - a`). */
+export function daysBetween(a: IsoDate, b: IsoDate): number {
+  return Math.round((utcMidnight(b) - utcMidnight(a)) / MS_PER_DAY);
+}
+
 /** Signed number of whole months from `a` to `b` (`b - a`). */
 export function monthsBetween(a: CompetenceMonth, b: CompetenceMonth): number {
   const [ay, am] = a.split("-").map(Number) as [number, number];

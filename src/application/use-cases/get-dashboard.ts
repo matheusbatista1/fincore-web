@@ -1,6 +1,7 @@
 import { isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
+import { computeBalanceTimeline, totalBalanceAt } from "@/domain/services/balance-timeline";
 import {
   billingCompetence,
   cardUtilization,
@@ -370,22 +371,13 @@ export async function getDashboard(
   ).cents;
   projectedBalancePersonalCents -= overduePersonalCents; // overdue obligations' own-share before this month
 
-  // Trailing 6-month cumulative balance: re-run the balance calculator with the
-  // cutoff at each month-end (small in-memory volumes).
+  // Trailing 6-month cumulative balance, read off the balance timeline: one pass over the history,
+  // and each month-end is what the account balances add up to with that day as their cutoff.
+  const timeline = computeBalanceTimeline(ws.accounts, ws.transactions, ws.settlements, ws.cardBillPayments);
   const trend: TrendPoint[] = [];
   for (let i = 5; i >= 0; i--) {
     const m = addMonths(month, -i);
-    const monthBalances = computeAccountBalances(
-      ws.accounts,
-      ws.transactions,
-      dateInMonth(m, 31),
-      "general",
-      ws.settlements,
-      ws.cardBillPayments,
-    );
-    let total = 0;
-    for (const value of monthBalances.values()) total += value.cents;
-    trend.push({ label: monthLabel(m), valueCents: total });
+    trend.push({ label: monthLabel(m), valueCents: totalBalanceAt(timeline, dateInMonth(m, 31)) });
   }
 
   return {
