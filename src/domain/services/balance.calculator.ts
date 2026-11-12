@@ -20,7 +20,7 @@
  *    does NOT change any account balance.
  *  - transfer → `fromAccountId -= valueCents`, `toAccountId += valueCents`.
  *  - a settlement with an `accountId` credits/debits that account by its cash
- *    effect (see {@link computeAccountBalances}); settlements without an account are
+ *    effect (see {@link forEachBalanceMovement}); settlements without an account are
  *    pure ledger entries.
  *
  * All arithmetic goes through {@link Money} (integer cents), never floats.
@@ -159,7 +159,8 @@ export function accountDeltas(tx: Transaction, lens: ViewMode = "general"): Map<
 /**
  * The date a transaction's account effect lands on. A paid deferred obligation moves cash on its
  * `paidAt` (which may differ from the due date it's still filed under); everything else uses its
- * own date. Used to gate the balance cutoff in {@link computeAccountBalances}.
+ * own date. It is the date {@link forEachBalanceMovement} reports the movement on, and so the one
+ * the balance cutoff in {@link computeAccountBalances} is gated by.
  */
 export function balanceEffectiveDate(tx: Transaction): IsoDate {
   if (isExpense(tx) && tx.paidAt != null) return tx.paidAt;
@@ -215,6 +216,78 @@ export function faturaPersonalDebit(
   return Money.fromCents(Math.round((p.amountCents * (mine - credits)) / net) || 0);
 }
 
+/** Everything that can move an account balance, and how to read it. */
+export interface BalanceMovementSource {
+  readonly transactions: readonly Transaction[];
+  readonly settlements: readonly Settlement[];
+  readonly cardBillPayments: readonly CardBillPayment[];
+  readonly lens: ViewMode;
+  /** Bill-month resolver — only the personal lens needs it, to slice a paid fatura. */
+  readonly competenceOf?: CompetenceResolver | undefined;
+  /** Inclusive cutoff (`YYYY-MM-DD`): movements landing after it are skipped. Omit for all. */
+  readonly upToDate?: IsoDate | undefined;
+}
+
+/**
+ * Walks every dated change to an account balance — the single source of WHAT moves cash and WHEN.
+ * {@link computeAccountBalances} sums it per account; the balance timeline sums it per day, so a
+ * total read off the timeline is, by construction, the one the balances add up to on that date.
+ *
+ * `reports` says whether an account is being reported on. A movement on any other account is
+ * skipped, matching the prototype's `commitTx`, which only updates accounts that exist in its list.
+ */
+export function forEachBalanceMovement(
+  source: BalanceMovementSource,
+  reports: (accountId: string) => boolean,
+  visit: (date: IsoDate, accountId: string, delta: Money) => void,
+): void {
+  const { transactions, settlements, cardBillPayments, lens, competenceOf, upToDate } = source;
+  const landed = (date: IsoDate): boolean => upToDate === undefined || date <= upToDate;
+
+  // Each transaction's deltas, on the date its cash moves (a future-dated entry — e.g. a salary
+  // booked for next month — only counts once its date arrives).
+  for (const tx of transactions) {
+    const date = balanceEffectiveDate(tx);
+    if (!landed(date)) continue;
+    for (const [accountId, delta] of accountDeltas(tx, lens)) {
+      if (reports(accountId)) visit(date, accountId, delta);
+    }
+  }
+
+  // A settlement that names an account moves real cash: when the person owed you
+  // (positive ledger balance) it credits the account; when you owed them it debits it.
+  // The direction follows the person's transaction-derived balance sign (settlements
+  // only reduce toward zero, never flip it). Personal lens drops it — the cash is a
+  // reimbursement of others' shares, not "your" money (mirrors reimbursement income).
+  if (lens === "general" && settlements.length > 0) {
+    const personBalances = computePersonBalances([], transactions, []);
+    for (const s of settlements) {
+      if (s.accountId === null) continue;
+      if (!landed(s.date)) continue;
+      if (!reports(s.accountId)) continue;
+      const owedToYou = !(personBalances.get(s.personId) ?? Money.zero()).isNegative();
+      visit(s.date, s.accountId, Money.fromCents(owedToYou ? s.amountCents : -s.amountCents));
+    }
+  }
+
+  // A card fatura payment debits its account by the amount paid, on its pay date. Card charges
+  // never touch a live balance (they defer to the whole bill), so this is the ONLY place a card
+  // moves an account. In the PERSONAL lens a fatura that includes other people's shares (e.g. a
+  // split card charge) must debit only the user's own slice — mirroring how accountDeltas already
+  // debits `myShareCents` for a paid obligation. The payment stores only the total, so the personal
+  // fraction is reconstructed from the underlying charges of that bill (needs `competenceOf`); with
+  // no resolver, or in the general lens, the full amount is debited (real cash out).
+  for (const p of cardBillPayments) {
+    if (!landed(p.date)) continue;
+    if (!reports(p.accountId)) continue;
+    const debit =
+      lens === "personal" && competenceOf !== undefined
+        ? faturaPersonalDebit(p, transactions, competenceOf)
+        : Money.fromCents(p.amountCents);
+    visit(p.date, p.accountId, debit.negate());
+  }
+}
+
 /**
  * Compute the live balance of every account: opening balance plus the net effect
  * of all transactions. Accounts with no movement keep their opening balance.
@@ -242,55 +315,14 @@ export function computeAccountBalances(
     balances.set(account.id, Money.fromCents(account.openingBalanceCents));
   }
 
-  // Apply each transaction's deltas. Deltas referencing an unknown account id
-  // (e.g. an account not in `accounts`) are ignored, matching the prototype's
-  // `commitTx`, which only updates accounts that exist in its list.
-  const applicable =
-    upToDate === undefined ? transactions : transactions.filter((tx) => balanceEffectiveDate(tx) <= upToDate);
-  for (const tx of applicable) {
-    for (const [accountId, delta] of accountDeltas(tx, lens)) {
+  forEachBalanceMovement(
+    { transactions, settlements, cardBillPayments, lens, competenceOf, upToDate },
+    (accountId) => balances.has(accountId),
+    (_date, accountId, delta) => {
       const current = balances.get(accountId);
-      if (current !== undefined) {
-        balances.set(accountId, current.add(delta));
-      }
-    }
-  }
-
-  // A settlement that names an account moves real cash: when the person owed you
-  // (positive ledger balance) it credits the account; when you owed them it debits it.
-  // The direction follows the person's transaction-derived balance sign (settlements
-  // only reduce toward zero, never flip it). Personal lens drops it — the cash is a
-  // reimbursement of others' shares, not "your" money (mirrors reimbursement income).
-  if (lens === "general" && settlements.length > 0) {
-    const personBalances = computePersonBalances([], transactions, []);
-    for (const s of settlements) {
-      if (s.accountId === null) continue;
-      if (upToDate !== undefined && s.date > upToDate) continue;
-      const current = balances.get(s.accountId);
-      if (current === undefined) continue;
-      const owedToYou = !(personBalances.get(s.personId) ?? Money.zero()).isNegative();
-      const cash = owedToYou ? s.amountCents : -s.amountCents;
-      balances.set(s.accountId, current.add(Money.fromCents(cash)));
-    }
-  }
-
-  // A card fatura payment debits its account by the amount paid, on its pay date. Card charges
-  // never touch a live balance (they defer to the whole bill), so this is the ONLY place a card
-  // moves an account. In the PERSONAL lens a fatura that includes other people's shares (e.g. a
-  // split card charge) must debit only the user's own slice — mirroring how accountDeltas already
-  // debits `myShareCents` for a paid obligation. The payment stores only the total, so the personal
-  // fraction is reconstructed from the underlying charges of that bill (needs `competenceOf`); with
-  // no resolver, or in the general lens, the full amount is debited (real cash out).
-  for (const p of cardBillPayments) {
-    if (upToDate !== undefined && p.date > upToDate) continue;
-    const current = balances.get(p.accountId);
-    if (current === undefined) continue;
-    const debit =
-      lens === "personal" && competenceOf !== undefined
-        ? faturaPersonalDebit(p, transactions, competenceOf)
-        : Money.fromCents(p.amountCents);
-    balances.set(p.accountId, current.subtract(debit));
-  }
+      if (current !== undefined) balances.set(accountId, current.add(delta));
+    },
+  );
 
   return balances;
 }

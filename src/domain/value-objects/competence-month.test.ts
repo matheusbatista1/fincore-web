@@ -1,10 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  addDays,
   addMonths,
   compareMonths,
   dateInMonth,
   dayOf,
+  daysBetween,
   daysInMonth,
   isValidCompetenceMonth,
   isValidIsoDate,
@@ -16,6 +18,9 @@ const monthArb = () =>
   fc
     .tuple(fc.integer({ min: 2000, max: 2099 }), fc.integer({ min: 1, max: 12 }))
     .map(([y, m]) => `${y}-${String(m).padStart(2, "0")}`);
+
+const dateArb = () =>
+  fc.tuple(monthArb(), fc.integer({ min: 1, max: 31 })).map(([month, day]) => dateInMonth(month, day));
 
 describe("competence-month basics", () => {
   it("extracts month and day from a date", () => {
@@ -74,6 +79,46 @@ describe("dateInMonth", () => {
         const date = dateInMonth(m, day);
         expect(isValidIsoDate(date)).toBe(true);
         expect(monthOf(date)).toBe(m);
+      }),
+    );
+  });
+});
+
+describe("addDays / daysBetween", () => {
+  it("steps across month, year and leap-day boundaries", () => {
+    expect(addDays("2026-06-10", 1)).toBe("2026-06-11");
+    expect(addDays("2026-06-30", 1)).toBe("2026-07-01");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDays("2024-02-28", 1)).toBe("2024-02-29");
+    expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
+    expect(addDays("2026-06-10", 0)).toBe("2026-06-10");
+  });
+
+  it("counts whole days, signed", () => {
+    expect(daysBetween("2026-06-10", "2026-06-10")).toBe(0);
+    expect(daysBetween("2026-06-10", "2026-06-11")).toBe(1);
+    expect(daysBetween("2026-06-11", "2026-06-10")).toBe(-1);
+    expect(daysBetween("2026-01-01", "2027-01-01")).toBe(365);
+    expect(daysBetween("2024-01-01", "2025-01-01")).toBe(366);
+  });
+
+  it("never drifts where Brazil used to change its clocks", () => {
+    // Local-time arithmetic loses or repeats a day around a DST switch (Brazil had one until 2019).
+    expect(addDays("2018-11-03", 1)).toBe("2018-11-04");
+    expect(addDays("2018-11-04", 1)).toBe("2018-11-05");
+    expect(daysBetween("2018-11-03", "2018-11-05")).toBe(2);
+  });
+
+  it("is reversible, stays a valid date, and agrees with daysBetween", () => {
+    fc.assert(
+      fc.property(dateArb(), fc.integer({ min: -4000, max: 4000 }), (date, k) => {
+        const shifted = addDays(date, k);
+        expect(isValidIsoDate(shifted)).toBe(true);
+        expect(addDays(shifted, -k)).toBe(date);
+        expect(daysBetween(date, shifted)).toBe(k);
+        // ISO dates sort like the calendar: a later day is a greater string.
+        expect(shifted > date).toBe(k > 0);
       }),
     );
   });

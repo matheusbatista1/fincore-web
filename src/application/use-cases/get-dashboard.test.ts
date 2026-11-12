@@ -570,3 +570,68 @@ describe("getDashboard — the gap explainer reads the same 'fim do mês' (today
     );
   });
 });
+
+describe("getDashboard — net-worth trend (today = 2026-06-14)", () => {
+  it("reads the six trailing month-ends, each with everything dated up to that day", async () => {
+    // Opening 100000; − 20000 on May 10; + 50000 booked for June 20 (after today, inside the month).
+    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-06");
+    expect(data.trend).toEqual([
+      { label: "Jan 2026", valueCents: 100000 },
+      { label: "Fev 2026", valueCents: 100000 },
+      { label: "Mar 2026", valueCents: 100000 },
+      { label: "Abr 2026", valueCents: 100000 },
+      { label: "Mai 2026", valueCents: 80000 },
+      { label: "Jun 2026", valueCents: 130000 },
+    ]);
+  });
+
+  it("slides with the browsed month", async () => {
+    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-08");
+    expect(data.trend.map((point) => point.label)).toEqual([
+      "Mar 2026",
+      "Abr 2026",
+      "Mai 2026",
+      "Jun 2026",
+      "Jul 2026",
+      "Ago 2026",
+    ]);
+    expect(data.trend.map((point) => point.valueCents)).toEqual([
+      100000, 100000, 80000, 130000, 130000, 130000,
+    ]);
+  });
+
+  it("counts the cash of settlements and fatura payments on the day it moved", async () => {
+    // Ana owes R$ 180 of a card charge and pays it back on June 12; the fatura (R$ 300) left the
+    // account on June 10. A write-off with no account moves nothing.
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const charge = expense({
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-05-10",
+      amountCents: -30000,
+      myShareCents: 12000,
+      splits: [{ personId: "p1", shareCents: 18000 }],
+      recurrence: null,
+    });
+    const settlements: Settlement[] = [
+      { id: "s-cash", personId: "p1", amountCents: 18000, date: "2026-06-12", accountId: "acc-1" },
+      { id: "s-paper", personId: "p1", amountCents: 500, date: "2026-06-13", accountId: null },
+    ];
+    const payments: CardBillPayment[] = [
+      {
+        id: "pay",
+        cardId: "card-1",
+        competence: "2026-06",
+        amountCents: 30000,
+        accountId: "acc-1",
+        date: "2026-06-10",
+      },
+    ];
+    const data = await getDashboard(stubRepo([charge], [card], [ana], settlements, payments), "u", "2026-06");
+    expect(data.trend.at(-2)).toEqual({ label: "Mai 2026", valueCents: 100000 });
+    // 100000 − 30000 (fatura) + 18000 (the share back) — the live total, nothing else being dated later.
+    expect(data.trend.at(-1)).toEqual({ label: "Jun 2026", valueCents: 88000 });
+    expect(data.trend.at(-1)?.valueCents).toBe(data.totalBalanceCents);
+  });
+});
