@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
 import { addMonths } from "@/domain/value-objects/competence-month";
@@ -234,6 +234,8 @@ function KpiCard({
 
 export function DashboardView({ data }: { data: DashboardData }) {
   const router = useRouter();
+  // Where this dashboard lives: its month links point back to it (the real page, or the demo's).
+  const base = usePathname();
   const view = useUIStore((s) => s.view);
   const privacy = useUIStore((s) => s.privacy);
   const togglePrivacy = useUIStore((s) => s.togglePrivacy);
@@ -297,8 +299,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
   return (
     <MonthTransition
-      prevHref={`/dashboard?m=${addMonths(data.month, -1)}${cfQuery}`}
-      nextHref={`/dashboard?m=${addMonths(data.month, 1)}${cfQuery}`}
+      prevHref={`${base}?m=${addMonths(data.month, -1)}${cfQuery}`}
+      nextHref={`${base}?m=${addMonths(data.month, 1)}${cfQuery}`}
       // The horizontal cards carousel conflicts with the month swipe on mobile —
       // keep month nav on the dashboard to the header chevrons only.
       disableSwipe
@@ -307,7 +309,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
         <div className="card card-pad" style={{ marginBottom: 16 }}>
           <div className="month-nav">
             <MonthNavButton
-              href={`/dashboard?m=${addMonths(data.month, -1)}${cfQuery}`}
+              href={`${base}?m=${addMonths(data.month, -1)}${cfQuery}`}
               dir="prev"
               title="Mês anterior"
             >
@@ -321,13 +323,13 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   Mês atual
                 </span>
               ) : (
-                <Link className="card-link" href={`/dashboard${cfQuery ? `?${cfQuery.slice(1)}` : ""}`}>
+                <Link className="card-link" href={`${base}${cfQuery ? `?${cfQuery.slice(1)}` : ""}`}>
                   Voltar para hoje
                 </Link>
               )}
             </div>
             <MonthNavButton
-              href={`/dashboard?m=${addMonths(data.month, 1)}${cfQuery}`}
+              href={`${base}?m=${addMonths(data.month, 1)}${cfQuery}`}
               dir="next"
               title="Próximo mês"
             >
@@ -742,14 +744,14 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   <button
                     type="button"
                     className={data.cashflowDir === "forward" ? "on" : ""}
-                    onClick={() => router.push(`/dashboard?m=${data.month}`)}
+                    onClick={() => router.push(`${base}?m=${data.month}`)}
                   >
                     Próximos
                   </button>
                   <button
                     type="button"
                     className={data.cashflowDir === "backward" ? "on" : ""}
-                    onClick={() => router.push(`/dashboard?m=${data.month}&cf=backward`)}
+                    onClick={() => router.push(`${base}?m=${data.month}&cf=backward`)}
                   >
                     Últimos
                   </button>

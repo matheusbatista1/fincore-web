@@ -4220,3 +4220,31 @@ html {
 .rc-details[open] > summary svg {
   transform: rotate(90deg);
 }
+
+/* ---------- Demo area ---------- */
+/* Says, on every demo screen, that what is shown is made up — and links its screens. */
+.demo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--purple-soft);
+  font-size: 13px;
+  color: var(--text-mid);
+}
+.demo-bar strong {
+  color: var(--text-hi);
+}
+.demo-bar nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.demo-bar a {
+  font-weight: 600;
+  color: var(--purple-300);
+}

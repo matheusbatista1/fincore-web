@@ -86,6 +86,20 @@ Test pyramid: heavy unit + **fast-check property tests** on the domain (money,
 split, installments, projections), integration tests for repositories/Server
 Actions, component tests (Testing Library), and Playwright for critical flows.
 
+### Browser tests and the demo area
+
+`pnpm test:e2e` builds the app and drives it in a desktop Chromium and in an iPhone (WebKit).
+The tests use the **demo area** (`/demo`): the app's real screens over a made-up household, with
+no sign-in and no database behind it, so they need no secret and run anywhere.
+
+The demo exists only while `FINCORE_DEMO=1` is set (it is not, in production):
+
+```bash
+FINCORE_DEMO=1 SKIP_ENV_VALIDATION=1 pnpm dev   # then open http://localhost:3000/demo
+```
+
+Its data is built in `src/infrastructure/demo` — every name and figure there is invented.
+
 ## ☁️ Deployment
 
 Hosted on **Vercel**: every PR gets a preview deployment; merging to `main` deploys
