@@ -17,7 +17,7 @@ import {
 import { useUIStore } from "@/presentation/stores/ui-store";
 import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { shortDate } from "@/shared/formatting/dates";
-import { buildPersonStatementPdf, personStatementSlug, rowLines } from "./person-statement-pdf";
+import { buildPersonStatementPdf, closingWords, personStatementSlug, rowLines } from "./person-statement-pdf";
 
 /** ISO "YYYY-MM-DD" -> "DD/MM/YYYY" for statement exports. */
 function brDate(iso: string): string {
@@ -207,12 +207,7 @@ export function ReportModal({
     } else if (statement) {
       const compraTotal = statement.rows.reduce((s, r) => (r.cashCents > 0 ? s + r.cashCents : s), 0);
       const pagamentoTotal = statement.rows.reduce((s, r) => (r.cashCents < 0 ? s - r.cashCents : s), 0);
-      const closingLabel =
-        statement.closingCents > 0
-          ? "Falta pagar"
-          : statement.closingCents < 0
-            ? "Crédito a seu favor"
-            : "Tudo pago";
+      const closingLabel = closingWords(statement).label;
       const rows: string[][] = [
         [
           "",
@@ -640,7 +635,7 @@ export function ReportModal({
                       ? `falta pagar ${money(statement.closingCents)}`
                       : statement.closingCents < 0
                         ? `crédito de ${money(-statement.closingCents)}`
-                        : "tudo pago"}
+                        : closingWords(statement).label.toLowerCase()}
                   </div>
                 </div>
               </div>
@@ -665,6 +660,14 @@ export function ReportModal({
                     {money(statement.purchasesCents)}
                   </span>
                 </div>
+                {statement.carriedCents > 0 && (
+                  <div className="sb-row">
+                    <span className="k">Saldo adiado de outro mês</span>
+                    <span className="v" style={{ color: "var(--text-hi)" }}>
+                      {money(statement.carriedCents)}
+                    </span>
+                  </div>
+                )}
                 {statement.refundsCents > 0 && (
                   <div className="sb-row">
                     <span className="k">Devoluções recebidas</span>
@@ -679,6 +682,15 @@ export function ReportModal({
                     {money(statement.paymentsCents)}
                   </span>
                 </div>
+                {/* A rollover is neither paid nor forgiven: its own row, no "good news" colour. */}
+                {statement.rolloversCents !== 0 && (
+                  <div className="sb-row">
+                    <span className="k">Adiado para outra data</span>
+                    <span className="v" style={{ color: "var(--text-hi)" }}>
+                      {money(Math.abs(statement.rolloversCents))}
+                    </span>
+                  </div>
+                )}
                 {statement.writeoffsCents !== 0 && (
                   <div className="sb-row">
                     <span className="k">
@@ -695,7 +707,7 @@ export function ReportModal({
                       ? "Falta pagar"
                       : statement.closingCents < 0
                         ? "Crédito a favor"
-                        : "Tudo pago"}
+                        : closingWords(statement).label}
                   </span>
                   <span
                     className="v"

@@ -41,6 +41,21 @@ export function balanceWords(cents: number): { label: string; value: string; ton
 }
 
 /**
+ * The closing figure of a statement, in words. A period emptied by a rollover is not "paid": that
+ * amount was moved to a later date, so saying "Tudo pago" would tell the person the debt is gone.
+ */
+export function closingWords(st: Pick<PersonStatement, "closingCents" | "rolloversCents">): {
+  label: string;
+  value: string;
+  tone: PdfTone;
+} {
+  if (st.closingCents === 0 && st.rolloversCents < 0) {
+    return { label: "Nada a pagar neste período", value: money(0), tone: "pos" };
+  }
+  return balanceWords(st.closingCents);
+}
+
+/**
  * The running figure after a row: "R$ x" still open, or the amount over "crédito" (two lines, like
  * the description cell, so the narrow column never wraps mid-number) when it is in their favour.
  */
@@ -91,6 +106,10 @@ export function personStatementSlug(st: PersonStatement): string {
 
 export const personStatementFilename = (st: PersonStatement): string => `${personStatementSlug(st)}.pdf`;
 
+/** Added to the legend when the period has either half of a rollover: the amount leaving, or back. */
+const HOW_TO_READ_ROLLOVER =
+  "Saldo adiado: valor que ficou para outra data. Não é pagamento nem desconto: sai do extrato do mês em que foi adiado e volta, como uma nova linha, no mês combinado.";
+
 const HOW_TO_READ = (issuer: string | null): string[] => [
   "Compra (sua parte): só a sua parte em cada gasto. Quando a compra foi dividida, a segunda linha mostra o valor total dela.",
   `Pagamento: o que você já pagou${issuer ? ` para ${issuer}` : ""}. Um pagamento feito antes da compra vira crédito e abate as próximas.`,
@@ -102,7 +121,7 @@ const HOW_TO_READ = (issuer: string | null): string[] => [
 /** Build the PDF spec for one person's statement. */
 export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatementPdfContext): PdfDocument {
   const issuer = ctx.issuerFirstName ? firstName(ctx.issuerFirstName) : null;
-  const headline = balanceWords(st.closingCents);
+  const headline = closingWords(st);
 
   const lines: PdfSummaryLine[] = [];
   if (st.openingCents > 0)
@@ -111,6 +130,9 @@ export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatemen
     lines.push({ label: "Crédito que você já tinha", value: `– ${money(-st.openingCents)}`, tone: "pos" });
   }
   lines.push({ label: "Suas compras no período (sua parte)", value: `+ ${money(st.purchasesCents)}` });
+  // What a rollover brought back is owed again, but it is not something bought in this period.
+  if (st.carriedCents > 0)
+    lines.push({ label: "Saldo adiado de outro mês", value: `+ ${money(st.carriedCents)}` });
   if (st.refundsCents > 0)
     lines.push({ label: "Devoluções que você recebeu", value: `+ ${money(st.refundsCents)}` });
   lines.push({
@@ -118,6 +140,13 @@ export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatemen
     value: `– ${money(st.paymentsCents)}`,
     tone: "pos",
   });
+  // Not a payment and not a discount, so it gets its own line and no "good news" colour.
+  if (st.rolloversCents !== 0) {
+    lines.push({
+      label: "Adiado para outra data",
+      value: `${st.rolloversCents < 0 ? "–" : "+"} ${money(Math.abs(st.rolloversCents))}`,
+    });
+  }
   if (st.writeoffsCents < 0)
     lines.push({ label: "Descontos", value: `– ${money(-st.writeoffsCents)}`, tone: "pos" });
   else if (st.writeoffsCents > 0)
@@ -134,6 +163,11 @@ export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatemen
   if (st.lastPaymentBefore) {
     notes.push(
       `Último pagamento antes do período: ${money(st.lastPaymentBefore.amountCents)} em ${brDate(st.lastPaymentBefore.date)}.`,
+    );
+  }
+  if (st.rolloversCents < 0) {
+    notes.push(
+      `${money(-st.rolloversCents)} deste período ficou para outra data: não foi pago nem perdoado, e volta no extrato do mês combinado.`,
     );
   }
   const n = st.rows.length;
@@ -172,7 +206,10 @@ export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatemen
       { content: [what, details] },
       r.categoryName ?? "—",
       r.cashCents > 0 ? money(r.cashCents) : "",
-      r.cashCents < 0 ? { content: money(-r.cashCents), tone: "pos" } : "",
+      // A rollover lowers what is open without being money received: no "paid" colour for it.
+      r.cashCents < 0
+        ? { content: money(-r.cashCents), tone: r.kind === "rollover" ? "neutral" : "pos" }
+        : "",
       runningWords(r.runningCents),
     ];
     return r.projected
@@ -225,7 +262,13 @@ export function buildPersonStatementPdf(st: PersonStatement, ctx: PersonStatemen
       ]),
     });
   }
-  sections.push({ heading: "Como ler este extrato", paragraphs: HOW_TO_READ(issuer) });
+  sections.push({
+    heading: "Como ler este extrato",
+    paragraphs:
+      st.rolloversCents !== 0 || st.carriedCents !== 0
+        ? [...HOW_TO_READ(issuer), HOW_TO_READ_ROLLOVER]
+        : HOW_TO_READ(issuer),
+  });
 
   return {
     title: `Extrato — ${st.name}`,
