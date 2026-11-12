@@ -22,6 +22,10 @@ const GREETS: Record<string, { g: string; s: string }> = {
     g: "Importar",
     s: "Traga lançamentos de um extrato (CSV/OFX) para uma carteira, ou de uma fatura para um cartão.",
   },
+  "/reconcile": {
+    g: "Conferir extrato",
+    s: "Veja se o que está no app bate com o extrato do banco ou com a fatura do cartão.",
+  },
 };
 
 /**

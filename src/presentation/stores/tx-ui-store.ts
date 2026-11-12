@@ -4,6 +4,20 @@ import type { TransactionKind } from "@/domain/entities/transaction";
 import type { SettleTarget } from "@/presentation/components/people/settle-person-modal";
 
 /**
+ * Values a NEW entry starts from when they come from outside the app's own rows: a bank line being
+ * checked against the statement. Nothing is saved until the user confirms the form.
+ */
+export interface TxDraft {
+  readonly date: string;
+  /** Signed: money out is negative. Says which side of a transfer the account is on. */
+  readonly amountCents: number;
+  readonly description: string;
+  /** Where the money moved: an account, or a card (a charge, or an estorno). */
+  readonly accountId?: string;
+  readonly cardId?: string;
+}
+
+/**
  * Cross-screen transaction modal state (detail → edit / delete-scope, plus the
  * installment-group list). Rows on any screen call the openers; the modals
  * themselves are mounted once in the app layout (TxModalsHost).
@@ -29,11 +43,16 @@ interface TxUIState {
   readonly installmentGroupId: string | null;
   /**
    * When set, the "Novo lançamento" form is open on this kind — optionally seeded from an existing
-   * row ("Duplicar": same values, today's date, nothing saved until the user confirms). Opened from
-   * the detail modal and from a `?novo=` link; the header button and the FAB keep their own dialog.
+   * row ("Duplicar": same values, today's date, nothing saved until the user confirms), or from a
+   * draft (a bank line: its date, amount and description). Opened from the detail modal, from a
+   * `?novo=` link and from "Conferir extrato"; the header button and the FAB keep their own dialog.
    */
-  readonly creating: { readonly kind: TransactionKind; readonly from: TransactionListItem | null } | null;
-  openCreate: (kind: TransactionKind, from?: TransactionListItem) => void;
+  readonly creating: {
+    readonly kind: TransactionKind;
+    readonly from: TransactionListItem | null;
+    readonly draft: TxDraft | null;
+  } | null;
+  openCreate: (kind: TransactionKind, from?: TransactionListItem, draft?: TxDraft) => void;
   closeCreate: () => void;
   openDetail: (item: TransactionListItem, anchor?: TransactionListItem) => void;
   openEdit: (item: TransactionListItem) => void;
@@ -73,7 +92,8 @@ export const useTxUIStore = create<TxUIState>((set) => ({
   settling: null,
   installmentGroupId: null,
   creating: null,
-  openCreate: (kind, from) => set({ ...CLOSED, creating: { kind, from: from ?? null } }),
+  openCreate: (kind, from, draft) =>
+    set({ ...CLOSED, creating: { kind, from: from ?? null, draft: draft ?? null } }),
   closeCreate: () => set({ creating: null }),
   openDetail: (item, anchor) => set({ ...CLOSED, detail: item, detailAnchor: anchor ?? null }),
   openEdit: (item) => set({ ...CLOSED, editing: item }),

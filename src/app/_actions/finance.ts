@@ -12,6 +12,7 @@ import { payCardBill } from "@/application/use-cases/pay-card-bill";
 import { payTransaction } from "@/application/use-cases/pay-transaction";
 import { receiveIncome } from "@/application/use-cases/receive-income";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
+import { type ReconcileResult, reconcileWithStatement } from "@/application/use-cases/reconcile-statement";
 import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
 import { settlePerson } from "@/application/use-cases/settle-person";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
@@ -29,6 +30,7 @@ import {
   personInputSchema,
 } from "@/shared/schemas/entities";
 import { importStatementSchema } from "@/shared/schemas/import";
+import { reconcileStatementSchema } from "@/shared/schemas/reconcile";
 import {
   assumeDebtSchema,
   createTransactionSchema,
@@ -281,6 +283,22 @@ export async function importTransactionsAction(raw: unknown): Promise<ActionStat
   await importStatement(financeRepository, userId, parsed.data);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+export type ReconcileActionState = { ok: true; result: ReconcileResult } | { ok: false; error: string };
+
+/**
+ * "Conferir com o extrato": compares a statement file's lines with what is booked. Read-only, so
+ * nothing is revalidated.
+ */
+export async function reconcileStatementAction(raw: unknown): Promise<ReconcileActionState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = reconcileStatementSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Não consegui ler as linhas deste arquivo." };
+  const result = await reconcileWithStatement(financeRepository, userId, parsed.data);
+  if (!result.ok) return { ok: false, error: result.error.message };
+  return { ok: true, result: result.value };
 }
 
 /**
