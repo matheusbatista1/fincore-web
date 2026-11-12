@@ -131,6 +131,15 @@ export default async function DashboardPage({
     othersCents,
     monthChangeCents: dash.monthEndTotals.currentCents - dash.monthEndTotals.previousCents,
     netWorth: dash.netWorthDaily,
+    netWorthForecast: {
+      valuesCents: dash.netWorthForecast.valuesCents,
+      events: dash.netWorthForecast.events.map((event) => ({
+        date: event.date,
+        deltaCents: event.deltaCents,
+        label: event.label,
+        late: event.late,
+      })),
+    },
     months: reports.months.map(toBar),
     monthsPersonal: reports.monthsPersonal.map(toBar),
     categories: reports.categories.map(toSlice),

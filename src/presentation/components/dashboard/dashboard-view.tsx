@@ -98,6 +98,19 @@ export interface DashboardData {
   readonly monthChangeCents: number;
   /** The total balance at the end of each day from `startDate` through today (real cash). */
   readonly netWorth: { readonly startDate: string; readonly valuesCents: readonly number[] };
+  /**
+   * Where it is expected to go: one total per day from tomorrow on (general lens), and what is
+   * expected to move it. The dashed part of the chart.
+   */
+  readonly netWorthForecast: {
+    readonly valuesCents: readonly number[];
+    readonly events: readonly {
+      readonly date: string;
+      readonly deltaCents: number;
+      readonly label: string;
+      readonly late: boolean;
+    }[];
+  };
   readonly months: MonthBar[];
   readonly monthsPersonal: MonthBar[];
   readonly categories: CategorySlice[];
@@ -518,12 +531,15 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 </div>
               </div>
             </div>
-            {/* Real cash day by day, in both lenses (like the hero balance). The timeline does not
-                depend on the browsed month: changing it only scrolls the chart there. */}
+            {/* Real cash day by day, in both lenses (like the hero balance), then the forecast of
+                the days to come. The timeline does not depend on the browsed month: changing it
+                only scrolls the chart there. */}
             <div className="dash-hero-spark">
               <NetWorthChart
                 startDate={data.netWorth.startDate}
                 valuesCents={data.netWorth.valuesCents}
+                forecastCents={data.netWorthForecast.valuesCents}
+                forecastEvents={data.netWorthForecast.events}
                 today={data.today}
                 month={data.month}
               />

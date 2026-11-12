@@ -49,14 +49,12 @@ import {
 } from "../value-objects/competence-month";
 import { accountDeltas, balanceEffectiveDate, faturaPersonalDebit } from "./balance.calculator";
 import { computeCardBillForMonth } from "./card-bill.calculator";
+import { type MonthEndFigure, projectMonthEnd } from "./month-end-projection";
 import {
   computePersonAdvances,
   computePersonBalances,
   computePersonLedger,
-  computePersonMonthNetsAndSettledCash,
 } from "./person-ledger.calculator";
-import type { ViewMode } from "./personal-vs-general";
-import { obligationsDueThrough, projectedMonthEndBalances } from "./projected-balance";
 import { freshOccurrence, projectRecurring, recurrenceIdentity } from "./recurring.projection";
 
 /** Maps a transaction to its competence month (calendar month, or a card charge's bill month). */
@@ -75,19 +73,7 @@ export interface MonthEndGapInput {
   readonly competenceOf: CompetenceResolver;
 }
 
-/** One lens's "fim do mês", split into the dashboard's own terms. */
-export interface MonthEndFigure {
-  /** Σ account balances projected to month-end (real movements + forecasts). */
-  readonly accountsCents: number;
-  /** Deferred obligations falling due in `[currentMonth, month]` (card bills, boletos, loans). */
-  readonly obligationsCents: number;
-  /** Unpaid boleto/loan/financing from before the current month. */
-  readonly overdueCents: number;
-  /** What people owe through month-end — added in the general lens only (0 in the personal one). */
-  readonly peopleCents: number;
-  /** `accounts − obligations − overdue + people`. */
-  readonly totalCents: number;
-}
+export type { MonthEndFigure };
 
 /** Why an entity moves the general figure away from the personal one. */
 export type GapReason =
@@ -238,12 +224,6 @@ interface BillTally {
   readonly persons: Set<string>;
 }
 
-const sumCents = (balances: Map<string, Money>): number => {
-  let total = 0;
-  for (const value of balances.values()) total += value.cents;
-  return total;
-};
-
 const billKey = (cardId: string, competence: CompetenceMonth): string => `${cardId}|${competence}`;
 const occurrenceKey = (id: string, date: IsoDate): string => `${id}|${date}`;
 
@@ -262,65 +242,16 @@ export function explainMonthEndGap(input: MonthEndGapInput): MonthEndGapReport {
   const knownPeople = new Set(people.map((p) => p.id));
 
   // ------------------------------------------------ the two figures (the dashboard's formulas)
-  let overdueGeneral = 0;
-  let overduePersonal = 0;
   const overdueRows: ExpenseTransaction[] = [];
   if (projects) {
     for (const tx of transactions) {
       if (!isPayableObligation(tx) || isPaid(tx) || isRolled(tx)) continue;
       if (compareMonths(competenceOf(tx), currentMonth) >= 0) continue;
-      overdueGeneral += Math.abs(tx.amountCents);
-      overduePersonal += tx.myShareCents;
       overdueRows.push(tx);
     }
   }
-  const { nets } = computePersonMonthNetsAndSettledCash(
-    people,
-    transactions,
-    settlements,
-    month,
-    competenceOf,
-  );
-  let peopleCents = 0;
-  for (const person of people) {
-    for (const net of (nets.get(person.id) ?? new Map<CompetenceMonth, number>()).values()) {
-      peopleCents += net;
-    }
-  }
-  const figure = (lens: ViewMode): MonthEndFigure => {
-    const accountsCents = sumCents(
-      projectedMonthEndBalances(
-        accounts,
-        transactions,
-        month,
-        competenceOf,
-        currentMonth,
-        lens,
-        settlements,
-        cardBillPayments,
-      ),
-    );
-    const obligationsCents = obligationsDueThrough(
-      transactions,
-      currentMonth,
-      month,
-      competenceOf,
-      lens,
-      currentMonth,
-      cardBillPayments,
-    ).cents;
-    const overdueCents = lens === "general" ? overdueGeneral : overduePersonal;
-    const people = lens === "general" ? peopleCents : 0;
-    return {
-      accountsCents,
-      obligationsCents,
-      overdueCents,
-      peopleCents: people,
-      totalCents: accountsCents - obligationsCents - overdueCents + people,
-    };
-  };
-  const general = figure("general");
-  const personal = figure("personal");
+  const general = projectMonthEnd(input, "general");
+  const personal = projectMonthEnd(input, "personal");
   const gapCents = general.totalCents - personal.totalCents;
 
   // ------------------------------------------------------------------ per-entity tallies

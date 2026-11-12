@@ -1195,6 +1195,19 @@
   min-height: 26px;
   margin-bottom: 8px;
 }
+/* On a narrow phone the title wraps rather than push the months out of the card; its "(i)" stays
+   with the last word. */
+.nw-head .kicker {
+  min-width: 0;
+}
+.nw-head .pill {
+  flex: none;
+}
+.nw-head-last {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
 .nw-body {
   flex: 1;
   display: flex;
@@ -1254,7 +1267,8 @@
   cursor: grab;
   outline: none;
   visibility: hidden;
-  /* The track fades out at both sides instead of being cut: there is more that way. */
+  /* The track fades out at both sides instead of being cut: there is more that way. The 8px at the
+     right are EDGE_FADE in net-worth-timeline.ts: days under them are drawn, not read. */
   -webkit-mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 8px), transparent);
   mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 8px), transparent);
 }
@@ -1301,6 +1315,14 @@
   stroke-linejoin: round;
   stroke-linecap: round;
 }
+/* After today the line is a forecast: dashed, over a fainter wash. */
+.nw-line.is-expected {
+  stroke: var(--purple-300);
+  stroke-dasharray: 3 6;
+}
+.nw-wash-expected {
+  opacity: 0.45;
+}
 /* The month names, under the plot. Each sits centred over its own days and sticks to the plot's
    edge while its month is only partly in view (inside the edge fade), so a name is never cut. */
 .nw-months {
@@ -1329,6 +1351,10 @@
 .nw-month.is-browsed {
   color: var(--text-hi);
   font-weight: 700;
+}
+/* A month only just entering or leaving the plot has no room for its name: unnamed, not cut. */
+.nw-month.is-cut {
+  visibility: hidden;
 }
 /* The highest and the lowest day in view. The halo keeps the value legible over the line. */
 .nw-peak {
@@ -1419,6 +1445,31 @@
 }
 .nw-tip-change.down {
   color: var(--rose-500);
+}
+/* A forecast day names what is expected to move it: one line each, the name giving way to the amount. */
+.nw-tip.is-listing {
+  box-sizing: border-box;
+}
+.nw-tip-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.nw-tip-note-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-mid);
+}
+.nw-tip-note.is-late .nw-tip-note-label {
+  color: var(--amber-500);
+}
+.nw-tip-note .nw-tip-change {
+  flex: none;
 }
 .nw-axis {
   position: absolute;

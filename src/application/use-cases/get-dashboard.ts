@@ -1,4 +1,3 @@
-import { isPaid, isPayableObligation, isRolled } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
@@ -14,9 +13,10 @@ import {
   computeCardOpenBills,
   computeCardOutstandings,
 } from "@/domain/services/card-bill.calculator";
+import { type ForecastEvent, forecastCash } from "@/domain/services/cash-forecast";
+import { projectMonthEnd } from "@/domain/services/month-end-projection";
 import { computePersonMonthNetsAndSettledCash } from "@/domain/services/person-ledger.calculator";
 import { computeViewTotals } from "@/domain/services/personal-vs-general";
-import { obligationsDueThrough, projectedMonthEndBalances } from "@/domain/services/projected-balance";
 import { freshOccurrence, transactionsForMonth } from "@/domain/services/recurring.projection";
 import {
   addMonths,
@@ -88,6 +88,26 @@ export interface NetWorthDaily {
   readonly valuesCents: number[];
 }
 
+/**
+ * The total across accounts expected at the end of each day after today — the dashed continuation
+ * of the net-worth timeline. General lens (real cash); it passes through the hero's "fim do mês".
+ */
+export interface NetWorthForecast {
+  /** Tomorrow: the day `valuesCents[0]` is the expected total of. */
+  readonly startDate: IsoDate;
+  /** One expected end-of-day total per day, through the last day of next month. */
+  readonly valuesCents: number[];
+  /** What is expected to move the total, oldest first — for the reader of a forecast day. */
+  readonly events: readonly ForecastEvent[];
+}
+
+/**
+ * How far the daily forecast looks: the current month and the next. Beyond that only the fixed
+ * entries are known, so a daily line would promise a precision the data does not have — and each
+ * month costs one replay of the person ledger.
+ */
+const NET_WORTH_FORECAST_MONTHS = 2;
+
 /** The timeline never starts later than this many months back (the current month included)… */
 const NET_WORTH_MIN_MONTHS = 6;
 /** …nor earlier than this many: one stray old date must not stretch the chart for ever. */
@@ -148,6 +168,8 @@ export interface DashboardData {
   readonly projectedExpensePersonalCents: number;
   /** The total balance day by day, from the month of the first movement through today. */
   readonly netWorthDaily: NetWorthDaily;
+  /** Its expected continuation, from tomorrow to the end of next month. */
+  readonly netWorthForecast: NetWorthForecast;
   /**
    * The total balance at the end of the browsed month and of the month before it, each with every
    * movement dated up to that day (so the current month counts what is already booked for later in
@@ -313,84 +335,22 @@ export async function getDashboard(
   // minus their shares the user already fronted — exactly the general−personal lens difference.
   const heldForOthersCents = Math.max(0, totalBalanceCents - totalBalancePersonalCents);
 
-  // Overdue payable obligations (boleto/empréstimo/financiamento) still UNPAID with competence BEFORE
-  // the current month never debited a balance and fall outside the [currentMonth…] projection window,
-  // silently inflating "fim do mês". Subtract them explicitly. Card faturas are NOT included: a fatura
-  // before the current month is PRESUMED PAID (the same assumption computeCardOutstanding relies on —
-  // paid faturas often have no CardBillPayment record), and only boleto/loan/financing carry an
-  // explicit unpaid state (isPaid). Applied only when browsing the current month or later.
-  let overdueGeneralCents = 0;
-  let overduePersonalCents = 0;
-  if (compareMonths(month, currentMonth) >= 0) {
-    for (const tx of ws.transactions) {
-      if (!isPayableObligation(tx) || isPaid(tx) || isRolled(tx)) continue;
-      if (compareMonths(competenceOf(tx), currentMonth) >= 0) continue;
-      overdueGeneralCents += Math.abs(tx.amountCents);
-      overduePersonalCents += tx.myShareCents;
-    }
-  }
-
-  // Projected balance at the end of the browsed month: real movements up to month-end
-  // plus the recurring occurrences (accumulated from the current month onward), MINUS
-  // the credit-card bills that fall due along the way (assumed paid from an account).
-  const eomBalances = projectedMonthEndBalances(
-    ws.accounts,
-    ws.transactions,
+  // The "fim do mês" of the browsed month through both lenses — one formula, shared with the gap
+  // explainer and the daily forecast (see month-end-projection): where the accounts land, minus
+  // what falls due along the way and what is already overdue, plus (general lens) what people owe.
+  const projection = {
+    accounts: ws.accounts,
+    people: ws.people,
+    transactions: ws.transactions,
+    settlements: ws.settlements,
+    cardBillPayments: ws.cardBillPayments,
     month,
+    currentMonth,
     competenceOf,
-    currentMonth,
-    "general",
-    ws.settlements,
-    ws.cardBillPayments,
-  );
-  let projectedBalanceCents = 0;
-  for (const value of eomBalances.values()) projectedBalanceCents += value.cents;
-  projectedBalanceCents -= obligationsDueThrough(
-    ws.transactions,
-    currentMonth,
-    month,
-    competenceOf,
-    "general",
-    currentMonth,
-    ws.cardBillPayments,
-  ).cents;
-  projectedBalanceCents -= overdueGeneralCents; // overdue boleto/loan/financing before this month
-  // General "fim do mês" also reflects the receivables/payables with people — through the browsed
-  // month, EVERY pending month (Σ_{m ≤ month} net(m) is the outstanding as of that month-end). The
-  // overdue term above subtracts an unpaid obligation from before the current month in full, so the
-  // shares other people owe on it must be credited back the same way; limiting the credit to the
-  // [currentMonth, month] window read a stale receivable as if the user had absorbed it — and moving
-  // its responsibility to the user then changed nothing in this lens.
-  for (const person of ws.people) {
-    for (const net of (monthNets.get(person.id) ?? new Map<CompetenceMonth, number>()).values()) {
-      projectedBalanceCents += net;
-    }
-  }
-
-  // Personal projection: accounts count only the user's share + drop reimbursements;
-  // people are NOT added (the personal lens already internalises shared splits).
-  const eomPersonal = projectedMonthEndBalances(
-    ws.accounts,
-    ws.transactions,
-    month,
-    competenceOf,
-    currentMonth,
-    "personal",
-    ws.settlements,
-    ws.cardBillPayments,
-  );
-  let projectedBalancePersonalCents = 0;
-  for (const value of eomPersonal.values()) projectedBalancePersonalCents += value.cents;
-  projectedBalancePersonalCents -= obligationsDueThrough(
-    ws.transactions,
-    currentMonth,
-    month,
-    competenceOf,
-    "personal",
-    currentMonth,
-    ws.cardBillPayments,
-  ).cents;
-  projectedBalancePersonalCents -= overduePersonalCents; // overdue obligations' own-share before this month
+    personNets: monthNets,
+  };
+  const projectedBalanceCents = projectMonthEnd(projection, "general").totalCents;
+  const projectedBalancePersonalCents = projectMonthEnd(projection, "personal").totalCents;
 
   // The total balance as it moved, read off the balance timeline: one pass over the history, and
   // each reading is what the account balances add up to with that day as their cutoff.
@@ -411,6 +371,32 @@ export async function getDashboard(
     startDate: netWorthStart,
     valuesCents: dailyTotalBalances(timeline, netWorthStart, today),
   };
+  // …and where it is expected to go: the same "fim do mês" as above, spread over the days its
+  // parts fall on. Pinned on the browsed month's figure, and reusing its person nets, when that
+  // month is inside the forecast.
+  const forecastThrough = addMonths(currentMonth, NET_WORTH_FORECAST_MONTHS - 1);
+  const browsedIsForecast =
+    compareMonths(month, currentMonth) >= 0 && compareMonths(month, forecastThrough) <= 0;
+  const forecast = forecastCash({
+    accounts: ws.accounts,
+    creditCards: ws.creditCards,
+    cardBillDates: ws.cardBillDates,
+    people: ws.people,
+    transactions: ws.transactions,
+    settlements: ws.settlements,
+    cardBillPayments: ws.cardBillPayments,
+    today,
+    throughMonth: forecastThrough,
+    competenceOf,
+    ...(browsedIsForecast
+      ? { anchors: new Map([[month, projectedBalanceCents]]), personNets: new Map([[month, monthNets]]) }
+      : {}),
+  });
+  const netWorthForecast: NetWorthForecast = {
+    startDate: forecast.startDate,
+    valuesCents: forecast.dailyCents,
+    events: forecast.events,
+  };
 
   return {
     month,
@@ -430,6 +416,7 @@ export async function getDashboard(
     projectedIncomePersonalCents: projectedTotalsPersonal.income.cents,
     projectedExpensePersonalCents: projectedTotalsPersonal.expense.cents,
     netWorthDaily,
+    netWorthForecast,
     monthEndTotals,
     general: {
       incomeCents: general.income.cents,

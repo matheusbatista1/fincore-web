@@ -673,3 +673,61 @@ describe("getDashboard — net worth over time (today = 2026-06-14)", () => {
     expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 88000 });
   });
 });
+
+describe("getDashboard — net-worth forecast (today = 2026-06-14)", () => {
+  it("continues the timeline from tomorrow to the end of next month", async () => {
+    // Opening 100000; the fixed − 20000 of May 10 (June's is still to be booked); + 50000 on June 20.
+    const data = await getDashboard(stubRepo([expense(), income()]), "u", "2026-06");
+    expect(data.netWorthForecast.startDate).toBe("2026-06-15");
+    // 15 Jun … 31 Jul.
+    expect(data.netWorthForecast.valuesCents).toHaveLength(16 + 31);
+    expect(data.netWorthForecast.events.map((e) => [e.date, e.kind, e.deltaCents, e.label])).toEqual([
+      ["2026-06-15", "recurring", -20000, "Despesa"], // June's occurrence, late: assumed next
+      ["2026-06-20", "scheduled", 50000, "Salário"],
+      ["2026-07-10", "recurring", -20000, "Despesa"],
+    ]);
+    // It starts from the live balance…
+    expect(data.netWorthForecast.valuesCents[0]).toBe(data.totalBalanceCents - 20000);
+    // …and reaches the hero's "fim do mês" on the last day of the browsed month.
+    const lastOfJune = daysBetween("2026-06-15", "2026-06-30");
+    expect(data.netWorthForecast.valuesCents[lastOfJune]).toBe(data.projectedBalanceCents);
+    expect(data.netWorthForecast.valuesCents.at(-1)).toBe(data.projectedBalanceCents - 20000);
+  });
+
+  it("is the same line whatever month is browsed, and meets that month's figure when it is in range", async () => {
+    const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
+    const shared = expense({
+      date: "2026-06-05",
+      amountCents: -10000,
+      myShareCents: 4000,
+      splits: [{ personId: "p1", shareCents: 6000 }],
+      recurrence: null,
+    });
+    const charge = expense({
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-06-10",
+      amountCents: -9000,
+      myShareCents: 9000,
+      recurrence: null,
+    });
+    const repo = stubRepo([shared, charge, income()], [card], [ana]);
+    const june = await getDashboard(repo, "u", "2026-06");
+    const july = await getDashboard(repo, "u", "2026-07");
+    const may = await getDashboard(repo, "u", "2026-05");
+    const december = await getDashboard(repo, "u", "2026-12");
+    for (const other of [july, may, december]) {
+      expect(other.netWorthForecast).toEqual(june.netWorthForecast);
+    }
+    const at = (date: string) => june.netWorthForecast.valuesCents[daysBetween("2026-06-15", date)];
+    expect(at("2026-06-30")).toBe(june.projectedBalanceCents);
+    expect(at("2026-07-31")).toBe(july.projectedBalanceCents);
+    // The card bill leaves on its due date, what Ana owes comes in on the last day of June.
+    expect(june.netWorthForecast.events.map((e) => [e.date, e.kind, e.deltaCents, e.label])).toEqual([
+      ["2026-06-20", "scheduled", 50000, "Salário"],
+      ["2026-06-30", "people", 6000, "Acertos com pessoas"],
+      ["2026-07-02", "card-bill", -9000, "Fatura C6"],
+    ]);
+  });
+});

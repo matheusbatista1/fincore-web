@@ -32,6 +32,8 @@ export const LEAD_IN = 12;
 export const LEAD_OUT = 16;
 /** Width of the value axis, at the right of the plot. */
 export const AXIS_WIDTH = 52;
+/** The track fades out over this much at the right of the plot (the mask of `.nw-scroll`). */
+export const EDGE_FADE = 8;
 /** Days taken as in view before the browser has been measured (server render, first paint). */
 export const ASSUMED_VISIBLE_DAYS = 90;
 /** The room a month's name needs, the widest being "Jan 2027". */
@@ -87,18 +89,30 @@ export function visibleDays(offset: number, width: number, track: Track): DayWin
   return first <= last ? { first, last } : { first: last, last };
 }
 
-/** The window assumed before any measurement: the most recent days. */
-export function assumedWindow(days: number): DayWindow {
-  return { first: Math.max(0, days - ASSUMED_VISIBLE_DAYS), last: Math.max(0, days - 1) };
+/**
+ * The window assumed before any measurement: the days up to `end`, the day the track is about to
+ * be placed to end on (its last one, unless told otherwise).
+ */
+export function assumedWindow(days: number, end = days - 1): DayWindow {
+  const last = clamp(end, 0, Math.max(0, days - 1));
+  return { first: Math.max(0, last + 1 - ASSUMED_VISIBLE_DAYS), last };
 }
 
 /**
- * The scroll offset that ends a `width`-wide viewport on day `index`: right after it, so the next
- * day (the next month) stays out of view — or, on the last day, at the very end of the track, with
- * the room the live dot needs.
+ * The days being read: those in view, less the ones under the fade at the right of the plot. Those
+ * hint at what comes next; they count for neither the scale nor the labels.
+ */
+export function readableDays(offset: number, width: number, track: Track): DayWindow {
+  return visibleDays(offset, Math.max(0, width - EDGE_FADE), track);
+}
+
+/**
+ * The scroll offset that ends the readable part of a `width`-wide viewport on day `index`: right
+ * after it, so the day is whole and the next one (the next month) only hinted at, under the fade —
+ * or, on the last day, at the very end of the track, with the room the live dot needs.
  */
 export function offsetEndingAt(index: number, width: number, track: Track): number {
-  const edge = index >= track.days - 1 ? trackWidth(track) : dayX(index, track) + track.dayPx / 2;
+  const edge = index >= track.days - 1 ? trackWidth(track) : dayX(index, track) + track.dayPx / 2 + EDGE_FADE;
   return clamp(edge - width, 0, Math.max(0, trackWidth(track) - width));
 }
 
@@ -312,6 +326,25 @@ export function monthSlots(spans: readonly MonthSpan[], track: Track): MonthSlot
   });
 }
 
+/** How far from each side of the plot a month's name stays (the `left` / `right` of `.nw-month`). */
+const MONTH_NAME_INSET = { left: 22, right: 10 } as const;
+/** The room a plain three-letter name needs. */
+const SHORT_MONTH_NAME_ROOM = 26;
+
+/**
+ * Whether a month's name fits, whole, in the part of its slot that is in view. A month that is
+ * only just entering (or leaving) the plot goes unnamed rather than showing a cut name.
+ */
+export function monthNameFits(
+  slot: MonthSlot,
+  label: string,
+  view: { readonly offset: number; readonly width: number },
+): boolean {
+  const from = Math.max(slot.left, view.offset + MONTH_NAME_INSET.left);
+  const to = Math.min(slot.left + slot.width, view.offset + view.width - MONTH_NAME_INSET.right);
+  return to - from >= (label.length > 3 ? MONTH_NAME_ROOM : SHORT_MONTH_NAME_ROOM);
+}
+
 /** The date of a day on the track. */
 export const dateAt = (startDate: IsoDate, index: number): IsoDate => addDays(startDate, index);
 
@@ -342,6 +375,112 @@ export function dayLabel(date: IsoDate, today: IsoDate): string {
 
 /** A day as "30/10" — short enough to sit beside a value on the chart. */
 export const dayMonth = (date: IsoDate): string => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+
+// ---------------------------------------------------------------------------
+// Reading a forecast day
+// ---------------------------------------------------------------------------
+
+/** Something expected to move the total on a day after today. */
+export interface ForecastNote {
+  readonly date: IsoDate;
+  /** Signed: money in is positive. */
+  readonly deltaCents: number;
+  readonly label: string;
+  /** Still pending past its own date: the forecast counts it for tomorrow. */
+  readonly late: boolean;
+}
+
+/** One line of a forecast day's reading. */
+export interface DayNote {
+  readonly label: string;
+  readonly deltaCents: number;
+  readonly late: boolean;
+}
+
+/** What is expected to move a forecast day. */
+export interface DayNotes {
+  /** One line per name, the largest amount first. */
+  readonly notes: readonly DayNote[];
+  /** How many of the day's movements are late. */
+  readonly lateCount: number;
+}
+
+/**
+ * The movements of each forecast day, ready to be read: those under one name on the same day are
+ * one line (their sum) — what is late apart from what falls on its own day —, a line that sums to
+ * nothing is left out, and the largest comes first.
+ */
+export function notesByDay(events: readonly ForecastNote[]): Map<IsoDate, DayNotes> {
+  const days = new Map<IsoDate, Map<string, { note: DayNote; count: number }>>();
+  for (const event of events) {
+    let lines = days.get(event.date);
+    if (lines === undefined) {
+      lines = new Map();
+      days.set(event.date, lines);
+    }
+    const key = `${event.late ? "late" : "due"}|${event.label}`;
+    const line = lines.get(key);
+    lines.set(key, {
+      note: {
+        label: event.label,
+        deltaCents: (line?.note.deltaCents ?? 0) + event.deltaCents,
+        late: event.late,
+      },
+      count: (line?.count ?? 0) + 1,
+    });
+  }
+  const byDay = new Map<IsoDate, DayNotes>();
+  for (const [date, lines] of days) {
+    const kept = [...lines.values()].filter((line) => line.note.deltaCents !== 0);
+    if (kept.length === 0) continue;
+    byDay.set(date, {
+      notes: kept.map((line) => line.note).sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents)),
+      lateCount: kept.reduce((sum, line) => sum + (line.note.late ? line.count : 0), 0),
+    });
+  }
+  return byDay;
+}
+
+/** Room between a tooltip and the point it reads: when it sits above the point, and below it. */
+const TIP_ABOVE = 12;
+const TIP_BELOW = 14;
+/** Room kept between a tooltip and the sides of the plot. */
+const TIP_SIDE = 4;
+
+/** Where a tooltip sits on the track. */
+export interface TipPlace {
+  readonly left: number;
+  /** The edge it is held by: its bottom when it sits above its point (so its height may vary), else its top. */
+  readonly edge: "top" | "bottom";
+  /** The distance from that edge to the same edge of the chart. */
+  readonly offset: number;
+}
+
+/**
+ * Where a tooltip of a known size goes for the point `(x, y)` of the track, so the plot never cuts
+ * it: above the point; else below it; else — too tall for either — beside the point, level with it.
+ */
+export function placeTip(
+  point: { readonly x: number; readonly y: number },
+  size: { readonly width: number; readonly height: number },
+  view: { readonly offset: number; readonly width: number },
+): TipPlace {
+  const leftmost = view.offset + TIP_SIDE;
+  const rightmost = Math.max(leftmost, view.offset + view.width - TIP_SIDE - size.width);
+  const centred = clamp(point.x - size.width / 2, leftmost, rightmost);
+  if (point.y - TIP_ABOVE - size.height >= 0) {
+    return { left: centred, edge: "bottom", offset: CHART_HEIGHT - (point.y - TIP_ABOVE) };
+  }
+  if (point.y + TIP_BELOW + size.height <= CHART_HEIGHT) {
+    return { left: centred, edge: "top", offset: point.y + TIP_BELOW };
+  }
+  const offset = clamp(point.y - size.height / 2, 0, Math.max(0, CHART_HEIGHT - size.height));
+  const before = point.x - TIP_ABOVE - size.width;
+  const after = point.x + TIP_ABOVE;
+  if (before >= leftmost) return { left: before, edge: "top", offset };
+  if (after <= rightmost) return { left: after, edge: "top", offset };
+  return { left: centred, edge: "top", offset };
+}
 
 // ---------------------------------------------------------------------------
 // Motion: the axis follows the scroll on a spring
