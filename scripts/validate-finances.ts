@@ -22,6 +22,7 @@ process.env.SKIP_ENV_VALIDATION = "1";
 import {
   isExpense,
   isIncome,
+  isOffBooks,
   isPaid,
   isPayableObligation,
   isRolled,
@@ -299,7 +300,8 @@ async function main() {
   // discount or interest on the payment is the user's (mirrors accountDeltas).
   let othersViaCash = 0;
   for (const tx of ws.transactions) {
-    if (!isExpense(tx) || isRolled(tx)) continue;
+    // A ledger-only debt fronts nothing: the cash it stands for left through the rows it replaced.
+    if (!isExpense(tx) || isOffBooks(tx)) continue;
     if (isPaid(tx) && isPayableObligation(tx) && tx.paidAccountId) {
       if ((tx.paidAt ?? tx.date) > today) continue;
       othersViaCash += tx.splits.reduce((sum, split) => sum + split.shareCents, 0);

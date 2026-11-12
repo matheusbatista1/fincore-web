@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { ExpenseTransaction, IncomeTransaction, Transaction } from "@/domain/entities/transaction";
+import { formatBRLAbsolute } from "@/shared/formatting/currency";
 import { shortDate } from "@/shared/formatting/dates";
 import { todayInBrazil } from "@/shared/formatting/now";
 import type { AssumeDebtInput } from "@/shared/schemas/transaction";
@@ -164,5 +165,51 @@ describe("assumePersonDebt — guards", () => {
     const result = await assumePersonDebt(repo, "u", input({ personId: "ghost" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("not_found");
+  });
+});
+
+describe("assumePersonDebt — a remainder rolled with the user's own money", () => {
+  // Own money with no account: owed by Ana, with no expense behind it to take over.
+  const carried = sharedExpense({
+    id: "carried",
+    description: "Dívida de Ana",
+    date: "2026-08-20",
+    source: "account",
+  });
+  const loan = sharedExpense({
+    id: "loan",
+    amountCents: -30000,
+    splits: [{ personId: "p1", shareCents: 30000 }],
+  });
+
+  it("refuses when the pending is only that debt, and says how to forgive it", async () => {
+    const { repo, assumeFn } = stub([carried]);
+    const result = await assumePersonDebt(repo, "u", input());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("over_assume");
+      expect(result.error.message).toContain("rolada com o seu dinheiro");
+      expect(result.error.message).toContain("baixa");
+    }
+    expect(assumeFn).not.toHaveBeenCalled();
+  });
+
+  it("says how much CAN be assumed when ordinary shares are pending too", async () => {
+    const { repo, assumeFn } = stub([loan, carried]);
+    const result = await assumePersonDebt(repo, "u", input({ amountCents: 70000 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("over_assume");
+      expect(result.error.message).toContain(formatBRLAbsolute(30000));
+    }
+    expect(assumeFn).not.toHaveBeenCalled();
+  });
+
+  it("takes over the ordinary shares next to it", async () => {
+    const { repo, assumeFn } = stub([loan, carried]);
+    const result = await assumePersonDebt(repo, "u", input({ amountCents: 30000 }));
+    expect(result).toEqual({ ok: true, value: 1 });
+    const [, items] = assumeFn.mock.calls[0] as unknown as [string, unknown[]];
+    expect(items).toEqual([{ transactionId: "loan", personId: "p1", assumeCents: 30000 }]);
   });
 });

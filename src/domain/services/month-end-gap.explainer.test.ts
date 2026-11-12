@@ -528,6 +528,55 @@ describe("explainMonthEndGap — shares and costs that do not pair", () => {
   });
 });
 
+describe("explainMonthEndGap — a remainder rolled with the user's own money", () => {
+  // June: 60,00 of an account expense is Ana's. On the 15th the remainder is rolled with the user's
+  // own money: a cash-less acerto zeroes June and a ledger-only debt (own money, no account) books
+  // the same 60,00 for July 20. No account moves at any point.
+  const purchase = shared(10_000, 6_000);
+  const rollover = acerto({ accountId: null, note: "Rolagem — Dívida de Ana · nova data 20/07/2026" });
+  const carried = expense({
+    description: "Dívida de Ana",
+    date: "2026-07-20",
+    amountCents: -6_000,
+    accountId: null,
+    myShareCents: 0,
+    splits: [{ personId: "ana", shareCents: 6_000 }],
+  });
+  const rolled = { settlements: [rollover] };
+
+  it("until the new date the general lens is short of exactly what was carried", () => {
+    const r = explain([purchase, carried], rolled);
+    // The cash is where the purchase left it; the receivable moved to July.
+    expect(r.general).toMatchObject({ accountsCents: 90_000, peopleCents: 0, totalCents: 90_000 });
+    expect(r.personal).toMatchObject({ accountsCents: 96_000, totalCents: 96_000 });
+    expect(r.gapCents).toBe(-6_000);
+    expect(r.items).toMatchObject([{ subject: "settlement", reason: "writeoff", cents: -6_000 }]);
+    expect(r.unexplainedCents).toBe(0);
+  });
+
+  it("from the new month on the two lenses agree again: the debt is back as a receivable", () => {
+    const r = explain([purchase, carried], { ...rolled, month: "2026-07" });
+    expect(r.general).toMatchObject({ accountsCents: 90_000, peopleCents: 6_000, totalCents: 96_000 });
+    expect(r.personal).toMatchObject({ accountsCents: 96_000, totalCents: 96_000 });
+    expect(r.gapCents).toBe(0);
+    // The two halves of the roll, cancelling: the receivable written off in June, and the same
+    // amount owed again with no cost behind it.
+    expect(r.items.map((i) => [i.subject, i.reason, i.cents])).toEqual([
+      ["settlement", "writeoff", -6_000],
+      ["expense", "share-without-cost", 6_000],
+    ]);
+    expect(r.unexplainedCents).toBe(0);
+  });
+
+  it("…and stay equal once she pays it", () => {
+    const paid = acerto({ amountCents: 6_000, date: "2026-07-20" });
+    const r = explain([purchase, carried], { settlements: [rollover, paid], month: "2026-07" });
+    expect(r.general).toMatchObject({ accountsCents: 96_000, peopleCents: 0, totalCents: 96_000 });
+    expect(r.gapCents).toBe(0);
+    expect(r.unexplainedCents).toBe(0);
+  });
+});
+
 describe("explainMonthEndGap — windows and ordering", () => {
   it("a past month has no projection window: only what really moved", () => {
     const r = explain([shared(59_640, 59_640, { date: "2026-05-05" })], {

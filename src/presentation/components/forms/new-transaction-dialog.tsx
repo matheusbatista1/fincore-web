@@ -224,6 +224,10 @@ function TransactionForm({
   onDone: () => void;
 }) {
   const editing = initial !== undefined;
+  // A ledger-only debt (a remainder rolled with the user's own money) has no account, instrument,
+  // category or recurrence, and must not gain one here: only its amount, date, description and who
+  // owes it are editable. The server enforces the same (see update-transaction).
+  const ledgerOnly = initial?.ledgerOnly === true;
   // Without the People module there's no expense split or income-from-person:
   // the form behaves as a plain personal transaction (split stays 100% "me").
   const peopleOn = useModuleEnabled("people");
@@ -344,7 +348,8 @@ function TransactionForm({
     return p ? firstName(p.name) : "";
   };
 
-  const srcOk = srcType === "card" ? Boolean(cardId) : srcType === "account" ? Boolean(acctId) : true;
+  const srcOk =
+    ledgerOnly || (srcType === "card" ? Boolean(cardId) : srcType === "account" ? Boolean(acctId) : true);
   const canSubmit =
     cents > 0 &&
     (tab === "expense"
@@ -398,12 +403,13 @@ function TransactionForm({
         date: ymd,
         ...noteField,
         amountCents: cents,
-        categoryId: catId,
+        categoryId: ledgerOnly ? null : catId,
         source: srcType,
         cardId: srcType === "card" ? cardId : null,
-        accountId: srcType === "account" ? acctId : null,
+        // `acctId` falls back to the first account for the pickers; a ledger-only debt has none.
+        accountId: srcType === "account" && !ledgerOnly ? acctId : null,
         linkedAccountId: LINKABLE.has(srcType) ? linkedAccount : null,
-        fixed,
+        fixed: ledgerOnly ? false : fixed,
         split: { method, meIn, selected, custom: customCents },
         // Setting installment converts this non-installment expense into a schedule.
         installment:
@@ -678,7 +684,7 @@ function TransactionForm({
         </div>
 
         {/* recorrência — disponível ao criar e ao editar (exceto parcelas de um parcelamento) */}
-        {tab !== "transfer" && !isInstallment && (
+        {tab !== "transfer" && !isInstallment && !ledgerOnly && (
           <div className="field">
             <SwitchRow
               on={fixed}
@@ -974,57 +980,77 @@ function TransactionForm({
         {/* DESPESA */}
         {tab === "expense" && (
           <div className="exp-body">
-            <div className="field">
-              <label>Categoria</label>
-              <div className="chip-select">
-                {cats.map((c) => (
-                  <button
-                    type="button"
-                    key={c.id}
-                    className={`person-chip${catId === c.id ? " on" : ""}`}
-                    onClick={() => setCatId(c.id)}
-                  >
-                    <span className="pa" style={{ background: c.color, width: 24, height: 24 }}>
-                      <Icon name={c.icon} size={13} />
-                    </span>
-                    {c.name}
-                  </button>
-                ))}
-                <CategoryFormDialog
-                  onCreated={(c) => {
-                    setCats((prev) => [...prev, c]);
-                    setCatId(c.id);
-                  }}
-                  trigger={
-                    <button type="button" className="person-chip" style={{ borderStyle: "dashed" }}>
-                      <Icon name="plus" size={14} />
-                      Nova categoria
-                    </button>
-                  }
-                />
+            {ledgerOnly && (
+              <div className="field">
+                <div style={INFO_STYLE}>
+                  <Icon
+                    name="info"
+                    size={14}
+                    style={{ marginTop: 1, color: "var(--purple-300)", flex: "none" }}
+                  />
+                  <span>
+                    <b style={{ color: "var(--text-hi)" }}>Dívida rolada com o seu dinheiro.</b> Não debita
+                    conta, não entra em fatura e não conta como gasto: é só o que a pessoa te deve nessa data.
+                    Você pode ajustar o valor, a data e de quem é.
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
+            {!ledgerOnly && (
+              <>
+                <div className="field">
+                  <label>Categoria</label>
+                  <div className="chip-select">
+                    {cats.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        className={`person-chip${catId === c.id ? " on" : ""}`}
+                        onClick={() => setCatId(c.id)}
+                      >
+                        <span className="pa" style={{ background: c.color, width: 24, height: 24 }}>
+                          <Icon name={c.icon} size={13} />
+                        </span>
+                        {c.name}
+                      </button>
+                    ))}
+                    <CategoryFormDialog
+                      onCreated={(c) => {
+                        setCats((prev) => [...prev, c]);
+                        setCatId(c.id);
+                      }}
+                      trigger={
+                        <button type="button" className="person-chip" style={{ borderStyle: "dashed" }}>
+                          <Icon name="plus" size={14} />
+                          Nova categoria
+                        </button>
+                      }
+                    />
+                  </div>
+                </div>
 
-            <div className="field">
-              <label>
-                Forma de pagamento
-                <InfoHint>
-                  No cartão, a despesa entra na fatura. Em conta/Pix/débito, sai do saldo na hora. Boleto,
-                  empréstimo e financiamento podem ser vinculados a um banco só para organização.
-                </InfoHint>
-              </label>
-              <select
-                className="input"
-                value={srcType}
-                onChange={(e) => setSrcType(e.target.value as ExpenseSource)}
-              >
-                {SOURCES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <div className="field">
+                  <label>
+                    Forma de pagamento
+                    <InfoHint>
+                      No cartão, a despesa entra na fatura. Em conta/Pix/débito, sai do saldo na hora. Boleto,
+                      empréstimo e financiamento podem ser vinculados a um banco só para organização.
+                    </InfoHint>
+                  </label>
+                  <select
+                    className="input"
+                    value={srcType}
+                    onChange={(e) => setSrcType(e.target.value as ExpenseSource)}
+                  >
+                    {SOURCES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
 
             {srcType === "card" && (
               <div className="field">
@@ -1048,7 +1074,7 @@ function TransactionForm({
                 </div>
               </div>
             )}
-            {srcType === "account" && (
+            {srcType === "account" && !ledgerOnly && (
               <div className="field">
                 <label>
                   De qual carteira?{" "}
@@ -1493,7 +1519,7 @@ function TransactionForm({
                 </div>
               )}
               <div className="sb-row total">
-                <span className="k">Total da despesa</span>
+                <span className="k">{ledgerOnly ? "Total da dívida" : "Total da despesa"}</span>
                 <span className="v">{formatBRLAbsolute(cents)}</span>
               </div>
               {split.warning && (

@@ -609,6 +609,11 @@ function ProfileBody({
                     Rolada
                   </span>
                 )}
+                {t.ledgerOnly && (
+                  <span className="parc-badge" style={{ marginLeft: 8 }}>
+                    Sem movimentação
+                  </span>
+                )}
               </div>
               <div className="l-sub">
                 {relativeDateLabel(t.date, today)}
@@ -681,9 +686,11 @@ const INSTRUMENTS: ReadonlyArray<{ id: Instrument; label: string }> = [
   { id: "account", label: "Meu próprio dinheiro" },
 ];
 
-/** Instruments a POOL roll can target: debt instruments only — `account`/`overdraft` would debit
- * real cash at roll time, but a pool roll moves no money (the debt just changes shape). */
-const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan");
+/** Instruments a POOL roll can target. A pool roll moves no money (the debt just changes shape), so
+ * it is a debt instrument (card / loan: a new charge the person owes) or the user's own money, which
+ * here debits nothing: the person's share already left through the month's own rows, and the new
+ * debt is only what they owe on the new date. `overdraft` stays out — it would debit real cash. */
+const POOL_INSTRUMENTS = INSTRUMENTS.filter((i) => i.id === "card" || i.id === "loan" || i.id === "account");
 
 /** "Rolar dívida": front the person's current debt via an instrument; they owe you the new total. */
 function RollDebtBody({
@@ -747,6 +754,9 @@ function RollDebtBody({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Rolling the month's remainder with the user's own money: nothing is charged and no account
+  // moves, so there is no card/account to pick, no cash landing anywhere and no juros to pass on.
+  const ownMoneyPool = mode === "month" && instrument === "account";
   const canInstallment = instrument === "card" || instrument === "loan";
   const usesCard = instrument === "card";
   // Live label: where the chosen date actually lands — the card's FATURA month, or the calendar
@@ -757,12 +767,15 @@ function RollDebtBody({
       ? `fatura de ${monthLabel(cardBillMonth(date as never, selectedCard.closingDay, selectedCard.dueDay), { long: true })}`
       : `${monthLabel(date.slice(0, 7), { long: true })}`
     : null;
-  const usesAccount = !usesCard; // loan/overdraft/account all reference an account (loan's is optional)
-  const total = principal + juros;
+  // loan/overdraft/account all reference an account (loan's is optional) — except own money in a
+  // pool roll, which names none.
+  const usesAccount = !usesCard && !ownMoneyPool;
+  const appliedJuros = ownMoneyPool ? 0 : juros;
+  const total = principal + appliedJuros;
   const valid =
     (mode === "month" || debtId !== null) &&
     principal > 0 &&
-    (usesCard ? cardId !== null : instrument === "loan" ? true : acctId !== null);
+    (usesCard ? cardId !== null : instrument === "loan" || ownMoneyPool ? true : acctId !== null);
 
   const pickMode = (next: "month" | "item") => {
     setMode(next);
@@ -793,18 +806,22 @@ function RollDebtBody({
     const shared = {
       personId: person.id,
       principalCents: principal,
-      jurosCents: juros,
+      jurosCents: appliedJuros,
       date,
       source: instrument,
       cardId: usesCard ? cardId : null,
-      accountId: instrument === "account" ? acctId : null,
+      accountId: instrument === "account" && !ownMoneyPool ? acctId : null,
       linkedAccountId: instrument === "overdraft" || instrument === "loan" ? acctId : null,
       installments: canInstallment ? installments : 1,
       description: `Dívida de ${first}`,
     };
     const res =
       mode === "month"
-        ? await rollPersonMonthDebtAction({ ...shared, month, cashAccountId: cashAcctId || null })
+        ? await rollPersonMonthDebtAction({
+            ...shared,
+            month,
+            cashAccountId: ownMoneyPool ? null : cashAcctId || null,
+          })
         : await rollPersonDebtAction({ ...shared, originalTransactionId: debtId ?? "" });
     setSubmitting(false);
     if (!res.ok) {
@@ -816,7 +833,13 @@ function RollDebtBody({
     onDone();
   }
 
-  const moneyField = (value: number, onChange: (cents: number) => void, label: string, id: string) => (
+  const moneyField = (
+    value: number,
+    onChange: (cents: number) => void,
+    label: string,
+    id: string,
+    locked = false,
+  ) => (
     <div style={{ marginBottom: 12 }}>
       <label
         htmlFor={id}
@@ -833,7 +856,8 @@ function RollDebtBody({
           onChange(digits ? Number.parseInt(digits, 10) : 0);
         }}
         inputMode="numeric"
-        style={{ width: "100%" }}
+        disabled={locked}
+        style={{ width: "100%", opacity: locked ? 0.55 : 1 }}
       />
     </div>
   );
@@ -907,7 +931,15 @@ function RollDebtBody({
           mode === "month" ? "Valor rolado (o que falta do mês)" : "Valor abatido (dívida original)",
           "roll-principal",
         )}
-        {moneyField(juros, setJuros, "Juros / acréscimo (a pessoa paga)", "roll-juros")}
+        {/* Kept in place (locked at zero) with own money, so the fields below do not jump when the
+            instrument changes; the amount typed for a card/loan comes back if the user switches. */}
+        {moneyField(
+          appliedJuros,
+          setJuros,
+          ownMoneyPool ? "Juros / acréscimo (não se aplica)" : "Juros / acréscimo (a pessoa paga)",
+          "roll-juros",
+          ownMoneyPool,
+        )}
 
         <label
           htmlFor="roll-instrument"
@@ -934,6 +966,18 @@ function RollDebtBody({
             </option>
           ))}
         </select>
+
+        {ownMoneyPool && (
+          <div
+            role="note"
+            style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--text-lo)", marginBottom: 12 }}
+          >
+            Nada é cobrado em cartão e nenhuma conta é movimentada: a parte de{" "}
+            <b style={{ color: "var(--text-hi)" }}>{first}</b> já saiu do seu dinheiro quando você pagou as
+            contas do mês. O valor só volta a ser devido na nova data, sem juros — se vier a mais, você
+            registra como gorjeta ao receber.
+          </div>
+        )}
 
         {usesCard ? (
           <select
@@ -973,7 +1017,7 @@ function RollDebtBody({
           )
         )}
 
-        {mode === "month" && (
+        {mode === "month" && !ownMoneyPool && (
           <>
             <label
               htmlFor="roll-cash"
@@ -1024,7 +1068,7 @@ function RollDebtBody({
               htmlFor="roll-date"
               style={{ display: "block", fontSize: 12.5, color: "var(--text-lo)", marginBottom: 6 }}
             >
-              Vencimento
+              {ownMoneyPool ? "Nova data para pagar" : "Vencimento"}
             </label>
             <input
               id="roll-date"

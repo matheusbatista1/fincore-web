@@ -1,3 +1,4 @@
+import { isExpense, isLedgerOnly } from "@/domain/entities/transaction";
 import { Money } from "@/domain/money/money";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { planDebtAssumption } from "@/domain/services/debt-assumption.planner";
@@ -27,6 +28,8 @@ export interface AssumeDebtError {
  *  - The person must have a positive BOOKED pending — the browsed month's net for `month`, the
  *    outstanding through it for `all`. Projections are not debts: a forecast has no row to move.
  *  - `amountCents` is capped at that pending, and the plan must place every cent on a real row.
+ *  - A remainder rolled with the user's own money is pending but cannot be taken over: it has no
+ *    expense behind it. The request is refused with what CAN be assumed and how to forgive the rest.
  */
 export async function assumePersonDebt(
   repo: FinanceRepository,
@@ -81,9 +84,22 @@ export async function assumePersonDebt(
     scope: input.scope,
   });
   if (plan.items.length === 0 || plan.totalCents !== input.amountCents) {
+    const carriesOwnMoneyDebt = ws.transactions.some(
+      (tx) => isExpense(tx) && isLedgerOnly(tx) && tx.splits.some((split) => split.personId === person.id),
+    );
+    if (!carriesOwnMoneyDebt) {
+      return err({
+        code: "invalid",
+        message: "Não foi possível distribuir o valor entre as despesas em aberto.",
+      });
+    }
+    const forgive = "para perdoar, registre o pagamento sem conta (baixa)";
     return err({
-      code: "invalid",
-      message: "Não foi possível distribuir o valor entre as despesas em aberto.",
+      code: "over_assume",
+      message:
+        plan.totalCents > 0
+          ? `Dá para assumir até ${formatBRLAbsolute(plan.totalCents)}: o restante é dívida rolada com o seu dinheiro, que não tem despesa por trás — ${forgive}.`
+          : `Essa dívida foi rolada com o seu dinheiro e não tem despesa por trás para assumir — ${forgive}.`,
     });
   }
 

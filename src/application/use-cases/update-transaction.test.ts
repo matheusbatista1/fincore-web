@@ -425,3 +425,118 @@ describe("updateTransaction use-case — the settlement follows the edited row",
     expect(captured.updateCommand?.settlement).toBeUndefined();
   });
 });
+
+describe("updateTransaction use-case — a ledger-only debt keeps its nature", () => {
+  // A remainder rolled with the user's own money: own-money source, NO account, all the person's.
+  const carried: ExpenseTransaction = {
+    id: "carried",
+    kind: "expense",
+    description: "Dívida de Ana",
+    date: "2026-12-20",
+    amountCents: -40000,
+    note: "Saldo de Novembro 2026 adiado",
+    categoryId: null,
+    source: "account",
+    cardId: null,
+    accountId: null,
+    linkedAccountId: null,
+    splits: [{ personId: "p1", shareCents: 40000 }],
+    myShareCents: 0,
+    installment: null,
+    recurrence: null,
+    billMonthOverride: null,
+  };
+  const edit = (over: Record<string, unknown> = {}) =>
+    ({
+      kind: "expense" as const,
+      id: "carried",
+      description: "Dívida de Ana",
+      date: "2027-01-15",
+      note: "Saldo de Novembro 2026 adiado",
+      amountCents: 35000,
+      categoryId: null,
+      source: "account" as const,
+      cardId: null,
+      accountId: null,
+      linkedAccountId: null,
+      fixed: false,
+      installment: null,
+      split: { method: "equal" as const, meIn: false, selected: ["p1"], custom: {} },
+      scope: "one" as const,
+      ...over,
+    }) as Parameters<typeof updateTransaction>[2];
+
+  it("saves a new date and amount with no account at all", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(stubRepo(captured, [carried]), USER, edit());
+    expect(result.ok).toBe(true);
+    expect(captured.updateCommand).toMatchObject({
+      id: "carried",
+      date: "2027-01-15",
+      amountCents: -35000,
+      source: "account",
+      accountId: null,
+      cardId: null,
+      linkedAccountId: null,
+      categoryId: null,
+      fixed: false,
+      myShareCents: 0,
+      splits: [{ personId: "p1", shareCents: 35000 }],
+    });
+    expect(captured.updateScope).toBe("one");
+  });
+
+  it("ignores an account, an instrument, a category or a recurrence sent with the edit", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(
+      stubRepo(captured, [carried]),
+      USER,
+      edit({
+        accountId: "acc-1", // the form's account picker falls back to the first account
+        categoryId: "cat-1",
+        fixed: true,
+        scope: "all",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(captured.updateCommand).toMatchObject({
+      source: "account",
+      accountId: null,
+      categoryId: null,
+      fixed: false,
+    });
+    expect(captured.updateScope).toBe("one");
+
+    const asCard: Captured = {};
+    await updateTransaction(stubRepo(asCard, [carried]), USER, edit({ source: "card", cardId: "card-1" }));
+    expect(asCard.updateCommand).toMatchObject({ source: "account", cardId: null, accountId: null });
+  });
+
+  it("is never converted into an installment schedule", async () => {
+    const captured: Captured = {};
+    const result = await updateTransaction(
+      stubRepo(captured, [carried]),
+      USER,
+      edit({
+        source: "loan",
+        installment: { total: 3, current: 1, includePrevious: false, includeNext: true },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(captured.replace).toBeUndefined();
+    expect(captured.updateCommand).toMatchObject({ source: "account", accountId: null });
+  });
+
+  it("still refuses to strip the account from an ordinary own-money expense", async () => {
+    const ordinary: ExpenseTransaction = { ...carried, id: "ordinary", accountId: "acc-1" };
+    const captured: Captured = {};
+    const result = await updateTransaction(
+      stubRepo(captured, [ordinary]),
+      USER,
+      edit({ id: "ordinary", accountId: null }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid_source");
+    expect(captured.updateCommand).toBeUndefined();
+  });
+});

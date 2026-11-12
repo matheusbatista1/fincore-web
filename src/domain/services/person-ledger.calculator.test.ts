@@ -1097,6 +1097,75 @@ describe("computePersonBookedBalancesThrough", () => {
 });
 
 // =============================================================================
+// A remainder rolled with the user's own money — the ledger-only debt.
+// =============================================================================
+
+describe("a remainder rolled with the user's own money (ledger-only debt)", () => {
+  const people = [person("p-a")];
+  // November: a card share of 400,00. Rolled on 12/11 with the user's own money: a cash-less acerto
+  // zeroes it and a ledger-only debt (own money, no account) books the same 400,00 on 20/12.
+  const share = expense({
+    id: "market",
+    date: "2026-11-05",
+    amountCents: -40_000,
+    splits: [{ personId: "p-a", shareCents: 40_000 }],
+  });
+  const rollover: Settlement = {
+    id: "s-roll",
+    personId: "p-a",
+    amountCents: 40_000,
+    date: "2026-11-12",
+    accountId: null,
+  };
+  const carried = expense({
+    id: "carried",
+    date: "2026-12-20",
+    amountCents: -40_000,
+    source: "account",
+    cardId: null,
+    accountId: null,
+    splits: [{ personId: "p-a", shareCents: 40_000 }],
+  });
+  const txs = [share, carried];
+
+  it("reads the rolled month as settled and owes the debt again in the new month", () => {
+    const nets = computePersonMonthNets(people, txs, [rollover], "2026-12", calOf).get("p-a");
+    expect(nets?.get("2026-11") ?? 0).toBe(0);
+    expect(nets?.get("2026-12")).toBe(40_000);
+  });
+
+  it("leaves nothing outstanding through the rolled month and the full amount through the new one", () => {
+    const booked = (through: string) =>
+      computePersonBookedBalancesThrough(people, txs, [rollover], through, calOf).get("p-a")?.cents;
+    expect(booked("2026-11")).toBe(0);
+    expect(booked("2026-12")).toBe(40_000);
+    expect(computePersonBalancesThrough(people, txs, [rollover], "2026-12", calOf).get("p-a")?.cents).toBe(
+      40_000,
+    );
+  });
+
+  it("emits no settled cash for the roll; the payment that follows credits the new month", () => {
+    const paid: Settlement = {
+      id: "s-pay",
+      personId: "p-a",
+      amountCents: 40_000,
+      date: "2026-12-20",
+      accountId: "nu",
+    };
+    const { nets, settledCashByMonth } = computePersonMonthNetsAndSettledCash(
+      people,
+      txs,
+      [rollover, paid],
+      "2026-12",
+      calOf,
+    );
+    expect(settledCashByMonth.get("2026-11") ?? 0).toBe(0);
+    expect(settledCashByMonth.get("2026-12")).toBe(40_000);
+    expect(nets.get("p-a")?.size).toBe(0);
+  });
+});
+
+// =============================================================================
 // computePersonAdvances — the excess an account-backed acerto parks (the clamp's complement).
 // =============================================================================
 

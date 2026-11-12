@@ -1,7 +1,7 @@
 import {
   isExpense,
   isIncome,
-  isRolled,
+  isOffBooks,
   settledExpenseCents,
   settledMyShareCents,
   type Transaction,
@@ -115,9 +115,10 @@ export async function getReports(
       compareMonths(month, current) <= 0
         ? real
         : [...real, ...projected.map((p) => freshOccurrence(p.source, p.date))];
-    // A rolled (abated) debt is history-only — exclude it from the bars, the category donut
-    // and the per-card spend (the bars' computeViewTotals already skips it; this aligns the rest).
-    return base.filter((tx) => !isRolled(tx));
+    // A rolled (abated) debt is history-only and a ledger-only debt is no spending — exclude both
+    // from the bars, the category donut and the per-card spend (the bars' computeViewTotals already
+    // skips them; this aligns the rest).
+    return base.filter((tx) => !isOffBooks(tx));
   };
 
   const months: MonthBar[] = [];

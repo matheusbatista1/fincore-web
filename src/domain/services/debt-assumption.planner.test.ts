@@ -208,6 +208,55 @@ describe("planDebtAssumption — what is never a candidate", () => {
     expect(plan([expense({ id: "old", rolledAt: "2026-08-01" })]).totalCents).toBe(0);
   });
 
+  describe("a ledger-only debt (a remainder rolled with the user's own money)", () => {
+    // Own money, no account: owed by Ana, with no cost behind it for the user to take over.
+    const carried = (date: string, cents = 40_000) =>
+      expense({
+        id: `carried-${date}`,
+        date,
+        amountCents: -cents,
+        source: "account",
+        splits: [{ personId: "ana", shareCents: cents }],
+      });
+
+    it("is never handed out, so the plan stops short of a pending made of it", () => {
+      const loan = expense({
+        id: "loan",
+        date: "2026-08-05",
+        amountCents: -30_000,
+        splits: [{ personId: "ana", shareCents: 30_000 }],
+      });
+      const result = plan([loan, carried("2026-08-20")], [], { amountCents: 70_000 });
+      expect(result.items).toEqual([{ transactionId: "loan", personId: "ana", assumeCents: 30_000 }]);
+      expect(result.totalCents).toBe(30_000);
+    });
+
+    it("still absorbs coverage in date order: a payment that reached it leaves no other row open", () => {
+      const loan = expense({
+        id: "loan",
+        date: "2026-08-05",
+        amountCents: -30_000,
+        splits: [{ personId: "ana", shareCents: 30_000 }],
+      });
+      // 350,00 received: 300,00 covers the older loan row, 50,00 reaches the carried debt.
+      const result = plan([loan, carried("2026-08-20"), payment(35_000)], [], { amountCents: 35_000 });
+      expect(result.items).toEqual([]);
+      expect(result.totalCents).toBe(0);
+    });
+
+    it("an older carried debt takes the coverage first, leaving the newer row open", () => {
+      const loan = expense({
+        id: "loan",
+        date: "2026-08-10",
+        amountCents: -30_000,
+        splits: [{ personId: "ana", shareCents: 30_000 }],
+      });
+      // 350,00 received: all of it lands on the carried debt of the 1st, the loan stays whole.
+      const result = plan([carried("2026-08-01"), loan, payment(35_000)], [], { amountCents: 30_000 });
+      expect(result.items).toEqual([{ transactionId: "loan", personId: "ana", assumeCents: 30_000 }]);
+    });
+  });
+
   it("a month where you owe the person (net ≤ 0) yields nothing", () => {
     expect(plan([expense({ id: "e1" }), payment(12_000)]).totalCents).toBe(0);
   });

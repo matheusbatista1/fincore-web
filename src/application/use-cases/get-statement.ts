@@ -1,9 +1,8 @@
 import {
   incomeEffectiveDate,
-  isExpense,
   isIncome,
+  isOffBooks,
   isPaid,
-  isRolled,
   isTransfer,
   settledIncomeCents,
 } from "@/domain/entities/transaction";
@@ -101,7 +100,8 @@ export async function getStatement(repo: FinanceRepository, userId: string): Pro
   const paidFaturas = new Set(ws.cardBillPayments.map((p) => `${p.cardId}|${p.competence}`));
 
   for (const tx of ws.transactions) {
-    if (isExpense(tx) && isRolled(tx)) continue; // abated — history only, never a movement
+    // Abated (rolled) or a ledger-only debt (owed by a person, nothing behind it): never a movement.
+    if (isOffBooks(tx)) continue;
 
     if (isIncome(tx)) {
       if (tx.cardId !== null) continue; // card credit (estorno) — only reduces a bill, not cash
@@ -213,7 +213,7 @@ export async function getStatement(repo: FinanceRepository, userId: string): Pro
     const month = addMonths(currentMonth, i) as CompetenceMonth;
     const { projected } = transactionsForMonth(ws.transactions, month, competenceOf);
     for (const occ of projected) {
-      if (isExpense(occ.source) && isRolled(occ.source)) continue;
+      if (isOffBooks(occ.source)) continue;
       if (isIncome(occ.source) && occ.source.cardId !== null) continue;
       if (occ.date <= today) continue;
       // Fresh instance at the occurrence date: the anchor's paid/received state must not leak

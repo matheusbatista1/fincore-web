@@ -7,6 +7,7 @@ import type {
 import {
   isExpense,
   isIncome,
+  isLedgerOnly,
   isPaid,
   isPayableObligation,
   isReceivableIncome,
@@ -30,6 +31,9 @@ const SOURCE_LABELS: Record<ExpenseSource, string> = {
   financing: "Financiamento",
   overdraft: "Cheque especial",
 };
+
+/** Source label of a ledger-only debt: there is no account or instrument to name. */
+export const LEDGER_ONLY_LABEL = "Dívida rolada";
 
 /** One person's share of a shared expense, enriched with display data. */
 export interface TxShareView {
@@ -82,6 +86,12 @@ export interface TransactionListItem {
   readonly isFixed: boolean;
   /** True when this expense was rolled into a new debt ("Rolar dívida") — abated, kept for history. */
   readonly rolled: boolean;
+  /**
+   * True for a ledger-only debt — a remainder rolled with the user's own money: owed by the person,
+   * with no account, charge or spending behind it. It shows on the People screens only (movement
+   * lists and totals never receive it). Absent on every other row.
+   */
+  readonly ledgerOnly?: boolean;
   /** True when this is a payable obligation (boleto/loan/financing) that can be settled via the Pay flow. */
   readonly isPayable: boolean;
   /** True when a deferred obligation has been paid (see paidAt/paidAccountId/paidAmountCents). */
@@ -233,8 +243,10 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
 
     if (isExpense(tx)) {
       const category = tx.categoryId ? (categoryById.get(tx.categoryId) ?? null) : null;
-      const sourceLabel =
-        tx.source === "card"
+      const ledgerOnly = isLedgerOnly(tx);
+      const sourceLabel = ledgerOnly
+        ? LEDGER_ONLY_LABEL
+        : tx.source === "card"
           ? tx.cardId
             ? (cardName.get(tx.cardId) ?? "Cartão")
             : "Cartão"
@@ -267,6 +279,7 @@ export function createTransactionMapper(ws: Workspace): (tx: Transaction) => Tra
         billMonthOverride: tx.billMonthOverride,
         isFixed: tx.recurrence !== null,
         rolled: tx.rolledAt != null,
+        ...(ledgerOnly ? { ledgerOnly: true } : {}),
         isPayable: isPayableObligation(tx),
         isPaid: isPaid(tx),
         paidAt: tx.paidAt ?? null,

@@ -75,4 +75,14 @@ describe("computeBudgetStatuses", () => {
     const [food] = computeBudgetStatuses(budgets, txs, "2026-06");
     expect(food?.spentCents).toBe(60_00);
   });
+
+  it("ignores a ledger-only debt even if it carries a category", () => {
+    const txs: Transaction[] = [
+      expense("t1", "food", -60_00, "2026-06-10"),
+      // Own money with no account: what a person owes, not spending.
+      { ...expense("t2", "food", -40_00, "2026-06-15"), accountId: null },
+    ];
+    const [food] = computeBudgetStatuses(budgets, txs, "2026-06");
+    expect(food?.spentCents).toBe(60_00);
+  });
 });

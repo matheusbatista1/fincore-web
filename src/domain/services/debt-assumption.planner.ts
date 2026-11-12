@@ -11,13 +11,22 @@
  * (a person's payment reduces its own competence month, an acerto covers the oldest open months
  * first) and, inside a month, lands on the oldest rows first (by date, then id) — so the uncovered
  * cents always sit on the newest rows of a month. Projected ("previsto") occurrences are never
- * candidates: a forecast has no row whose share could move.
+ * candidates: a forecast has no row whose share could move. Neither is a ledger-only debt (a
+ * remainder rolled with the user's own money): it takes its place in the coverage walk like any
+ * other share, but there is no cost behind it for the user to take over — moving that share would
+ * erase the receivable and leave the personal lens with nothing to charge.
  *
  * Pure domain code — no I/O, no imports outside src/domain.
  */
 
 import type { Settlement } from "../entities/settlement";
-import { type ExpenseTransaction, isExpense, isRolled, type Transaction } from "../entities/transaction";
+import {
+  type ExpenseTransaction,
+  isExpense,
+  isLedgerOnly,
+  isRolled,
+  type Transaction,
+} from "../entities/transaction";
 import { type CompetenceMonth, compareMonths } from "../value-objects/competence-month";
 import { computePersonMonthNets } from "./person-ledger.calculator";
 
@@ -92,7 +101,8 @@ function uncoveredSharesByMonth(
       const take = Math.min(Math.max(covered, 0), row.shareCents);
       covered -= take;
       const left = row.shareCents - take;
-      if (left > 0) uncovered.push({ tx: row.tx, uncoveredCents: left });
+      // A ledger-only debt absorbs coverage like any row but is never handed out as a candidate.
+      if (left > 0 && !isLedgerOnly(row.tx)) uncovered.push({ tx: row.tx, uncoveredCents: left });
     }
     if (uncovered.length > 0) out.set(competence, uncovered);
   }
@@ -103,8 +113,8 @@ function uncoveredSharesByMonth(
  * Plan the shares to take over for `amountCents`: the browsed `month` first, then (for `all`)
  * earlier months newest first; inside a month, the oldest uncovered row first. The plan stops when
  * the amount is met (`totalCents === amountCents`); when the pending is smaller, `totalCents` says
- * how much it could cover — the use case rejects such a request before planning, so this is a
- * guard, not a flow.
+ * how much it could cover. The use case caps the request at the pending before planning, so that
+ * only happens when part of the pending is a ledger-only debt, which is never a candidate.
  */
 export function planDebtAssumption(input: {
   readonly personId: string;
