@@ -6,6 +6,7 @@ import {
   check,
   date,
   index,
+  integer,
   jsonb,
   pgPolicy,
   pgTable,
@@ -431,5 +432,47 @@ export const cardBillPayments = pgTable(
       .where(sql`deleted_at IS NULL`),
     check("chk_card_bill_payment_amount", sql`amount_cents > 0`),
     ownerPolicy("card_bill_payments_owner"),
+  ],
+);
+
+/**
+ * A statement — or a card's fatura — that was checked against the app ("Conferir extrato") and
+ * marked as checked. It records WHEN and WHAT was covered, never the file or its lines. Append
+ * only: checking the same account again is another row, so the rows are the history of checks.
+ */
+export const statementChecks = pgTable(
+  "statement_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** What was checked: an account's statement… */
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "cascade" }),
+    /** …or a card's fatura, by its competence (due) month `YYYY-MM`. */
+    cardId: uuid("card_id").references(() => creditCards.id, { onDelete: "cascade" }),
+    competenceMonth: text("competence_month"),
+    /** The first and the last day of the file's lines. */
+    periodFrom: date("period_from", { mode: "string" }).notNull(),
+    periodTo: date("period_to", { mode: "string" }).notNull(),
+    bankLines: integer("bank_lines").notNull(),
+    /** What did not match when it was marked: lines with no entry, and entries with no line. */
+    bankOnly: integer("bank_only").notNull(),
+    bookOnly: integer("book_only").notNull(),
+    /** The day it was marked (São Paulo). */
+    checkedOn: date("checked_on", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_statement_checks_account").on(t.accountId, t.checkedOn),
+    index("idx_statement_checks_card").on(t.cardId, t.checkedOn),
+    // Exactly one of the two: an account's statement, or a card's fatura with its month.
+    check(
+      "chk_statement_check_target",
+      sql`(account_id IS NOT NULL AND card_id IS NULL AND competence_month IS NULL) OR (account_id IS NULL AND card_id IS NOT NULL AND competence_month IS NOT NULL)`,
+    ),
+    check("chk_statement_check_counts", sql`bank_lines > 0 AND bank_only >= 0 AND book_only >= 0`),
+    check("chk_statement_check_period", sql`period_from <= period_to`),
+    ownerPolicy("statement_checks_owner"),
   ],
 );

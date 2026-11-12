@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   CardBillPaymentData,
   CreateTransactionCommand,
   FinanceRepository,
   NewTransactionEntry,
   SettlementData,
+  StatementCheckData,
   UpdateTransactionCommand,
   UserProfile,
   Workspace,
@@ -15,6 +16,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { StatementCheck } from "@/domain/entities/statement-check";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { type ModuleKey, sanitizeModules } from "@/shared/modules";
 import type {
@@ -36,6 +38,7 @@ import {
   toGoal,
   toPerson,
   toSettlement,
+  toStatementCheck,
   toTransaction,
 } from "../db/mappers";
 import { type RlsTransaction, withUserContext } from "../db/rls";
@@ -1017,6 +1020,34 @@ export class DrizzleFinanceRepository implements FinanceRepository {
             isNull(schema.cardBillPayments.deletedAt),
           ),
         );
+    });
+  }
+
+  async recordStatementCheck(userId: string, input: StatementCheckData): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx.insert(schema.statementChecks).values({
+        userId,
+        accountId: input.accountId,
+        cardId: input.cardId,
+        competenceMonth: input.competence,
+        periodFrom: input.periodFrom,
+        periodTo: input.periodTo,
+        bankLines: input.bankLines,
+        bankOnly: input.bankOnly,
+        bookOnly: input.bookOnly,
+        checkedOn: input.checkedOn,
+      });
+    });
+  }
+
+  async listStatementChecks(userId: string): Promise<StatementCheck[]> {
+    // RLS scopes the rows to the user; the most recent check comes first.
+    return this.run(userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.statementChecks)
+        .orderBy(desc(schema.statementChecks.checkedOn), desc(schema.statementChecks.createdAt));
+      return rows.map(toStatementCheck);
     });
   }
 }
