@@ -110,6 +110,7 @@ export function ReconcileView({
       const mine = ticket.current;
       setChecking(true);
       setError(null);
+      // A request that fails outright (offline, no answer) is an answer too: say so, never hang.
       const state = await ask({
         target:
           asked.mode === "account"
@@ -120,12 +121,14 @@ export function ReconcileView({
           description: line.description.slice(0, 200),
           amountCents: line.amountCents,
         })),
-      });
+      }).catch(
+        (): ReconcileActionState => ({ ok: false, error: "Não consegui conferir agora. Tente de novo." }),
+      );
       if (mine !== ticket.current) return;
       setChecking(false);
       if (!state.ok) {
+        // The last answer, if there is one, stays on screen: only the message is new.
         setError(state.error);
-        setResult(null);
         return;
       }
       setResult(state.result);

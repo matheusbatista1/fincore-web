@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import { assumePersonDebt } from "@/application/use-cases/assume-person-debt";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
+import { exportWorkspace } from "@/application/use-cases/export-workspace";
+import { getTransactions, type TransactionListItem } from "@/application/use-cases/get-transactions";
 import { importStatement } from "@/application/use-cases/import-statement";
 import { materializeOccurrence } from "@/application/use-cases/materialize-occurrence";
 import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
@@ -18,6 +20,7 @@ import { settlePerson } from "@/application/use-cases/settle-person";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
+import { todayInBrazil } from "@/shared/formatting/now";
 import {
   accountInputSchema,
   budgetInputSchema,
@@ -283,6 +286,37 @@ export async function importTransactionsAction(raw: unknown): Promise<ActionStat
   await importStatement(financeRepository, userId, parsed.data);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+export type ExportBackupState =
+  | { ok: true; filename: string; content: string }
+  | { ok: false; error: string };
+
+/**
+ * "Baixar meus dados": everything the user recorded, as one JSON document. Read-only. The text is
+ * built here so the file is exactly what the server holds, not a re-serialisation of it.
+ */
+export async function exportBackupAction(): Promise<ExportBackupState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const backup = await exportWorkspace(financeRepository, userId, new Date());
+  return {
+    ok: true,
+    filename: `fincore-backup-${todayInBrazil()}.json`,
+    content: JSON.stringify(backup, null, 2),
+  };
+}
+
+export type ExportTransactionsState =
+  | { ok: true; filename: string; rows: TransactionListItem[] }
+  | { ok: false; error: string };
+
+/** Every transaction, oldest first, for the spreadsheet of "Baixar meus dados". Read-only. */
+export async function exportTransactionsAction(): Promise<ExportTransactionsState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const rows = await getTransactions(financeRepository, userId);
+  return { ok: true, filename: `fincore-lancamentos-${todayInBrazil()}.csv`, rows: rows.reverse() };
 }
 
 export type ReconcileActionState = { ok: true; result: ReconcileResult } | { ok: false; error: string };
