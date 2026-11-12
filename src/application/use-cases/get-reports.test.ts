@@ -153,6 +153,20 @@ describe("getReports — general vs personal lenses", () => {
     expect(data.categories.map((c) => [c.id, c.valueCents])).toEqual([[food.id, 3000]]);
     expect(data.totalExpenseCents).toBe(3000);
   });
+
+  it("excludes a ledger-only debt from bars, categories and total in both lenses", async () => {
+    const repo = stubRepo([
+      expense({ amountCents: -3000, myShareCents: 3000, categoryId: food.id }),
+      // Own money with no account: what a person owes, not spending — whatever its fields say.
+      expense({ amountCents: -5000, myShareCents: 5000, categoryId: food.id, accountId: null }),
+    ]);
+    const data = await getReports(repo, "u", justAnchor);
+
+    expect(data.months.at(-1)?.expenseCents).toBe(3000);
+    expect(data.monthsPersonal.at(-1)?.expenseCents).toBe(3000);
+    expect(data.categories.map((c) => [c.id, c.valueCents])).toEqual([[food.id, 3000]]);
+    expect(data.totalExpenseCents).toBe(3000);
+  });
 });
 
 describe("getReports — byCard (spending per card over the window)", () => {

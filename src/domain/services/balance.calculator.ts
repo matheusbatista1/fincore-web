@@ -11,7 +11,8 @@
  *    (the prototype early-returns for those). Only `atual` installments and
  *    non-installment transactions move balances.
  *  - income → credits `accountId` by `amountCents`.
- *  - expense with `source === "account"` → debits `accountId` by `|amountCents|`.
+ *  - expense with `source === "account"` → debits `accountId` by `|amountCents|`. With no
+ *    account it is a ledger-only debt (what a person owes, nothing behind it): no effect at all.
  *  - expense with `source === "overdraft"` (cheque especial) → debits its
  *    `linkedAccountId` (the overdraft is drawn from that account; the balance may
  *    go negative).
@@ -33,6 +34,7 @@ import {
   incomeEffectiveDate,
   isExpense,
   isIncome,
+  isOffBooks,
   isPaid,
   isPayableObligation,
   isReceived,
@@ -57,7 +59,8 @@ type CompetenceResolver = (tx: Transaction) => CompetenceMonth;
  */
 function affectsBalance(tx: Transaction): boolean {
   // A rolled (abated) expense is excluded from balances — the new rolled-into debt replaces it.
-  if (isRolled(tx)) return false;
+  // So is a ledger-only debt: it has no account, and the cash it stands for left through other rows.
+  if (isOffBooks(tx)) return false;
   // A paid deferred obligation always moves cash on its paid date, regardless of installment
   // status — you can settle a `futura` parcela early and it must debit the paying account.
   if (isExpense(tx) && isPaid(tx)) return true;

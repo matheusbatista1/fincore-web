@@ -377,6 +377,40 @@ describe("rolled (abated) expenses are excluded", () => {
   });
 });
 
+describe("a ledger-only debt (own money, no account) moves no balance", () => {
+  // What a person owes after their remainder was rolled with the user's own money: the cash it
+  // stands for left through other rows, so this one must leave every account alone.
+  const ledgerOnly = (cents: number): ExpenseTransaction => ({
+    ...expense(-cents, { source: "account", accountId: null }),
+    splits: [{ personId: "p1", shareCents: cents }],
+    myShareCents: 0,
+  });
+
+  it("has no account effect in either lens", () => {
+    expect(accountDeltas(ledgerOnly(40_000), "general").size).toBe(0);
+    expect(accountDeltas(ledgerOnly(40_000), "personal").size).toBe(0);
+  });
+
+  it("leaves the balances exactly where the other rows put them", () => {
+    const accounts = [makeAccount("nu", 100_000)];
+    const spent = expense(-3_000, { source: "account", accountId: "nu" });
+    for (const lens of ["general", "personal"] as const) {
+      const without = computeAccountBalances(accounts, [spent], undefined, lens);
+      const withDebt = computeAccountBalances(accounts, [spent, ledgerOnly(40_000)], undefined, lens);
+      expect(withDebt.get("nu")?.cents).toBe(without.get("nu")?.cents);
+    }
+    expect(computeAccountBalances(accounts, [spent, ledgerOnly(40_000)]).get("nu")?.cents).toBe(97_000);
+  });
+
+  it("only the payment that settles it moves cash", () => {
+    const accounts = [makeAccount("nu", 0)];
+    const debt = ledgerOnly(40_000);
+    const paid = settle("p1", 40_000, "nu", "2026-06-20");
+    const balances = computeAccountBalances(accounts, [debt], undefined, "general", [paid]);
+    expect(balances.get("nu")?.cents).toBe(40_000);
+  });
+});
+
 describe("paid deferred obligations debit the paying account on their paid date", () => {
   it("a paid boleto debits its paying account (was invisible while unpaid)", () => {
     const accounts = [makeAccount("nu", 100_000), makeAccount("it", 0)];

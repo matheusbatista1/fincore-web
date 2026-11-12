@@ -1,11 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Account } from "@/domain/entities/account";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
-import type { ExpenseTransaction, IncomeTransaction, Transaction } from "@/domain/entities/transaction";
+import {
+  type ExpenseTransaction,
+  type IncomeTransaction,
+  isLedgerOnly,
+  type Transaction,
+} from "@/domain/entities/transaction";
+import { computeAccountBalances } from "@/domain/services/balance.calculator";
+import { computePersonMonthNets } from "@/domain/services/person-ledger.calculator";
+import { computeViewTotals } from "@/domain/services/personal-vs-general";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { todayInBrazil } from "@/shared/formatting/now";
 import type { RollMonthDebtInput } from "@/shared/schemas/transaction";
-import type { FinanceRepository, Workspace } from "../ports/finance-repository";
+import type {
+  CreateTransactionCommand,
+  FinanceRepository,
+  SettlementData,
+  Workspace,
+} from "../ports/finance-repository";
 import { rollPersonMonthDebt } from "./roll-person-month-debt";
 
 const ana: Person = { id: "p1", name: "Ana", relationship: "Amiga", color: "#000000" };
@@ -236,5 +250,163 @@ describe("rollPersonMonthDebt — the guard thinks in FATURAS for card debts", (
       date: "2026-08-10" as IsoDate,
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("rollPersonMonthDebt — with the user's own money", () => {
+  const ownMoney = (over: Partial<RollMonthDebtInput> = {}): RollMonthDebtInput =>
+    input({ source: "account", jurosCents: 0, ...over });
+  type RollCall = [string, SettlementData, CreateTransactionCommand];
+  const callOf = (rollFn: ReturnType<typeof stub>["rollFn"]): RollCall =>
+    rollFn.mock.calls[0] as unknown as RollCall;
+
+  it("writes a cash-less settlement and a ledger-only debt for the same amount on the new date", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", ownMoney());
+    expect(result.ok).toBe(true);
+    const [, settlement, command] = callOf(rollFn);
+    expect(settlement).toEqual({
+      personId: "p1",
+      amountCents: 40000,
+      date: todayInBrazil(),
+      accountId: null, // nothing was received
+      note: "Rolagem — Dívida de Ana · nova data 10/08/2026",
+    });
+    expect(command).toEqual({
+      entries: [
+        {
+          kind: "expense",
+          description: "Dívida de Ana",
+          date: "2026-08-10",
+          amountCents: -40000, // the principal alone: own money carries no juros
+          note: "Saldo de Julho 2026 adiado",
+          categoryId: null,
+          source: "account",
+          cardId: null,
+          accountId: null, // no account: nothing is debited
+          linkedAccountId: null,
+          myShareCents: 0,
+          recurrenceDayOfMonth: null,
+          parcelaNo: null,
+          parcelaTotal: null,
+          parcelaStatus: null,
+          splits: [{ personId: "p1", shareCents: 40000 }],
+        },
+      ],
+    });
+  });
+
+  it("names no account and makes no schedule, whatever the client sends", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(
+      repo,
+      "u",
+      ownMoney({ accountId: "acc-1", linkedAccountId: "acc-1", cardId: "card-1", installments: 6 }),
+    );
+    expect(result.ok).toBe(true);
+    const [, , command] = callOf(rollFn);
+    expect(command.installmentGroup).toBeUndefined();
+    expect(command.entries).toHaveLength(1);
+    expect(command.entries[0]).toMatchObject({ accountId: null, linkedAccountId: null, cardId: null });
+  });
+
+  it("rolls part of the remainder", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", ownMoney({ principalCents: 15000 }));
+    expect(result.ok).toBe(true);
+    const [, settlement, command] = callOf(rollFn);
+    expect(settlement.amountCents).toBe(15000);
+    expect(command.entries[0]).toMatchObject({ amountCents: -15000 });
+    expect(command.entries[0]?.splits).toEqual([{ personId: "p1", shareCents: 15000 }]);
+  });
+
+  it("what it writes moves no balance, is no spending, and is owed in the new month", async () => {
+    const original = sharedExpense(); // 400,00 from acc-1 on 05/07, all Ana's
+    const { repo, rollFn } = stub([original]);
+    await rollPersonMonthDebt(repo, "u", ownMoney());
+    const [, settlement, command] = callOf(rollFn);
+    const entry = command.entries[0];
+    if (!entry) throw new Error("the roll wrote no debt");
+
+    // The rows as the workspace will hold them (the roll itself is dated today; pin it in July).
+    const debt: ExpenseTransaction = {
+      id: "new-debt",
+      kind: "expense",
+      description: entry.description,
+      date: entry.date,
+      amountCents: entry.amountCents,
+      categoryId: entry.categoryId ?? null,
+      source: entry.source ?? "card",
+      cardId: entry.cardId ?? null,
+      accountId: entry.accountId ?? null,
+      linkedAccountId: entry.linkedAccountId ?? null,
+      splits: entry.splits ?? [],
+      myShareCents: entry.myShareCents ?? 0,
+      installment: null,
+      recurrence: null,
+      billMonthOverride: null,
+    };
+    const rollover: Settlement = {
+      id: "s-roll",
+      personId: settlement.personId,
+      amountCents: settlement.amountCents,
+      date: "2026-07-20" as IsoDate,
+      accountId: settlement.accountId ?? null,
+    };
+    expect(isLedgerOnly(debt)).toBe(true);
+
+    const account: Account = {
+      id: "acc-1",
+      bank: "Bank",
+      name: "Conta",
+      type: "PF",
+      themeKey: "default",
+      openingBalanceCents: 100_000,
+      maskedNumber: "",
+    };
+    for (const lens of ["general", "personal"] as const) {
+      const before = computeAccountBalances([account], [original], undefined, lens);
+      const after = computeAccountBalances([account], [original, debt], undefined, lens, [rollover]);
+      expect(after.get("acc-1")?.cents).toBe(before.get("acc-1")?.cents);
+      expect(computeViewTotals([original, debt], lens).expense.cents).toBe(
+        computeViewTotals([original], lens).expense.cents,
+      );
+    }
+
+    const calOf = (tx: Transaction): string => tx.date.slice(0, 7);
+    const nets = computePersonMonthNets([ana], [original, debt], [rollover], "2026-08", calOf).get("p1");
+    expect(nets?.get("2026-07") ?? 0).toBe(0);
+    expect(nets?.get("2026-08")).toBe(40000);
+  });
+
+  it("refuses juros: there is no lender to pass them on from", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", ownMoney({ jurosCents: 1 }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("invalid");
+      expect(result.error.message).toContain("gorjeta");
+    }
+    expect(rollFn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cash account: no money lands anywhere", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const result = await rollPersonMonthDebt(repo, "u", ownMoney({ cashAccountId: "acc-1" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid");
+    expect(rollFn).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pool guards: a later month, within the booked outstanding", async () => {
+    const { repo, rollFn } = stub([sharedExpense()]);
+    const sameMonth = await rollPersonMonthDebt(repo, "u", ownMoney({ date: "2026-07-28" as IsoDate }));
+    expect(sameMonth.ok).toBe(false);
+    if (!sameMonth.ok) expect(sameMonth.error.code).toBe("bad_due_month");
+
+    const tooMuch = await rollPersonMonthDebt(repo, "u", ownMoney({ principalCents: 40001 }));
+    expect(tooMuch.ok).toBe(false);
+    if (!tooMuch.ok) expect(tooMuch.error.code).toBe("over_roll");
+    expect(rollFn).not.toHaveBeenCalled();
   });
 });

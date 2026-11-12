@@ -283,6 +283,11 @@ export type RollDebtInput = z.infer<typeof rollDebtSchema>;
  * never overshoot) and creates the new debt (principal + juros) on the chosen instrument, fully owed
  * by the person. Matches how pooled debts are managed in practice ("she owed 3.000, paid 2.600, I
  * roll the 400"), where no single lançamento corresponds to the remainder.
+ *
+ * With `source: "account"` the user covers the remainder with their OWN money: nothing new is
+ * charged anywhere, the person just owes the same amount on a new date. The new debt is then a
+ * ledger-only row (no account, no juros, one date) — `accountId`, `cashAccountId` and
+ * `installments` do not apply.
  */
 export const rollMonthDebtSchema = z.object({
   personId: idSchema,
@@ -293,9 +298,10 @@ export const rollMonthDebtSchema = z.object({
   principalCents: centsSchema.positive("Informe o valor da dívida."),
   jurosCents: centsSchema.nonnegative().default(0),
   date: isoDateSchema,
-  /** Pool rolls move the debt to a DEBT instrument only — `account`/`overdraft` would debit real
-   * cash at roll time, but a pool roll moves no money ("sem dinheiro trocando de mãos"). */
-  source: z.enum(["card", "loan"]),
+  /** Where the new debt lives: a DEBT instrument (`card`/`loan` — a new charge the person owes), or
+   * `account` = the user's own money (no charge at all: a ledger-only debt). `overdraft` is left
+   * out: it would debit real cash at roll time, and a pool roll moves no money. */
+  source: z.enum(["card", "loan", "account"]),
   /** When the roll DID move real money — a Pix no crédito whose cash landed in an account (and was
    * used to cover the person's share) — the rollover settlement is account-backed: it credits this
    * account and counts as third-party money (dropped from the personal lens). Null = paper-only. */
