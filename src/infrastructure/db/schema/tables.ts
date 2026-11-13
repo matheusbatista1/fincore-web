@@ -17,6 +17,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { authenticatedRole, authUsers } from "drizzle-orm/supabase";
+import type { Transaction } from "@/domain/entities/transaction";
 import type { ModuleKey } from "@/shared/modules";
 import { accountType, cardFlag, expenseSource, parcelaStatus, transactionKind } from "./enums";
 
@@ -476,5 +477,36 @@ export const statementChecks = pgTable(
     check("chk_statement_check_counts", sql`bank_lines > 0 AND bank_only >= 0 AND book_only >= 0`),
     check("chk_statement_check_period", sql`period_from <= period_to`),
     ownerPolicy("statement_checks_owner"),
+  ],
+);
+
+/**
+ * A transaction's history (histórico de alterações): one row each time it is created, changed or
+ * removed, holding the transaction as it was and as it became. The app writes it after a write,
+ * from a reading of the user's book before and after; rows only add up, and go with the transaction
+ * (or the user) when that is purged.
+ */
+export const transactionEvents = pgTable(
+  "transaction_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    transactionId: uuid("transaction_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["created", "updated", "deleted"] }).notNull(),
+    /** What was being done: "edit", "pay", "import"… Free text for the reader. */
+    action: text("action").notNull().default(""),
+    /** The transaction (the domain's shape) before and after; null where it did not exist. */
+    before: jsonb("before").$type<Transaction>(),
+    after: jsonb("after").$type<Transaction>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_transaction_events_transaction").on(t.transactionId, t.createdAt),
+    check("chk_transaction_event_kind", sql`kind IN ('created', 'updated', 'deleted')`),
+    ownerPolicy("transaction_events_owner"),
   ],
 );

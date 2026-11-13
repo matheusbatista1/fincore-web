@@ -6,8 +6,10 @@ import { getStatement } from "@/application/use-cases/get-statement";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { reconcileWithStatement } from "@/application/use-cases/reconcile-statement";
+import { getTransactionHistory } from "@/application/use-cases/transaction-history";
 import { addDays, addMonths, isValidIsoDate, monthOf } from "@/domain/value-objects/competence-month";
 import { parseStatement } from "@/shared/import/parse-statement";
+import { demoHistory } from "./demo-history";
 import { DEMO_USER_ID, demoRepository } from "./demo-repository";
 import { demoStatement } from "./demo-statement";
 import { DEMO_IDS, demoWorkspace } from "./demo-workspace";
@@ -97,6 +99,33 @@ describe("demoWorkspace", () => {
       expect(statement.executed.length).toBeGreaterThan(20);
       expect(monthly.items.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("demoHistory", () => {
+  it("gives every transaction a creation and one correction, never dated after today", async () => {
+    const today = "2026-11-12";
+    const repo = demoRepository(today);
+    const workspace = demoWorkspace(today);
+    for (const tx of workspace.transactions) {
+      const events = demoHistory(workspace, tx.id, today);
+      expect(events.map((event) => event.kind)).toEqual(["updated", "created"]);
+      const [edited, created] = events;
+      // The correction ends on the row as the screens show it; nothing happens in the future.
+      expect(edited?.after).toEqual(tx);
+      expect(created?.after).toEqual(edited?.before);
+      expect(edited?.at.getTime()).toBeGreaterThan(created?.at.getTime() ?? Number.POSITIVE_INFINITY);
+      expect((edited?.at.toISOString() ?? "9999").slice(0, 10) <= today).toBe(true);
+
+      // …and reads, through the real use case, as "created, then the value changed".
+      const history = await getTransactionHistory(repo, DEMO_USER_ID, tx.id);
+      expect(history.map((entry) => entry.kind)).toEqual(["updated", "created"]);
+      expect(history[0]?.changes.map((change) => change.field)).toContain("amount");
+    }
+  });
+
+  it("has nothing to say about a transaction the demo does not have", () => {
+    expect(demoHistory(demoWorkspace("2026-11-12"), "nope", "2026-11-12")).toEqual([]);
   });
 });
 

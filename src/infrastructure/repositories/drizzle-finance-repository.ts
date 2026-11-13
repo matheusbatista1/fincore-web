@@ -6,6 +6,7 @@ import type {
   NewTransactionEntry,
   SettlementData,
   StatementCheckData,
+  TransactionEventData,
   UpdateTransactionCommand,
   UserProfile,
   Workspace,
@@ -17,6 +18,7 @@ import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { StatementCheck } from "@/domain/entities/statement-check";
+import type { TransactionEvent } from "@/domain/entities/transaction-event";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { type ModuleKey, sanitizeModules } from "@/shared/modules";
 import type {
@@ -40,6 +42,7 @@ import {
   toSettlement,
   toStatementCheck,
   toTransaction,
+  toTransactionEvent,
 } from "../db/mappers";
 import { type RlsTransaction, withUserContext } from "../db/rls";
 import * as schema from "../db/schema";
@@ -49,6 +52,11 @@ function one<T>(rows: T[]): T {
   if (row === undefined) throw new Error("expected a returned row but got none");
   return row;
 }
+
+/** History rows written per insert: a statement import can bring hundreds, each with two snapshots. */
+const EVENTS_PER_INSERT = 200;
+/** How far back one transaction's history is read. */
+const HISTORY_LIMIT = 100;
 
 /** The edit form caps a note at 280 chars: keep an assumption trail without breaking later edits. */
 const NOTE_MAX_LENGTH = 280;
@@ -514,8 +522,8 @@ export class DrizzleFinanceRepository implements FinanceRepository {
     return inserted.map((row) => row.id);
   }
 
-  async createTransaction(userId: string, command: CreateTransactionCommand): Promise<void> {
-    await this.run(userId, (tx) => this.insertCommand(tx, userId, command));
+  async createTransaction(userId: string, command: CreateTransactionCommand): Promise<string[]> {
+    return this.run(userId, (tx) => this.insertCommand(tx, userId, command));
   }
 
   async createTransactionReturningId(userId: string, command: CreateTransactionCommand): Promise<string> {
@@ -1048,6 +1056,37 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .from(schema.statementChecks)
         .orderBy(desc(schema.statementChecks.checkedOn), desc(schema.statementChecks.createdAt));
       return rows.map(toStatementCheck);
+    });
+  }
+
+  async recordTransactionEvents(userId: string, events: readonly TransactionEventData[]): Promise<void> {
+    if (events.length === 0) return;
+    await this.run(userId, async (tx) => {
+      for (let from = 0; from < events.length; from += EVENTS_PER_INSERT) {
+        await tx.insert(schema.transactionEvents).values(
+          events.slice(from, from + EVENTS_PER_INSERT).map((event) => ({
+            userId,
+            transactionId: event.transactionId,
+            kind: event.kind,
+            action: event.action,
+            before: event.before,
+            after: event.after,
+          })),
+        );
+      }
+    });
+  }
+
+  async listTransactionEvents(userId: string, transactionId: string): Promise<TransactionEvent[]> {
+    // RLS scopes the rows to the user; the most recent entry comes first.
+    return this.run(userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.transactionEvents)
+        .where(eq(schema.transactionEvents.transactionId, transactionId))
+        .orderBy(desc(schema.transactionEvents.createdAt), desc(schema.transactionEvents.id))
+        .limit(HISTORY_LIMIT);
+      return rows.map(toTransactionEvent);
     });
   }
 }

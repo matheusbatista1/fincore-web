@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { demoTransactionHistoryAction } from "@/app/demo/actions";
 import { getTransactions } from "@/application/use-cases/get-transactions";
 import { getWorkspaceView } from "@/application/use-cases/get-workspace-view";
 import { requireDemo } from "@/infrastructure/demo/demo-flag";
@@ -75,7 +76,12 @@ export default async function DemoLayout({ children }: { children: ReactNode }) 
             </div>
             <div className="page">{children}</div>
           </main>
-          <TxModalsHost {...formData} transactions={transactions} today={today} />
+          <TxModalsHost
+            {...formData}
+            transactions={transactions}
+            today={today}
+            loadHistory={demoTransactionHistoryAction}
+          />
         </div>
       </CategoryHintsProvider>
     </ModulesProvider>

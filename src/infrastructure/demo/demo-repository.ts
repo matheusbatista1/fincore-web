@@ -1,6 +1,7 @@
 import type { FinanceRepository, UserProfile } from "@/application/ports/finance-repository";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import { ALL_MODULE_KEYS } from "@/shared/modules";
+import { demoHistory } from "./demo-history";
 import { demoWorkspace } from "./demo-workspace";
 
 /** Whoever looks at the demo is this made-up user. */
@@ -28,5 +29,7 @@ export function demoRepository(today: IsoDate): FinanceRepository {
     loadWorkspace: async () => workspace,
     getProfile: async () => DEMO_PROFILE,
     listStatementChecks: async () => [],
+    listTransactionEvents: async (_userId: string, transactionId: string) =>
+      demoHistory(workspace, transactionId, today),
   } as unknown as FinanceRepository;
 }

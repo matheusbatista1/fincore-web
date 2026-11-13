@@ -199,6 +199,9 @@ export type PayTransactionInput = z.infer<typeof payTransactionSchema>;
 /** Revert a payment (make the obligation pending again). */
 export const undoPaymentSchema = z.object({ id: idSchema });
 
+/** Read one transaction's history. The id is a row's own (never a synthetic "type:id" one). */
+export const transactionHistorySchema = z.object({ id: z.guid() });
+
 /**
  * Receive a normal income (the income-side mirror of {@link payTransactionSchema}): choose the
  * receiving account, optionally the receipt date (defaults to today) and a custom received amount

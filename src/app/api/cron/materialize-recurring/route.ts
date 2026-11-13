@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { materializeRecurring } from "@/application/use-cases/materialize-recurring";
+import { watchTransactions } from "@/application/use-cases/transaction-history";
 import { createSupabaseAdminClient } from "@/infrastructure/auth/admin";
 import { financeRepository } from "@/infrastructure/composition";
 import { env } from "@/infrastructure/config/env";
@@ -46,7 +47,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   const failures: { id: string; error: string }[] = [];
   for (const id of ids) {
     try {
-      const result = await materializeRecurring(financeRepository, id);
+      // Watched, so what is booked here shows in each transaction's history like on app load.
+      const watch = watchTransactions(financeRepository);
+      const result = await materializeRecurring(watch.repo, id);
+      if (result.created > 0) await watch.record(id, "recurring");
       created += result.created;
       skipped.push(...result.skipped);
     } catch (e) {

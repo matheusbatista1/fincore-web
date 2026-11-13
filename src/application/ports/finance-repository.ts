@@ -14,6 +14,7 @@ import type {
   Transaction,
   TransactionKind,
 } from "@/domain/entities/transaction";
+import type { TransactionEvent, TransactionEventKind } from "@/domain/entities/transaction-event";
 import type { RecordedSettlement } from "@/domain/services/settlement-after-edit";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
 import type { ModuleKey } from "@/shared/modules";
@@ -152,6 +153,16 @@ export interface CardBillPaymentData {
   readonly note?: string;
 }
 
+/** One entry to add to a transaction's history: what happened, and the row before and after. */
+export interface TransactionEventData {
+  readonly transactionId: string;
+  readonly kind: TransactionEventKind;
+  /** What was being done: "edit", "pay", "import"… */
+  readonly action: string;
+  readonly before: Transaction | null;
+  readonly after: Transaction | null;
+}
+
 /** A check to record: what was checked, what it covered, what was still open, and the day. */
 export interface StatementCheckData {
   readonly accountId: string | null;
@@ -231,8 +242,11 @@ export interface FinanceRepository {
   /** Add `amountCents` to a goal's saved total atomically. */
   contributeToGoal(userId: string, id: string, amountCents: number): Promise<void>;
 
-  /** Persist a transaction (single or installment schedule) atomically. */
-  createTransaction(userId: string, command: CreateTransactionCommand): Promise<void>;
+  /**
+   * Persist a transaction (single or installment schedule) atomically. Resolves to the ids of the
+   * rows created, in the order of the command's entries.
+   */
+  createTransaction(userId: string, command: CreateTransactionCommand): Promise<string[]>;
   /**
    * Update a transaction row (kind immutable) and replace its splits atomically.
    * `scope` propagates the classification fields (description, note, category,
@@ -352,4 +366,9 @@ export interface FinanceRepository {
   recordStatementCheck(userId: string, input: StatementCheckData): Promise<void>;
   /** Every check recorded, the most recent first. */
   listStatementChecks(userId: string): Promise<StatementCheck[]>;
+
+  /** Add entries to the transactions' history. Entries only add up. */
+  recordTransactionEvents(userId: string, events: readonly TransactionEventData[]): Promise<void>;
+  /** One transaction's history, the most recent entry first. */
+  listTransactionEvents(userId: string, transactionId: string): Promise<TransactionEvent[]>;
 }

@@ -37,6 +37,39 @@ test.describe("dashboard", () => {
     await expect(page.locator(".nw-tip")).toHaveCount(0);
   });
 
+  test("shows what was changed in a transaction, from its detail", async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto("/demo/dashboard");
+    await expect(page.locator('.nw[data-ready="true"]')).toBeVisible();
+
+    const detail = page.getByRole("dialog");
+    const showHistory = detail.getByRole("button", { name: "Ver histórico de alterações" });
+
+    // A fatura payment is a line of the statement, not a transaction of its own: no history to ask for.
+    await page.locator(".lrow", { hasText: "Pagamento de fatura" }).first().click();
+    await expect(detail).toContainText("Detalhe da transação");
+    await expect(showHistory).toHaveCount(0);
+    await detail.getByRole("button", { name: "Fechar" }).last().click();
+    await expect(detail).toHaveCount(0);
+
+    // A transaction opens its detail with the history closed until asked for.
+    await page.locator(".lrow", { hasText: "Aluguel" }).first().click();
+    await expect(detail).toContainText("Aluguel");
+    await expect(detail.locator(".tx-hist")).toHaveCount(0);
+
+    await showHistory.click();
+    const history = detail.locator(".tx-hist");
+    await expect(history.locator(".tx-hist-entry")).toHaveCount(2);
+    await expect(history.locator(".tx-hist-entry").first()).toContainText("Editado");
+    await expect(history.locator(".tx-hist-entry").first()).toContainText("Valor");
+    await expect(history.locator(".tx-hist-entry").last()).toContainText("Criado");
+    await expectNoSidewaysScroll(page);
+
+    await history.getByRole("button", { name: "Ocultar" }).click();
+    await expect(detail.locator(".tx-hist")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test("goes to another month and back without leaving the demo", async ({ page }) => {
     const errors = watchForErrors(page);
     await page.goto("/demo/dashboard");
