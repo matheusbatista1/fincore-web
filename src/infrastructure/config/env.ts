@@ -19,6 +19,14 @@ export const env = createEnv({
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     /** Shared secret for the daily account-purge cron. Optional: the cron is disabled until set. */
     CRON_SECRET: z.string().min(1).optional(),
+    /**
+     * Push notifications (VAPID). Optional: until the three are set, the notifications are simply
+     * not offered. Generate the key pair with `node scripts/generate-vapid-keys.mjs`.
+     */
+    VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+    /** Who push services may contact about these pushes: a `mailto:` or an `https:` URL. */
+    VAPID_SUBJECT: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_SUPABASE_URL: z.string().min(1),

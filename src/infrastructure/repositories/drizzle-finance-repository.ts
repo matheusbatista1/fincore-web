@@ -4,6 +4,7 @@ import type {
   CreateTransactionCommand,
   FinanceRepository,
   NewTransactionEntry,
+  PushDeviceData,
   SettlementData,
   StatementCheckData,
   TransactionEventData,
@@ -17,6 +18,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { PushDevice } from "@/domain/entities/push-device";
 import type { StatementCheck } from "@/domain/entities/statement-check";
 import type { TransactionEvent } from "@/domain/entities/transaction-event";
 import type { IsoDate } from "@/domain/value-objects/competence-month";
@@ -39,6 +41,7 @@ import {
   toCreditCard,
   toGoal,
   toPerson,
+  toPushDevice,
   toSettlement,
   toStatementCheck,
   toTransaction,
@@ -1087,6 +1090,34 @@ export class DrizzleFinanceRepository implements FinanceRepository {
         .orderBy(desc(schema.transactionEvents.createdAt), desc(schema.transactionEvents.id))
         .limit(HISTORY_LIMIT);
       return rows.map(toTransactionEvent);
+    });
+  }
+
+  async savePushDevice(userId: string, input: PushDeviceData): Promise<void> {
+    // One row per device: turning notifications on again there refreshes its keys. RLS keeps a
+    // device subscribed under another user out of reach, so that case fails instead of moving it.
+    await this.run(userId, async (tx) => {
+      await tx
+        .insert(schema.pushSubscriptions)
+        .values({ userId, endpoint: input.endpoint, p256dh: input.p256dh, auth: input.auth })
+        .onConflictDoUpdate({
+          target: schema.pushSubscriptions.endpoint,
+          set: { p256dh: input.p256dh, auth: input.auth },
+        });
+    });
+  }
+
+  async deletePushDevice(userId: string, endpoint: string): Promise<void> {
+    await this.run(userId, async (tx) => {
+      await tx.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.endpoint, endpoint));
+    });
+  }
+
+  async listPushDevices(userId: string): Promise<PushDevice[]> {
+    // RLS scopes the rows to the user.
+    return this.run(userId, async (tx) => {
+      const rows = await tx.select().from(schema.pushSubscriptions);
+      return rows.map(toPushDevice);
     });
   }
 }

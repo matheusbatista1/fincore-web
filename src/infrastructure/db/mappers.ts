@@ -10,6 +10,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { PushDevice } from "@/domain/entities/push-device";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { StatementCheck } from "@/domain/entities/statement-check";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
@@ -24,6 +25,7 @@ import type {
   creditCards,
   goals,
   people,
+  pushSubscriptions,
   settlements,
   statementChecks,
   transactionEvents,
@@ -44,6 +46,7 @@ type BudgetRow = typeof budgets.$inferSelect;
 type GoalRow = typeof goals.$inferSelect;
 type StatementCheckRow = typeof statementChecks.$inferSelect;
 type TransactionEventRow = typeof transactionEvents.$inferSelect;
+type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 
 /** Throw on a NULL column that a transaction kind guarantees to be present. */
 function required<T>(value: T | null | undefined, field: string): T {
@@ -170,6 +173,10 @@ export function toStatementCheck(row: StatementCheckRow): StatementCheck {
     bookOnly: row.bookOnly,
     checkedOn: row.checkedOn,
   };
+}
+
+export function toPushDevice(row: PushSubscriptionRow): PushDevice {
+  return { id: row.id, endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth };
 }
 
 export function toTransactionEvent(row: TransactionEventRow): TransactionEvent {

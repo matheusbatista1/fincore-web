@@ -6,6 +6,7 @@ import type { Category } from "@/domain/entities/category";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
+import type { PushDevice } from "@/domain/entities/push-device";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { StatementCheck } from "@/domain/entities/statement-check";
 import type {
@@ -151,6 +152,13 @@ export interface CardBillPaymentData {
   readonly accountId: string;
   readonly paidOn: IsoDate;
   readonly note?: string;
+}
+
+/** A device to notify, as its browser described it when notifications were turned on. */
+export interface PushDeviceData {
+  readonly endpoint: string;
+  readonly p256dh: string;
+  readonly auth: string;
 }
 
 /** One entry to add to a transaction's history: what happened, and the row before and after. */
@@ -371,4 +379,11 @@ export interface FinanceRepository {
   recordTransactionEvents(userId: string, events: readonly TransactionEventData[]): Promise<void>;
   /** One transaction's history, the most recent entry first. */
   listTransactionEvents(userId: string, transactionId: string): Promise<TransactionEvent[]>;
+
+  /** Remember a device to notify; one already known (same endpoint) has its keys refreshed. */
+  savePushDevice(userId: string, input: PushDeviceData): Promise<void>;
+  /** Forget a device, by its endpoint. */
+  deletePushDevice(userId: string, endpoint: string): Promise<void>;
+  /** The user's devices to notify. */
+  listPushDevices(userId: string): Promise<PushDevice[]>;
 }
