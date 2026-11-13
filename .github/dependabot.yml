@@ -14,6 +14,12 @@ updates:
       # The runtime is Node 22 (.node-version); type definitions stay on their current major.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # Held at 1.60: the WebKit that Playwright 1.65 ships does not start on the Windows machine
+      # the browser tests run on (its Visual C++ runtime is older than that build needs), and the
+      # iPhone project is the one that matters most. Remove once that runtime is updated
+      # (winget install --id Microsoft.VCRedist.2015+.x64) and `pnpm test:e2e` passes on a newer one.
+      - dependency-name: "@playwright/test"
+        versions: [">=1.61.0"]
     commit-message:
       prefix: "chore"
       include: "scope"

@@ -261,7 +261,7 @@ export async function reconcileWithStatement(
 function accountRows(ws: Workspace, accountId: string, from: IsoDate, to: IsoDate): BookRow[] {
   const personName = new Map(ws.people.map((p) => [p.id, p.name]));
   const cardBank = new Map(ws.creditCards.map((c) => [c.id, c.bank]));
-  const describe = (origin: BalanceMovementOrigin): Omit<BookRow, "date" | "amountCents"> => {
+  const rowOf = (origin: BalanceMovementOrigin): Omit<BookRow, "date" | "amountCents"> => {
     if (origin.kind === "transaction") {
       const tx = origin.transaction;
       return { id: `t:${tx.id}`, label: tx.description, origin: "transaction", transactionId: tx.id };
@@ -296,7 +296,7 @@ function accountRows(ws: Workspace, accountId: string, from: IsoDate, to: IsoDat
     (id) => id === accountId,
     (date, _accountId, delta, origin) => {
       if (date < from) return;
-      const described = describe(origin);
+      const described = rowOf(origin);
       const key = `${described.id}:${date}`;
       const entry = rows.get(key) ?? { row: { ...described, id: key, date }, cents: 0 };
       entry.cents += delta.cents;
