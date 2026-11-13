@@ -34,7 +34,7 @@ importers:
         version: 2.1.1
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(postgres@3.4.9)
+        version: 0.45.4(postgres@4.1.0)
       jspdf:
         specifier: ^4.2.1
         version: 4.2.1
@@ -51,8 +51,8 @@ importers:
         specifier: ^4.14.9
         version: 4.14.9(@swc/helpers@0.5.23)(@types/react@19.3.0)(next@16.4.6(@playwright/test@1.60.0)(@types/node@25.9.9)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
       postgres:
-        specifier: ^3.4.9
-        version: 3.4.9
+        specifier: ^4.1.0
+        version: 4.1.0
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2610,9 +2610,9 @@ packages:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postgres@3.4.9:
-    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
-    engines: {node: '>=12'}
+  postgres@4.1.0:
+    resolution: {integrity: sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ==}
+    engines: {node: '>=18'}
 
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
@@ -4434,9 +4434,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(postgres@3.4.9):
+  drizzle-orm@0.45.4(postgres@4.1.0):
     optionalDependencies:
-      postgres: 3.4.9
+      postgres: 4.1.0
 
   emoji-regex@10.6.0: {}
 
@@ -4953,7 +4953,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  postgres@3.4.9: {}
+  postgres@4.1.0: {}
 
   pretty-format@27.5.1:
     dependencies:
