@@ -69,6 +69,9 @@ export async function loadDashboard(
     valueCents: c.valueCents,
   });
 
+  // "em N contas" counts what the balance above it adds up: the accounts available to spend.
+  const reserveAccountsCount = dash.accounts.filter((a) => a.isReserve).length;
+
   const data: DashboardData = {
     saldoTotalCents: dash.totalBalanceCents,
     saldoTotalPersonalCents: dash.totalBalancePersonalCents,
@@ -82,7 +85,8 @@ export async function loadDashboard(
     projectedIncomePersonalCents: dash.projectedIncomePersonalCents,
     projectedExpensePersonalCents: dash.projectedExpensePersonalCents,
     heldForOthersCents: dash.heldForOthersCents,
-    investedCents: 0,
+    investedCents: dash.investedCents,
+    reserveAccountsCount,
     general: { incomeCents: dash.general.incomeCents, expenseCents: dash.general.expenseCents },
     personal: { incomeCents: dash.personal.incomeCents, expenseCents: dash.personal.expenseCents },
     othersCents: Math.max(0, dash.general.expenseCents - dash.personal.expenseCents),
@@ -120,7 +124,7 @@ export async function loadDashboard(
     debtors,
     // The last executed cash movements (extrato) — the same source as Transações.
     recent: collapseRowsByInstallments(statement.executed).slice(0, 10),
-    accountsCount: workspace.accounts.length,
+    accountsCount: dash.accounts.length - reserveAccountsCount,
     today: todayInBrazil(),
     month,
     isCurrent: month === current,

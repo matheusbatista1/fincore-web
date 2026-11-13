@@ -12,6 +12,7 @@ const workspace: Workspace = {
       themeKey: "default",
       openingBalanceCents: 100_000,
       maskedNumber: "•• 0000",
+      isReserve: false,
     },
   ],
   creditCards: [],

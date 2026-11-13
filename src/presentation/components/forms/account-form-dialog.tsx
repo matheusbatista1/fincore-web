@@ -33,6 +33,7 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
     account ? (account.openingBalanceCents / 100).toFixed(2).replace(".", ",") : "",
   );
   const [num, setNum] = useState(account ? account.maskedNumber.replace(/\D/g, "").slice(-4) : "");
+  const [isReserve, setIsReserve] = useState(account?.isReserve ?? false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,6 +50,7 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
       themeKey: theme,
       openingBalanceCents: reaisToCents(balance),
       maskedNumber: `•• ${(num || "0000").padStart(4, "0").slice(-4)}`,
+      isReserve,
     };
     setSubmitting(true);
     const result = editing ? await updateAccountAction(account.id, input) : await createAccountAction(input);
@@ -177,6 +179,31 @@ function AccountForm({ account, onDone }: { account?: AccountView | undefined; o
           onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))}
           placeholder="4821"
         />
+      </div>
+      {/* Set aside: out of the dashboard's available balance and "fim do mês", still in the net worth. */}
+      <div
+        role="switch"
+        aria-checked={isReserve}
+        tabIndex={0}
+        className="lrow"
+        style={{ cursor: "pointer", marginTop: 14 }}
+        onClick={() => setIsReserve((on) => !on)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setIsReserve((on) => !on);
+          }
+        }}
+      >
+        <div className="l-main">
+          <div className="l-title">Reserva ou investimento</div>
+          <div className="l-sub" style={{ whiteSpace: "normal", lineHeight: 1.45 }}>
+            Dinheiro guardado: fica fora do saldo disponível e do fim do mês, e continua no patrimônio.
+          </div>
+        </div>
+        <span className={`fc-switch${isReserve ? " on" : ""}`}>
+          <span />
+        </span>
       </div>
       {serverError && (
         <div className="warn-text" style={{ marginTop: 12 }}>

@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "is_reserve" boolean DEFAULT false NOT NULL;

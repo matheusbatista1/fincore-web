@@ -15,7 +15,9 @@ and expenses split with other people.
 ## ✨ Features
 
 - **Dashboard** — total balance, monthly KPIs, 6-month evolution, insights.
-- **Accounts & cards** — balances, credit-card bills, limits, due dates.
+- **Accounts & cards** — balances, credit-card bills, limits, due dates. An account can be set
+  aside as a reserve / investment: it leaves the available balance and the month-end projection,
+  and still counts in the net worth.
 - **Transactions** — income / expense / transfer, with categories and notes.
 - **Installments** — split a purchase into parcelas; only the current one hits the bill.
 - **Shared expenses** — equal/custom splits and a people ledger (who owes whom).

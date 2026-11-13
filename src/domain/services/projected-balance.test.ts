@@ -13,6 +13,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 100000,
   maskedNumber: "",
+  isReserve: false,
 };
 
 // Caixa-style card: closes 24, due 2 → a charge on the 10th is due the NEXT month.

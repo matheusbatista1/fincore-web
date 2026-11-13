@@ -363,6 +363,7 @@ describe("rollPersonMonthDebt — with the user's own money", () => {
       themeKey: "default",
       openingBalanceCents: 100_000,
       maskedNumber: "",
+      isReserve: false,
     };
     for (const lens of ["general", "personal"] as const) {
       const before = computeAccountBalances([account], [original], undefined, lens);

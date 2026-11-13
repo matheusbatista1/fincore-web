@@ -64,6 +64,8 @@ export interface NetWorthChartProps {
   readonly forecastCents?: readonly number[];
   /** What is expected to move the total on the forecast days, for the tooltip. */
   readonly forecastEvents?: readonly ForecastNote[];
+  /** Some accounts are set aside as a reserve: the line counts them, the "fim do mês" does not. */
+  readonly includesReserve?: boolean;
   readonly today: string;
   /** The month the page is browsing: the chart scrolls to it and marks its name. */
   readonly month: string;
@@ -210,6 +212,7 @@ export function NetWorthChart({
   valuesCents,
   forecastCents,
   forecastEvents,
+  includesReserve = false,
   today,
   month,
 }: NetWorthChartProps) {
@@ -619,9 +622,10 @@ export function NetWorthChart({
           <span className="nw-head-last">
             patrimônio
             <InfoHint label="Como ler este gráfico">
-              Linha cheia: o saldo real das suas contas em cada dia, até hoje.
+              Linha cheia: o saldo real das suas contas em cada dia, até hoje
+              {includesReserve ? " — com as de reserva, porque aqui é o patrimônio inteiro." : "."}
               {todayIndex < last
-                ? " Tracejado: a previsão. Cada lançamento futuro ou fixo entra no dia dele, cada fatura no vencimento, o que está em atraso conta para amanhã e o que as pessoas te devem entra no último dia do mês — por isso o último dia de cada mês é o “fim do mês” da visão Geral."
+                ? ` Tracejado: a previsão. Cada lançamento futuro ou fixo entra no dia dele, cada fatura no vencimento, o que está em atraso conta para amanhã e o que as pessoas te devem entra no último dia do mês — por isso o último dia de cada mês é o “fim do mês” da visão Geral${includesReserve ? " mais o que estiver na reserva" : ""}.`
                 : ""}
             </InfoHint>
           </span>

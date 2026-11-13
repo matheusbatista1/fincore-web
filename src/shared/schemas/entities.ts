@@ -8,6 +8,7 @@ export const accountInputSchema = z.object({
   themeKey: z.string().max(40).default(""),
   openingBalanceCents: centsSchema.default(0),
   maskedNumber: z.string().max(24).default(""),
+  isReserve: z.boolean().default(false),
 });
 export type AccountInput = z.infer<typeof accountInputSchema>;
 

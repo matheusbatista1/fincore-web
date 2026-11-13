@@ -28,6 +28,7 @@ const nubank: Account = {
   themeKey: "nubank",
   openingBalanceCents: 0,
   maskedNumber: "•• 0001",
+  isReserve: false,
 };
 
 const share = (over: Partial<ExpenseTransaction> = {}): ExpenseTransaction => ({

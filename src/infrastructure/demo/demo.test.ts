@@ -79,7 +79,12 @@ describe("demoWorkspace", () => {
         expect(account.balanceCents).toBeGreaterThan(0);
         expect(account.balanceCents).toBeLessThan(5_000_000);
       }
-      expect(dash.totalBalanceCents).toBe(view.accounts.reduce((sum, a) => sum + a.balanceCents, 0));
+      // The reserve account is set aside: out of the available balance, counted as invested.
+      const sum = (reserve: boolean): number =>
+        view.accounts.reduce((total, a) => (a.isReserve === reserve ? total + a.balanceCents : total), 0);
+      expect(dash.totalBalanceCents).toBe(sum(false));
+      expect(dash.investedCents).toBe(sum(true));
+      expect(dash.investedCents).toBeGreaterThan(0);
       expect(Number.isFinite(dash.projectedBalanceCents)).toBe(true);
       // The chart has a history and a forecast.
       expect(dash.netWorthDaily.valuesCents.length).toBeGreaterThan(120);

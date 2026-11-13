@@ -66,6 +66,9 @@ export function WalletsView({
   const total = accounts.reduce((s, a) => s + a.balanceCents, 0);
   const posTotal = accounts.reduce((s, a) => s + Math.max(0, a.balanceCents), 0) || 1;
   const sorted = [...accounts].sort((a, b) => b.balanceCents - a.balanceCents);
+  // Set aside (reserva / investimento): part of this total, out of the dashboard's available balance.
+  const reserves = accounts.filter((a) => a.isReserve);
+  const reserveCents = reserves.reduce((s, a) => s + a.balanceCents, 0);
 
   // Per-account in/out for the browsed month (getMonthly already scopes the items). Transfers are
   // kept in their OWN channel (tIn/tOut), never folded into entradas/saídas — otherwise moving money
@@ -164,6 +167,11 @@ export function WalletsView({
                 <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
                   distribuído em {accounts.length} {accounts.length === 1 ? "carteira" : "carteiras"}
                 </span>
+                {reserves.length > 0 && (
+                  <span style={{ color: "var(--text-lo)", fontSize: 13.5 }}>
+                    · {cash(reserveCents)} em reserva
+                  </span>
+                )}
               </div>
             </div>
             <div className="row gap-3">
@@ -234,6 +242,14 @@ export function WalletsView({
                     <div className="acct-name">
                       {a.bank}
                       <span className="type-badge">{a.type}</span>
+                      {a.isReserve && (
+                        <span
+                          className="type-badge"
+                          style={{ background: "var(--purple-soft)", color: "var(--purple-300)" }}
+                        >
+                          Reserva
+                        </span>
+                      )}
                       {a.balanceCents < 0 && (
                         <span
                           className="type-badge"

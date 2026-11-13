@@ -29,6 +29,7 @@ const account = (id: string, openingBalanceCents = 0): Account => ({
   themeKey: "default",
   openingBalanceCents,
   maskedNumber: "•• 0000",
+  isReserve: false,
 });
 
 const income = (

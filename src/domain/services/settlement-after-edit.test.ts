@@ -289,6 +289,7 @@ describe("settlementAfterEdit — the balance follows the edited row (property)"
     themeKey: "",
     openingBalanceCents: 0,
     maskedNumber: "",
+    isReserve: false,
   }));
   const accountArb = fc.constantFrom("c6", "nubank", "itau");
   const dayArb = fc.integer({ min: 1, max: 11 }).map((d) => `2026-11-${String(d).padStart(2, "0")}`);
