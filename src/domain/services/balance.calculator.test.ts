@@ -50,6 +50,7 @@ function makeAccount(id: string, openingBalanceCents: number): Account {
     themeKey: "default",
     openingBalanceCents,
     maskedNumber: "•• 0000",
+    isReserve: false,
   };
 }
 

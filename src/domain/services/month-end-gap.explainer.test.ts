@@ -17,6 +17,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 100_000,
   maskedNumber: "",
+  isReserve: false,
 };
 
 // Closes 24, due 2: a charge on May 20 is due on June 2 (competence June); on June 10, July.

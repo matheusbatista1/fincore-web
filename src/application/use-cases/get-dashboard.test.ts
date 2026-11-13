@@ -4,7 +4,12 @@ import type { CardBillPayment } from "@/domain/entities/card-bill-payment";
 import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
-import type { ExpenseTransaction, IncomeTransaction } from "@/domain/entities/transaction";
+import type {
+  ExpenseTransaction,
+  IncomeTransaction,
+  Transaction,
+  TransferTransaction,
+} from "@/domain/entities/transaction";
 import { billingCompetence } from "@/domain/services/card-bill.calculator";
 import { explainMonthEndGap } from "@/domain/services/month-end-gap.explainer";
 import { daysBetween } from "@/domain/value-objects/competence-month";
@@ -23,6 +28,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 100000,
   maskedNumber: "",
+  isReserve: false,
 };
 
 const card: CreditCard = {
@@ -671,6 +677,122 @@ describe("getDashboard — net worth over time (today = 2026-06-14)", () => {
     expect(totalOn(data, "2026-06-14")).toBe(88000);
     expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents);
     expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 88000 });
+  });
+});
+
+describe("getDashboard — money set aside in a reserve account (today = 2026-06-14)", () => {
+  const reserve: Account = {
+    ...account,
+    id: "acc-reserve",
+    bank: "Corretora",
+    name: "Reserva",
+    openingBalanceCents: 500000,
+    isReserve: true,
+  };
+  const save = (date: string, valueCents: number): TransferTransaction => ({
+    id: `save-${seq++}`,
+    kind: "transfer",
+    description: "Guardar",
+    date,
+    fromAccountId: "acc-1",
+    toAccountId: "acc-reserve",
+    valueCents,
+  });
+  const repoWith = (transactions: Transaction[], accounts: Account[] = [account, reserve]) => {
+    const ws: Workspace = {
+      accounts,
+      creditCards: [],
+      people: [],
+      categories: [],
+      transactions,
+      settlements: [],
+      budgets: [],
+      goals: [],
+      cardBillDates: [],
+      cardBillPayments: [],
+    };
+    return { loadWorkspace: async () => ws } as unknown as FinanceRepository;
+  };
+  const forecastOn = (data: Awaited<ReturnType<typeof getDashboard>>, date: string): number | undefined =>
+    data.netWorthForecast.valuesCents[daysBetween(data.netWorthForecast.startDate, date)];
+
+  it("leaves the available balance and counts as invested", async () => {
+    // R$ 300 moved to the reserve on June 1: 1000 − 300 available, 5000 + 300 set aside.
+    const data = await getDashboard(repoWith([save("2026-06-01", 30000)]), "u", "2026-06");
+    expect(data.totalBalanceCents).toBe(70000);
+    expect(data.totalBalancePersonalCents).toBe(70000);
+    expect(data.investedCents).toBe(530000);
+    expect(data.heldForOthersCents).toBe(0);
+    expect(data.accounts.map((a) => [a.id, a.isReserve, a.balanceCents])).toEqual([
+      ["acc-1", false, 70000],
+      ["acc-reserve", true, 530000],
+    ]);
+  });
+
+  it("is the old total again once the account is no longer marked", async () => {
+    const plain = { ...reserve, isReserve: false };
+    const data = await getDashboard(repoWith([save("2026-06-01", 30000)], [account, plain]), "u", "2026-06");
+    expect(data.totalBalanceCents).toBe(600000);
+    expect(data.investedCents).toBe(0);
+    expect(data.projectedBalanceCents).toBe(600000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(600000);
+  });
+
+  it("takes what will be saved later in the month out of the 'fim do mês', not out of the net worth", async () => {
+    // Today nothing has moved; R$ 300 go to the reserve on the 25th.
+    const data = await getDashboard(repoWith([save("2026-06-25", 30000)]), "u", "2026-06");
+    expect(data.totalBalanceCents).toBe(100000);
+    expect(data.investedCents).toBe(500000);
+    expect(data.projectedBalanceCents).toBe(70000);
+    expect(data.projectedBalancePersonalCents).toBe(70000);
+    // The change under the available balance is about that balance.
+    expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 70000 });
+    // The chart is the net worth: every account, today and at the month-end — moving money
+    // between two of the user's own accounts moves nothing on it.
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(600000);
+    expect(data.netWorthDaily.valuesCents.at(-1)).toBe(data.totalBalanceCents + data.investedCents);
+    expect(data.netWorthForecast.events).toEqual([]);
+    expect(forecastOn(data, "2026-06-30")).toBe(600000);
+    expect(forecastOn(data, "2026-06-30")).toBe(data.projectedBalanceCents + 530000);
+  });
+
+  it("keeps what the reserve earns away from the available figures", async () => {
+    // A yield booked into the reserve for the 20th, and the salary into the everyday account.
+    const data = await getDashboard(
+      repoWith([
+        income({ description: "Rendimento", accountId: "acc-reserve", amountCents: 1000 }),
+        income({ description: "Salário", amountCents: 50000 }),
+      ]),
+      "u",
+      "2026-06",
+    );
+    expect(data.projectedBalanceCents).toBe(150000);
+    expect(data.monthEndTotals).toEqual({ previousCents: 100000, currentCents: 150000 });
+    expect(data.netWorthForecast.events.map((e) => [e.date, e.deltaCents, e.label])).toEqual([
+      ["2026-06-20", 1000, "Rendimento"],
+      ["2026-06-20", 50000, "Salário"],
+    ]);
+    expect(forecastOn(data, "2026-06-30")).toBe(651000);
+  });
+
+  it("still pays the bills from what is available", async () => {
+    // A card bill due in June: it comes out of the available month-end, whatever is set aside.
+    const charge = expense({
+      source: "card",
+      cardId: "card-1",
+      accountId: null,
+      date: "2026-05-15",
+      amountCents: -9000,
+      myShareCents: 9000,
+      recurrence: null,
+    });
+    const ws = repoWith([charge]);
+    const withCard = {
+      loadWorkspace: async () => ({ ...(await ws.loadWorkspace("u")), creditCards: [card] }),
+    } as unknown as FinanceRepository;
+    const data = await getDashboard(withCard, "u", "2026-06");
+    expect(data.projectedBalanceCents).toBe(91000);
+    expect(forecastOn(data, "2026-06-30")).toBe(591000);
   });
 });
 

@@ -8,6 +8,11 @@ test.describe("dashboard", () => {
     await expectDemo(page);
 
     await expect(page.getByText("Saldo total disponível")).toBeVisible();
+    // Three accounts, one of them set aside: it is out of the available balance and shows as invested.
+    await expect(page.getByText("em 2 contas")).toBeVisible();
+    await page.getByRole("button", { name: "O que conta como investido" }).click();
+    await expect(page.getByRole("tooltip")).toContainText("fora do saldo disponível");
+    await page.keyboard.press("Escape");
     // The chart is placed and shown; the real days are a solid line, the days to come a dashed one.
     await expect(page.locator('.nw[data-ready="true"]')).toBeVisible();
     await expect(page.locator(".nw-line:not(.is-expected)")).toHaveAttribute("d", /^M/);

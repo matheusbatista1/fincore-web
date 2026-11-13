@@ -27,6 +27,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 0,
   maskedNumber: "",
+  isReserve: false,
 };
 const card: CreditCard = {
   id: "card-1",

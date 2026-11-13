@@ -14,6 +14,7 @@ const account: Account = {
   themeKey: "default",
   openingBalanceCents: 100_000,
   maskedNumber: "•• 0000",
+  isReserve: false,
 };
 /** Closes on the 24th, due on the 2nd: a charge up to the 24th is billed the month after. */
 const card: CreditCard = {

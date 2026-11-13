@@ -94,6 +94,8 @@ export const accounts = pgTable(
     themeKey: text("theme_key").notNull().default(""),
     openingBalanceCents: bigint("opening_balance_cents", { mode: "number" }).notNull().default(0),
     maskedNumber: text("masked_number").notNull().default(""),
+    /** Set aside (reserva / investimento): counts in the net worth, not in the available balance. */
+    isReserve: boolean("is_reserve").notNull().default(false),
     ...timestamps,
   },
   (t) => [

@@ -28,6 +28,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 100000,
   maskedNumber: "",
+  isReserve: false,
 };
 
 const charge = (over: Partial<ExpenseTransaction> = {}): ExpenseTransaction => ({

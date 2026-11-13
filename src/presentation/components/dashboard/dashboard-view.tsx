@@ -87,7 +87,10 @@ export interface DashboardData {
   readonly projectedExpensePersonalCents: number;
   /** Cash in the accounts that belongs to other people (advances not yet spent on their faturas). */
   readonly heldForOthersCents: number;
+  /** The live balance of the accounts set aside as a reserve / investment. */
   readonly investedCents: number;
+  /** How many accounts are set aside: they are out of every "available" figure of the hero. */
+  readonly reserveAccountsCount: number;
   readonly general: Totals;
   readonly personal: Totals;
   readonly othersCents: number;
@@ -278,6 +281,8 @@ export function DashboardView({ data }: { data: DashboardData }) {
   // lens changes the ANNOTATION under it: how much of that cash is other people's advances, and
   // how much of their money the user has already consumed (own slice negative).
   const saldoTotal = data.saldoTotalCents;
+  // Accounts set aside as a reserve are out of every "available" figure here; the hints say so.
+  const hasReserve = data.reserveAccountsCount > 0;
   const ownCents = data.saldoTotalPersonalCents;
   const heldCents = data.heldForOthersCents;
   // WATERFALL reading of the split (the user's rule: spending consumes YOUR money first, then the
@@ -412,6 +417,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
                       O saldo das suas contas no fim de {monthName(data.month)}
                       {data.isCurrent ? " (com o que já está lançado até lá)" : ""} comparado com o do fim de{" "}
                       {monthName(addMonths(data.month, -1))}.
+                      {hasReserve
+                        ? " Sem as contas de reserva: o que você guarda nelas aparece aqui como saída."
+                        : ""}
                     </InfoHint>
                   </span>
                 )}
@@ -474,6 +482,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                         {isPersonal
                           ? "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas) menos as faturas e contas a vencer no período — contando só a sua parte."
                           : "Saldo previsto para o fim do mês: saldo das contas no fim do mês (com receitas previstas), menos as faturas de cartão e contas a vencer no período, mais o que as pessoas te devem (e menos o que você deve)."}
+                        {hasReserve ? " As contas de reserva ficam de fora." : ""}
                       </InfoHint>
                     </span>
                   )}
@@ -495,6 +504,11 @@ export function DashboardView({ data }: { data: DashboardData }) {
                   >
                     <Icon name="trending-up" size={14} />
                     Investido
+                    <InfoHint label="O que conta como investido">
+                      {hasReserve
+                        ? "O saldo das contas que você marcou como reserva ou investimento. Esse dinheiro fica fora do saldo disponível e do fim do mês, e continua no patrimônio."
+                        : "Nenhuma conta marcada ainda. Em Carteiras, abra a conta, toque em “Editar carteira” e ligue “Reserva ou investimento”: o saldo dela sai do disponível e do fim do mês e passa a aparecer aqui."}
+                    </InfoHint>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-hi)" }}>
                     <Money cents={data.investedCents} withSign={false} />
@@ -542,6 +556,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
                 valuesCents={data.netWorth.valuesCents}
                 forecastCents={data.netWorthForecast.valuesCents}
                 forecastEvents={data.netWorthForecast.events}
+                includesReserve={hasReserve}
                 today={data.today}
                 month={data.month}
               />

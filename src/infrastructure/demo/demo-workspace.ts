@@ -298,6 +298,7 @@ export function demoWorkspace(today: IsoDate): Workspace {
         themeKey: "oceano",
         openingBalanceCents: 240_000,
         maskedNumber: "•• 1042",
+        isReserve: false,
       },
       {
         id: RESERVE,
@@ -307,6 +308,7 @@ export function demoWorkspace(today: IsoDate): Workspace {
         themeKey: "esmeralda",
         openingBalanceCents: 650_000,
         maskedNumber: "•• 5518",
+        isReserve: true,
       },
       {
         id: CASH,
@@ -316,6 +318,7 @@ export function demoWorkspace(today: IsoDate): Workspace {
         themeKey: "grafite",
         openingBalanceCents: 60_000,
         maskedNumber: "",
+        isReserve: false,
       },
     ],
     creditCards,

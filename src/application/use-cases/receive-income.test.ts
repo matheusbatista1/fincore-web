@@ -13,6 +13,7 @@ const account: Account = {
   themeKey: "",
   openingBalanceCents: 0,
   maskedNumber: "",
+  isReserve: false,
 };
 
 const pendingIncome = (over: Partial<IncomeTransaction> = {}): IncomeTransaction => ({

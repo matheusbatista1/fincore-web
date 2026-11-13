@@ -20,6 +20,7 @@ const itau: Account = {
   themeKey: "",
   openingBalanceCents: 0,
   maskedNumber: "",
+  isReserve: false,
 };
 
 const mercado: Category = { id: "c1", name: "Mercado", color: "#111111", icon: "shopping-cart" };

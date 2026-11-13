@@ -59,6 +59,7 @@ export function toAccount(row: AccountRow): Account {
     themeKey: row.themeKey,
     openingBalanceCents: row.openingBalanceCents,
     maskedNumber: row.maskedNumber,
+    isReserve: row.isReserve,
   };
 }
 

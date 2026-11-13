@@ -1,3 +1,4 @@
+import { spendingAccounts } from "@/domain/entities/account";
 import { Money } from "@/domain/money/money";
 import { computeAccountBalances } from "@/domain/services/balance.calculator";
 import {
@@ -36,6 +37,8 @@ export interface AccountSummary {
   readonly name: string;
   readonly themeKey: string;
   readonly balanceCents: number;
+  /** Set aside (reserva / investimento): in the net worth, not in the available balance. */
+  readonly isReserve: boolean;
 }
 
 export interface CardSummary {
@@ -79,7 +82,8 @@ export interface ViewTotalsDto {
 
 /**
  * The total across accounts at the end of each day — the hero's net-worth timeline. Real cash
- * (general lens), so its last entry is the live total balance.
+ * (general lens) in EVERY account, the reserve ones included: its last entry is the available
+ * balance plus what is set aside.
  */
 export interface NetWorthDaily {
   /** The day `valuesCents[0]` is the total of; each next entry is the following calendar day. */
@@ -90,7 +94,8 @@ export interface NetWorthDaily {
 
 /**
  * The total across accounts expected at the end of each day after today — the dashed continuation
- * of the net-worth timeline. General lens (real cash); it passes through the hero's "fim do mês".
+ * of the net-worth timeline. General lens (real cash); it passes through the hero's "fim do mês",
+ * plus where the reserve accounts land (the timeline is the net worth, the hero what is available).
  */
 export interface NetWorthForecast {
   /** Tomorrow: the day `valuesCents[0]` is the expected total of. */
@@ -116,9 +121,16 @@ const NET_WORTH_MAX_MONTHS = 60;
 /** Serializable dashboard snapshot (plain cents — safe to pass to client components). */
 export interface DashboardData {
   readonly month: CompetenceMonth;
+  /**
+   * The live balance available to spend: every account EXCEPT the ones set aside as a reserve. With
+   * no reserve account it is simply the total across accounts. The figures derived from it below
+   * (personal lens, "fim do mês", month-over-month change, held for others) follow the same rule.
+   */
   readonly totalBalanceCents: number;
   /** Live total balance through the personal lens (only the user's own share of shared debits). */
   readonly totalBalancePersonalCents: number;
+  /** What is set aside: the live balance of the reserve / investment accounts. */
+  readonly investedCents: number;
   /**
    * Projected total balance at the END of the browsed month (general lens): real
    * movements up to month-end, plus the recurring ('previsto') occurrences, minus
@@ -171,9 +183,10 @@ export interface DashboardData {
   /** Its expected continuation, from tomorrow to the end of next month. */
   readonly netWorthForecast: NetWorthForecast;
   /**
-   * The total balance at the end of the browsed month and of the month before it, each with every
-   * movement dated up to that day (so the current month counts what is already booked for later in
-   * it) — the two figures the hero's month-over-month change compares.
+   * The available balance at the end of the browsed month and of the month before it, each with
+   * every movement dated up to that day (so the current month counts what is already booked for
+   * later in it) — the two figures the hero's month-over-month change compares. Money moved into a
+   * reserve account leaves it, like it leaves the figure this change sits under.
    */
   readonly monthEndTotals: { readonly previousCents: number; readonly currentCents: number };
 }
@@ -187,6 +200,10 @@ export async function getDashboard(
   const ws = await loadWorkspaceCached(repo, userId);
   const today = todayInBrazil();
   const currentMonth = today.slice(0, 7);
+
+  // What is available to spend leaves the reserve accounts out; the net worth counts every account.
+  const spending = spendingAccounts(ws.accounts);
+  const hasReserve = spending.length < ws.accounts.length;
 
   // Headline balances are "live" (as of today), independent of the browsed month.
   // Card charges count in their bill's due month; everything else by its date's month.
@@ -280,6 +297,7 @@ export async function getDashboard(
     name: account.name,
     themeKey: account.themeKey,
     balanceCents: (balances.get(account.id) ?? Money.zero()).cents,
+    isReserve: account.isReserve,
   }));
 
   const cards = ws.creditCards.map((card) => {
@@ -327,10 +345,17 @@ export async function getDashboard(
   // gets its matching credit. + = they paid you (entrada), − = you paid them (saída).
   const settlementNetCents = settledCashByMonth.get(month) ?? 0;
 
-  const totalBalanceCents = accounts.reduce((sum, account) => sum + account.balanceCents, 0);
+  let totalBalanceCents = 0;
+  let investedCents = 0;
+  for (const account of accounts) {
+    if (account.isReserve) investedCents += account.balanceCents;
+    else totalBalanceCents += account.balanceCents;
+  }
   // Personal-lens total: only the user's own share of shared account/overdraft expenses.
   let totalBalancePersonalCents = 0;
-  for (const value of balancesPersonal.values()) totalBalancePersonalCents += value.cents;
+  for (const account of spending) {
+    totalBalancePersonalCents += (balancesPersonal.get(account.id) ?? Money.zero()).cents;
+  }
   // Cash in the accounts that belongs to other people: advances received (acertos/reembolsos)
   // minus their shares the user already fronted — exactly the general−personal lens difference.
   const heldForOthersCents = Math.max(0, totalBalanceCents - totalBalancePersonalCents);
@@ -338,8 +363,9 @@ export async function getDashboard(
   // The "fim do mês" of the browsed month through both lenses — one formula, shared with the gap
   // explainer and the daily forecast (see month-end-projection): where the accounts land, minus
   // what falls due along the way and what is already overdue, plus (general lens) what people owe.
+  // Only the accounts available to spend: a transfer into a reserve account leaves this figure.
   const projection = {
-    accounts: ws.accounts,
+    accounts: spending,
     people: ws.people,
     transactions: ws.transactions,
     settlements: ws.settlements,
@@ -355,9 +381,13 @@ export async function getDashboard(
   // The total balance as it moved, read off the balance timeline: one pass over the history, and
   // each reading is what the account balances add up to with that day as their cutoff.
   const timeline = computeBalanceTimeline(ws.accounts, ws.transactions, ws.settlements, ws.cardBillPayments);
+  // The month-over-month change is about the available balance, like the figure it sits under.
+  const spendingTimeline = hasReserve
+    ? computeBalanceTimeline(spending, ws.transactions, ws.settlements, ws.cardBillPayments)
+    : timeline;
   const monthEndTotals = {
-    previousCents: totalBalanceAt(timeline, dateInMonth(addMonths(month, -1), 31)),
-    currentCents: totalBalanceAt(timeline, dateInMonth(month, 31)),
+    previousCents: totalBalanceAt(spendingTimeline, dateInMonth(addMonths(month, -1), 31)),
+    currentCents: totalBalanceAt(spendingTimeline, dateInMonth(month, 31)),
   };
   // Day by day through today, from the first day of the month anything first moved — flat at the
   // opening balances before that, so a new workspace still shows its six trailing months.
@@ -373,7 +403,11 @@ export async function getDashboard(
   };
   // …and where it is expected to go: the same "fim do mês" as above, spread over the days its
   // parts fall on. Pinned on the browsed month's figure, and reusing its person nets, when that
-  // month is inside the forecast.
+  // month is inside the forecast. The timeline is the net worth, so the figure it is pinned on is
+  // the month-end of EVERY account: the available "fim do mês" plus where the reserves land.
+  const netWorthMonthEndCents = hasReserve
+    ? projectMonthEnd({ ...projection, accounts: ws.accounts }, "general").totalCents
+    : projectedBalanceCents;
   const forecastThrough = addMonths(currentMonth, NET_WORTH_FORECAST_MONTHS - 1);
   const browsedIsForecast =
     compareMonths(month, currentMonth) >= 0 && compareMonths(month, forecastThrough) <= 0;
@@ -389,7 +423,7 @@ export async function getDashboard(
     throughMonth: forecastThrough,
     competenceOf,
     ...(browsedIsForecast
-      ? { anchors: new Map([[month, projectedBalanceCents]]), personNets: new Map([[month, monthNets]]) }
+      ? { anchors: new Map([[month, netWorthMonthEndCents]]), personNets: new Map([[month, monthNets]]) }
       : {}),
   });
   const netWorthForecast: NetWorthForecast = {
@@ -402,6 +436,7 @@ export async function getDashboard(
     month,
     totalBalanceCents,
     totalBalancePersonalCents,
+    investedCents,
     projectedBalanceCents,
     projectedBalancePersonalCents,
     accounts,
