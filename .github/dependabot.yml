@@ -20,6 +20,11 @@ updates:
       # (winget install --id Microsoft.VCRedist.2015+.x64) and `pnpm test:e2e` passes on a newer one.
       - dependency-name: "@playwright/test"
         versions: [">=1.61.0"]
+      # Held at 3.x: v4 rewrites the driver below its API (pool, protocol, parameter types) and
+      # drizzle-orm is tested against ^3. CI never talks to a database, so a green run proves
+      # nothing here. Remove once v4 can be tried against a real database.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore"
       include: "scope"
