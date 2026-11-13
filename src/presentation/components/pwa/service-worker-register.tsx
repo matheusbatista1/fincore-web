@@ -8,7 +8,7 @@ import { useEffect } from "react";
  * The app caches nothing through a worker (an earlier caching one trapped people on stale builds),
  * so by default there is none: any worker found is a leftover and is removed, with its caches.
  *
- * The exception is a device where the person turned the notifications on (Ajustes): a push can
+ * The exception is a device where the person turned the notifications on (Configurações): a push can
  * only be delivered to a worker, so that one stays — it is `public/sw.js`, which handles pushes and
  * answers no network request. It is only asked to check for a newer version of itself.
  */

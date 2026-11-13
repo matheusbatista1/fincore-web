@@ -107,7 +107,7 @@ Its data is built in `src/infrastructure/demo` — every name and figure there i
 
 One notification a day, in the morning, and only when a bill or a card fatura is due today or
 tomorrow, or something is late since a few days. Each device turns it on for itself in
-**Ajustes › Pagamentos › Avisos no celular**. On an iPhone it only works from the app added to the
+**Configurações › Pagamentos › Avisos no celular**. On an iPhone it only works from the app added to the
 Home Screen (that is how iOS delivers web pushes).
 
 How it works: `/api/cron/notify` (see `vercel.json`) sends each subscribed device an **empty**
