@@ -103,6 +103,29 @@ FINCORE_DEMO=1 SKIP_ENV_VALIDATION=1 pnpm dev   # then open http://localhost:300
 
 Its data is built in `src/infrastructure/demo` — every name and figure there is invented.
 
+## 🔔 Push notifications
+
+One notification a day, in the morning, and only when a bill or a card fatura is due today or
+tomorrow, or something is late since a few days. Each device turns it on for itself in
+**Ajustes › Pagamentos › Avisos no celular**. On an iPhone it only works from the app added to the
+Home Screen (that is how iOS delivers web pushes).
+
+How it works: `/api/cron/notify` (see `vercel.json`) sends each subscribed device an **empty**
+push; the device's service worker (`public/sw.js`) then asks `/api/push/digest` what to show, with
+the person's own session. Names and amounts never travel through a push service. That worker only
+handles pushes: it answers no network request and keeps no cache, and it is registered only on a
+device where notifications were turned on.
+
+Setup, once:
+
+```bash
+pnpm push:keys     # prints VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and a VAPID_SUBJECT to fill in
+```
+
+Put the three values in the deployment's environment (the private key is a secret) and redeploy.
+Until they are set, the card says the notifications are not configured and the cron does nothing.
+`CRON_SECRET` must be set too, as for the other crons.
+
 ## ☁️ Deployment
 
 Hosted on **Vercel**: every PR gets a preview deployment; merging to `main` deploys

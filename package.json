@@ -29,6 +29,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/infrastructure/db/seed.ts",
+    "push:keys": "tsx scripts/generate-vapid-keys.ts",
     "prepare": "lefthook install"
   },
   "dependencies": {

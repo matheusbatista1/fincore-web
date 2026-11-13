@@ -510,3 +510,28 @@ export const transactionEvents = pgTable(
     ownerPolicy("transaction_events_owner"),
   ],
 );
+
+/**
+ * A device that asked to be notified (aviso no celular): what its browser handed out when the
+ * person turned the notifications on there. One row per device; gone with the user.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Where the browser's push service takes messages for this device. */
+    endpoint: text("endpoint").notNull(),
+    /** The device's public key and shared secret, for a push with content (none is sent today). */
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_push_subscriptions_endpoint").on(t.endpoint),
+    index("idx_push_subscriptions_user").on(t.userId),
+    ownerPolicy("push_subscriptions_owner"),
+  ],
+);

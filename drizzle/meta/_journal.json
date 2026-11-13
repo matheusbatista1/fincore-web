@@ -148,6 +148,13 @@
       "when": 1794531517886,
       "tag": "0020_magical_morlocks",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794533404508,
+      "tag": "0021_real_namorita",
+      "breakpoints": true
     }
   ]
 }
