@@ -11,6 +11,7 @@ import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
+import type { StatementCheck } from "@/domain/entities/statement-check";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
 import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import type {
@@ -23,6 +24,7 @@ import type {
   goals,
   people,
   settlements,
+  statementChecks,
   transactionSplits,
   transactions,
 } from "./schema";
@@ -38,6 +40,7 @@ type SettlementRow = typeof settlements.$inferSelect;
 type CardBillPaymentRow = typeof cardBillPayments.$inferSelect;
 type BudgetRow = typeof budgets.$inferSelect;
 type GoalRow = typeof goals.$inferSelect;
+type StatementCheckRow = typeof statementChecks.$inferSelect;
 
 /** Throw on a NULL column that a transaction kind guarantees to be present. */
 function required<T>(value: T | null | undefined, field: string): T {
@@ -147,6 +150,21 @@ export function toCardBillPayment(row: CardBillPaymentRow): CardBillPayment | nu
     accountId: row.accountId,
     date: row.paidOn,
     ...(row.note != null ? { note: row.note } : {}),
+  };
+}
+
+export function toStatementCheck(row: StatementCheckRow): StatementCheck {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    cardId: row.cardId,
+    competence: row.competenceMonth as CompetenceMonth | null,
+    periodFrom: row.periodFrom,
+    periodTo: row.periodTo,
+    bankLines: row.bankLines,
+    bankOnly: row.bankOnly,
+    bookOnly: row.bookOnly,
+    checkedOn: row.checkedOn,
   };
 }
 

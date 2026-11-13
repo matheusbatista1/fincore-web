@@ -9,6 +9,7 @@ import type {
   ReceivedIncomeFlow,
 } from "@/application/use-cases/get-monthly";
 import type { AccountView } from "@/application/use-cases/get-workspace-view";
+import type { StatementCheckSummary } from "@/application/use-cases/statement-checks";
 import { AccountFormDialog } from "@/presentation/components/forms/account-form-dialog";
 import {
   MonthNavButton,
@@ -32,6 +33,7 @@ export function WalletsView({
   items,
   paidFlows,
   receivedFlows,
+  checks,
   month,
   today,
   isCurrent,
@@ -45,6 +47,8 @@ export function WalletsView({
   paidFlows: PaidObligationFlow[];
   /** Incomes whose receipt landed this month (bucketed by receipt date, not booked date). */
   receivedFlows: ReceivedIncomeFlow[];
+  /** The latest statement check recorded for each account, by its id. */
+  checks?: Readonly<Record<string, StatementCheckSummary>>;
   month: string;
   today: string;
   isCurrent: boolean;
@@ -288,6 +292,7 @@ export function WalletsView({
       </div>
       <AccountDetailModal
         account={detail}
+        lastCheck={detail ? (checks?.[detail.id] ?? null) : null}
         items={items}
         paidFlows={paidFlows}
         month={month}

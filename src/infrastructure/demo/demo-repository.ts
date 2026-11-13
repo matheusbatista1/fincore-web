@@ -27,5 +27,6 @@ export function demoRepository(today: IsoDate): FinanceRepository {
   return {
     loadWorkspace: async () => workspace,
     getProfile: async () => DEMO_PROFILE,
+    listStatementChecks: async () => [],
   } as unknown as FinanceRepository;
 }

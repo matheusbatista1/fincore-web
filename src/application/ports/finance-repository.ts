@@ -7,6 +7,7 @@ import type { CreditCard } from "@/domain/entities/credit-card";
 import type { Goal } from "@/domain/entities/goal";
 import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
+import type { StatementCheck } from "@/domain/entities/statement-check";
 import type {
   ExpenseSource,
   ParcelaStatus,
@@ -149,6 +150,20 @@ export interface CardBillPaymentData {
   readonly accountId: string;
   readonly paidOn: IsoDate;
   readonly note?: string;
+}
+
+/** A check to record: what was checked, what it covered, what was still open, and the day. */
+export interface StatementCheckData {
+  readonly accountId: string | null;
+  readonly cardId: string | null;
+  /** The fatura's due month; set exactly when `cardId` is. */
+  readonly competence: string | null;
+  readonly periodFrom: IsoDate;
+  readonly periodTo: IsoDate;
+  readonly bankLines: number;
+  readonly bankOnly: number;
+  readonly bookOnly: number;
+  readonly checkedOn: IsoDate;
 }
 
 /**
@@ -332,4 +347,9 @@ export interface FinanceRepository {
   payCardBill(userId: string, input: CardBillPaymentData): Promise<void>;
   /** Revert a fatura payment: soft-delete the active payment for that card+competence. */
   undoCardBillPayment(userId: string, cardId: string, competenceMonth: string): Promise<void>;
+
+  /** Record that a statement (or a fatura) was checked against the app. Checks only add up. */
+  recordStatementCheck(userId: string, input: StatementCheckData): Promise<void>;
+  /** Every check recorded, the most recent first. */
+  listStatementChecks(userId: string): Promise<StatementCheck[]>;
 }

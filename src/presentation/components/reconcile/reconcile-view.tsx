@@ -2,15 +2,21 @@
 
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type ReconcileActionState, reconcileStatementAction } from "@/app/_actions/finance";
+import {
+  type MarkCheckedState,
+  type ReconcileActionState,
+  reconcileStatementAction,
+} from "@/app/_actions/finance";
 import type {
   ReconcileMatch,
   ReconcileResult,
   ReconcileRow,
 } from "@/application/use-cases/reconcile-statement";
+import type { StatementCheckSummary } from "@/application/use-cases/statement-checks";
 import { addMonths } from "@/domain/value-objects/competence-month";
 import { Icon } from "@/presentation/components/ui/icon";
 import { openTxDetail, type TxDraft, useTxUIStore } from "@/presentation/stores/tx-ui-store";
+import { toast } from "@/presentation/stores/ui-store";
 import { formatBRL } from "@/shared/formatting/currency";
 import { monthLabel } from "@/shared/formatting/dates";
 import {
@@ -56,6 +62,7 @@ const MONTHS_AHEAD = 2;
 const MONTHS_BACK = 9;
 
 const dayMonth = (date: string): string => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+const fullDate = (date: string): string => `${dayMonth(date)}/${date.slice(0, 4)}`;
 const total = (rows: readonly ReconcileRow[]): number => rows.reduce((sum, row) => sum + row.amountCents, 0);
 const plural = (count: number, one: string, many: string): string => (count === 1 ? one : many);
 /** What a bank calls a line, without the numbers that change from one line to the next. */
@@ -78,6 +85,8 @@ export function ReconcileView({
   initialAccountId,
   initialCardId,
   ask = reconcileStatementAction,
+  lastChecks,
+  mark,
 }: {
   accounts: readonly ViewAccount[];
   cards: readonly ViewCard[];
@@ -86,6 +95,10 @@ export function ReconcileView({
   initialCardId?: string;
   /** Who answers the check: the app's server action, unless a preview or a test supplies its own. */
   ask?: (input: unknown) => Promise<ReconcileActionState>;
+  /** The latest check recorded for each account and card, by its id. */
+  lastChecks?: Readonly<Record<string, StatementCheckSummary>>;
+  /** Records the check as done. Without it (the demo has nothing to write to) the mark is not offered. */
+  mark?: (input: unknown) => Promise<MarkCheckedState>;
 }) {
   const [mode, setMode] = useState<Mode>(
     initialCardId !== undefined || accounts.length === 0 ? "card" : "account",
@@ -99,6 +112,9 @@ export function ReconcileView({
   const [checking, setChecking] = useState(false);
   const [bankBalance, setBankBalance] = useState("");
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  // The checks recorded here, on top of the ones the page came with.
+  const [marked, setMarked] = useState<Readonly<Record<string, StatementCheckSummary>>>({});
+  const [marking, setMarking] = useState(false);
 
   const targetId = mode === "account" ? accountId : cardId;
 
@@ -203,6 +219,32 @@ export function ReconcileView({
     };
     useTxUIStore.getState().openCreate(amountCents < 0 ? "expense" : "income", undefined, draft);
   };
+
+  /** Record the statement on screen as checked today (the server compares it again itself). */
+  async function markChecked() {
+    if (mark === undefined || file === null || result === null || marking) return;
+    setMarking(true);
+    setError(null);
+    const target =
+      result.target.type === "account"
+        ? { type: "account", accountId: result.target.id }
+        : { type: "card", cardId: result.target.id, month: result.target.month };
+    const state = await mark({
+      target,
+      lines: file.lines.map((line) => ({
+        date: line.date,
+        description: line.description.slice(0, 200),
+        amountCents: line.amountCents,
+      })),
+    }).catch((): MarkCheckedState => ({ ok: false, error: "Não consegui registrar agora. Tente de novo." }));
+    setMarking(false);
+    if (!state.ok) {
+      setError(state.error);
+      return;
+    }
+    setMarked((current) => ({ ...current, [result.target.id]: state.check }));
+    toast("Conferência registrada");
+  }
 
   if (accounts.length === 0 && cards.length === 0) {
     return (
@@ -371,6 +413,8 @@ export function ReconcileView({
             onBankBalance={setBankBalance}
             statedOn={file?.closing?.date ?? null}
             onAgain={() => again.current()}
+            lastCheck={marked[result.target.id] ?? lastChecks?.[result.target.id] ?? null}
+            {...(mark === undefined ? {} : { onMark: markChecked, marking })}
           />
 
           {result.bankOnly.length > 0 && (
@@ -578,6 +622,9 @@ function Verdict({
   onBankBalance,
   statedOn,
   onAgain,
+  lastCheck,
+  onMark,
+  marking = false,
 }: {
   result: ReconcileResult;
   /** How many group matches were made — worth a look even when everything matches. */
@@ -590,6 +637,11 @@ function Verdict({
   /** The day the file says its closing balance is of, when it states one. */
   statedOn: string | null;
   onAgain: () => void;
+  /** The latest check recorded for what is on screen, if there is one. */
+  lastCheck: StatementCheckSummary | null;
+  /** Records this check as done; absent where nothing can be recorded. */
+  onMark?: () => void;
+  marking?: boolean;
 }) {
   const missing = result.bankOnly.length;
   const extra = result.bookOnly.length;
@@ -667,12 +719,42 @@ function Verdict({
           />
         )}
 
-        <div>
+        {lastCheck !== null && (
+          <p className="rc-note">
+            Última conferência registrada: {fullDate(lastCheck.checkedOn)}, com o extrato até{" "}
+            {dayMonth(lastCheck.periodTo)}
+            {lastCheck.bankOnly + lastCheck.bookOnly > 0
+              ? ` — na ocasião, ${lastCheck.bankOnly + lastCheck.bookOnly} ${plural(
+                  lastCheck.bankOnly + lastCheck.bookOnly,
+                  "diferença ficou em aberto",
+                  "diferenças ficaram em aberto",
+                )}.`
+              : " — tudo conferia."}
+          </p>
+        )}
+
+        <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+          {onMark !== undefined && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={onMark}
+              disabled={marking || checking}
+            >
+              <Icon name="check-circle" size={14} />
+              {marking ? "Registrando…" : "Marcar como conferido"}
+            </button>
+          )}
           <button type="button" className="btn btn-quiet btn-sm" onClick={onAgain} disabled={checking}>
             <Icon name="refresh-cw" size={14} />
             {checking ? "Conferindo…" : "Conferir de novo"}
           </button>
         </div>
+        {onMark !== undefined && !clean && (
+          <p className="rc-note">
+            Dá para marcar mesmo com diferenças em aberto: o registro guarda quantas ficaram.
+          </p>
+        )}
       </div>
     </div>
   );
