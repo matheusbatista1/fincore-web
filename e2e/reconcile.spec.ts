@@ -82,7 +82,7 @@ test.describe("conferir extrato", () => {
   test("compares the balance the bank shows with the app's", async ({ page }) => {
     await chooseDemoStatement(page);
     // Typing the app's own balance: the two agree.
-    const app = await page.locator(".rc-balance .rc-sub strong").innerText();
+    const app = (await page.locator(".rc-balance .rc-sub strong").textContent()) ?? "";
     await page.locator("#rc-balance").fill(app.replace("R$", "").trim());
     await expect(page.locator(".rc-balance-say")).toHaveText("O saldo bate com o do banco.");
     await page.locator("#rc-balance").fill("não é um valor");
