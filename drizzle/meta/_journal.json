@@ -141,6 +141,13 @@
       "when": 1794529869868,
       "tag": "0019_tiny_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794531517886,
+      "tag": "0020_magical_morlocks",
+      "breakpoints": true
     }
   ]
 }

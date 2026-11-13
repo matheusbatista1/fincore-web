@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { reconcileAutoPayments } from "@/application/use-cases/reconcile-auto-payments";
+import { watchTransactions } from "@/application/use-cases/transaction-history";
 import { createSupabaseAdminClient } from "@/infrastructure/auth/admin";
 import { financeRepository } from "@/infrastructure/composition";
 import { env } from "@/infrastructure/config/env";
@@ -40,7 +41,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   for (const row of users ?? []) {
     const id = row.id as string;
     try {
-      const result = await reconcileAutoPayments(financeRepository, id);
+      const watch = watchTransactions(financeRepository);
+      const result = await reconcileAutoPayments(watch.repo, id);
+      if (result.paidObligations > 0) await watch.record(id, "auto-pay");
       paidObligations += result.paidObligations;
       paidFaturas += result.paidFaturas;
     } catch (e) {

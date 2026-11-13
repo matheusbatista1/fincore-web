@@ -4248,3 +4248,93 @@ html {
   font-weight: 600;
   color: var(--purple-300);
 }
+
+/* ---------- Transaction history ---------- */
+/* "Histórico de alterações" inside a transaction's detail: one entry per time the row was created,
+   changed or paid, each field with its value before and after. */
+.tx-hist {
+  margin-top: 16px;
+}
+.tx-hist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tx-hist-close {
+  /* A text button with room for a finger around it. */
+  margin: -8px -6px;
+  padding: 8px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--purple-300);
+  cursor: pointer;
+}
+.tx-hist-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-lo);
+}
+.tx-hist-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.tx-hist-entry {
+  padding: 11px 0;
+}
+.tx-hist-entry + .tx-hist-entry {
+  border-top: 1px solid var(--line);
+}
+.tx-hist-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+.tx-hist-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-hi);
+}
+.tx-hist-when {
+  font-size: 12.5px;
+  color: var(--text-lo);
+  font-variant-numeric: tabular-nums;
+}
+.tx-hist-changes {
+  margin: 6px 0 0;
+}
+.tx-hist-change {
+  padding: 3px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.tx-hist-change dt {
+  color: var(--text-lo);
+}
+.tx-hist-change dd {
+  margin: 0;
+  /* A long value (a note, a list of people) wraps inside the modal instead of widening it. */
+  overflow-wrap: anywhere;
+  color: var(--text-hi);
+}
+.tx-hist-change .was {
+  color: var(--text-mid);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-lo);
+}
+.tx-hist-change .arrow {
+  display: inline-flex;
+  vertical-align: middle;
+  margin: 0 6px;
+  color: var(--text-lo);
+}
+.tx-hist-change .now {
+  font-weight: 600;
+}

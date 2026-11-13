@@ -13,6 +13,7 @@ import type { Person } from "@/domain/entities/person";
 import type { Settlement } from "@/domain/entities/settlement";
 import type { StatementCheck } from "@/domain/entities/statement-check";
 import type { Transaction, TransactionSplit } from "@/domain/entities/transaction";
+import type { TransactionEvent } from "@/domain/entities/transaction-event";
 import type { CompetenceMonth, IsoDate } from "@/domain/value-objects/competence-month";
 import type {
   accounts,
@@ -25,6 +26,7 @@ import type {
   people,
   settlements,
   statementChecks,
+  transactionEvents,
   transactionSplits,
   transactions,
 } from "./schema";
@@ -41,6 +43,7 @@ type CardBillPaymentRow = typeof cardBillPayments.$inferSelect;
 type BudgetRow = typeof budgets.$inferSelect;
 type GoalRow = typeof goals.$inferSelect;
 type StatementCheckRow = typeof statementChecks.$inferSelect;
+type TransactionEventRow = typeof transactionEvents.$inferSelect;
 
 /** Throw on a NULL column that a transaction kind guarantees to be present. */
 function required<T>(value: T | null | undefined, field: string): T {
@@ -166,6 +169,18 @@ export function toStatementCheck(row: StatementCheckRow): StatementCheck {
     bankOnly: row.bankOnly,
     bookOnly: row.bookOnly,
     checkedOn: row.checkedOn,
+  };
+}
+
+export function toTransactionEvent(row: TransactionEventRow): TransactionEvent {
+  return {
+    id: row.id,
+    transactionId: row.transactionId,
+    kind: row.kind,
+    action: row.action,
+    before: row.before,
+    after: row.after,
+    at: row.createdAt,
   };
 }
 

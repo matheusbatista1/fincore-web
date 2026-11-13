@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import type { z } from "zod";
+import type { FinanceRepository } from "@/application/ports/finance-repository";
 import { assumePersonDebt } from "@/application/use-cases/assume-person-debt";
 import { buildCommand, createTransaction } from "@/application/use-cases/create-transaction";
 import { exportWorkspace } from "@/application/use-cases/export-workspace";
@@ -18,6 +20,11 @@ import { type ReconcileResult, reconcileWithStatement } from "@/application/use-
 import { rollPersonMonthDebt } from "@/application/use-cases/roll-person-month-debt";
 import { settlePerson } from "@/application/use-cases/settle-person";
 import { markStatementChecked, type StatementCheckSummary } from "@/application/use-cases/statement-checks";
+import {
+  getTransactionHistory,
+  type TransactionHistoryEntry,
+  watchTransactions,
+} from "@/application/use-cases/transaction-history";
 import { updateTransaction } from "@/application/use-cases/update-transaction";
 import { getCurrentUser } from "@/infrastructure/auth/server";
 import { financeRepository } from "@/infrastructure/composition";
@@ -49,6 +56,7 @@ import {
   settlementInputSchema,
   settlePersonSchema,
   stopRecurringSchema,
+  transactionHistorySchema,
   undoCardBillPaymentSchema,
   undoPaymentSchema,
   undoReceiveSchema,
@@ -89,13 +97,56 @@ async function withUser(run: (userId: string) => Promise<unknown>): Promise<Acti
   return { ok: true };
 }
 
+/** After the response when the platform allows it, right away otherwise: never in the write's way. */
+function later(task: () => Promise<unknown>): void {
+  try {
+    after(task);
+  } catch {
+    void task();
+  }
+}
+
+interface TrackOptions<T> {
+  /** The write reads nothing before it writes (a delete, an undo): take the "before" reading for it. */
+  readonly snapshot?: boolean;
+  /** Record before answering instead of after: for the writes the app fires back to back on load. */
+  readonly inline?: boolean;
+  /** Whether the write changed anything; the history is left alone when it did not. */
+  readonly when?: (result: T) => boolean;
+}
+
+/**
+ * Runs a write that touches transactions through a watched repository and adds what it changed to
+ * their history ("Histórico de alterações"). Keeping the history never fails the write, and it is
+ * done once the response is on its way (see {@link watchTransactions}).
+ */
+async function tracked<T>(
+  userId: string,
+  action: string,
+  write: (repo: FinanceRepository) => Promise<T>,
+  options: TrackOptions<T> = {},
+): Promise<T> {
+  const watch = watchTransactions(financeRepository);
+  if (options.snapshot) await watch.snapshot(userId);
+  const result = await write(watch.repo);
+  if (options.when ? options.when(result) : true) {
+    if (options.inline) await watch.record(userId, action);
+    else later(() => watch.record(userId, action));
+  }
+  return result;
+}
+
+const whenOk = (result: { readonly ok: boolean }): boolean => result.ok;
+
 // --- transactions ---
 export async function createTransactionAction(raw: unknown): Promise<ActionState> {
   const userId = await currentUserId();
   if (!userId) return UNAUTHORIZED;
   const parsed = createTransactionSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await createTransaction(financeRepository, userId, parsed.data);
+  const result = await tracked(userId, "create", (repo) => createTransaction(repo, userId, parsed.data), {
+    when: whenOk,
+  });
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
@@ -108,7 +159,9 @@ export async function updateTransactionAction(raw: unknown): Promise<ActionState
   if (!parsed.success) return INVALID;
   let count = 1;
   try {
-    const result = await updateTransaction(financeRepository, userId, parsed.data);
+    const result = await tracked(userId, "edit", (repo) => updateTransaction(repo, userId, parsed.data), {
+      when: whenOk,
+    });
     if (!result.ok) return { ok: false, error: result.error.message };
     count = result.value;
   } catch (error) {
@@ -124,7 +177,12 @@ export async function deleteTransactionAction(raw: unknown): Promise<ActionState
   if (!userId) return UNAUTHORIZED;
   const parsed = deleteTransactionSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const count = await financeRepository.deleteTransaction(userId, parsed.data.id, parsed.data.scope);
+  const count = await tracked(
+    userId,
+    "delete",
+    (repo) => repo.deleteTransaction(userId, parsed.data.id, parsed.data.scope),
+    { snapshot: true },
+  );
   revalidatePath("/", "layout");
   return { ok: true, count };
 }
@@ -134,7 +192,9 @@ export async function stopRecurringAction(raw: unknown): Promise<ActionState> {
   if (!userId) return UNAUTHORIZED;
   const parsed = stopRecurringSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  await financeRepository.stopRecurrence(userId, parsed.data.id);
+  await tracked(userId, "stop-recurrence", (repo) => repo.stopRecurrence(userId, parsed.data.id), {
+    snapshot: true,
+  });
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -145,7 +205,12 @@ export async function moveTransactionBillAction(raw: unknown): Promise<ActionSta
   if (!userId) return UNAUTHORIZED;
   const parsed = moveBillSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await moveTransactionBill(financeRepository, userId, parsed.data.id, parsed.data.direction);
+  const result = await tracked(
+    userId,
+    "bill-month",
+    (repo) => moveTransactionBill(repo, userId, parsed.data.id, parsed.data.direction),
+    { when: whenOk },
+  );
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
@@ -161,12 +226,20 @@ export async function payTransactionAction(raw: unknown): Promise<ActionState> {
   if (!userId) return UNAUTHORIZED;
   const parsed = payTransactionSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await payTransaction(financeRepository, userId, {
-    id: parsed.data.id,
-    paidAccountId: parsed.data.paidAccountId,
-    ...(parsed.data.paidAt !== undefined ? { paidAt: parsed.data.paidAt } : {}),
-    ...(parsed.data.paidAmountCents !== undefined ? { paidAmountCents: parsed.data.paidAmountCents } : {}),
-  });
+  const result = await tracked(
+    userId,
+    "pay",
+    (repo) =>
+      payTransaction(repo, userId, {
+        id: parsed.data.id,
+        paidAccountId: parsed.data.paidAccountId,
+        ...(parsed.data.paidAt !== undefined ? { paidAt: parsed.data.paidAt } : {}),
+        ...(parsed.data.paidAmountCents !== undefined
+          ? { paidAmountCents: parsed.data.paidAmountCents }
+          : {}),
+      }),
+    { when: whenOk },
+  );
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
@@ -175,7 +248,7 @@ export async function payTransactionAction(raw: unknown): Promise<ActionState> {
 /** Revert a payment: the obligation becomes pending again (money returns to the balance). */
 export async function undoPaymentAction(raw: unknown): Promise<ActionState> {
   return withParsed(undoPaymentSchema, raw, (userId, input) =>
-    financeRepository.undoPayment(userId, input.id),
+    tracked(userId, "undo-pay", (repo) => repo.undoPayment(userId, input.id), { snapshot: true }),
   );
 }
 
@@ -190,14 +263,20 @@ export async function receiveIncomeAction(raw: unknown): Promise<ActionState> {
   if (!userId) return UNAUTHORIZED;
   const parsed = receiveIncomeSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await receiveIncome(financeRepository, userId, {
-    id: parsed.data.id,
-    receivedAccountId: parsed.data.receivedAccountId,
-    ...(parsed.data.receivedAt !== undefined ? { receivedAt: parsed.data.receivedAt } : {}),
-    ...(parsed.data.receivedAmountCents !== undefined
-      ? { receivedAmountCents: parsed.data.receivedAmountCents }
-      : {}),
-  });
+  const result = await tracked(
+    userId,
+    "receive",
+    (repo) =>
+      receiveIncome(repo, userId, {
+        id: parsed.data.id,
+        receivedAccountId: parsed.data.receivedAccountId,
+        ...(parsed.data.receivedAt !== undefined ? { receivedAt: parsed.data.receivedAt } : {}),
+        ...(parsed.data.receivedAmountCents !== undefined
+          ? { receivedAmountCents: parsed.data.receivedAmountCents }
+          : {}),
+      }),
+    { when: whenOk },
+  );
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
@@ -206,7 +285,7 @@ export async function receiveIncomeAction(raw: unknown): Promise<ActionState> {
 /** Revert a receipt: the income becomes a pending receivable again (money leaves the balance). */
 export async function undoReceiveAction(raw: unknown): Promise<ActionState> {
   return withParsed(undoReceiveSchema, raw, (userId, input) =>
-    financeRepository.undoReceive(userId, input.id),
+    tracked(userId, "undo-receive", (repo) => repo.undoReceive(userId, input.id), { snapshot: true }),
   );
 }
 
@@ -244,7 +323,12 @@ export async function undoCardBillPaymentAction(raw: unknown): Promise<ActionSta
 export async function reconcileAutoPaymentsAction(): Promise<ActionState> {
   const userId = await currentUserId();
   if (!userId) return UNAUTHORIZED;
-  const result = await reconcileAutoPayments(financeRepository, userId);
+  // Recorded before answering: the app fires this right after the fixed entries' pass, and each
+  // one's history must be closed before the next one reads the book.
+  const result = await tracked(userId, "auto-pay", (repo) => reconcileAutoPayments(repo, userId), {
+    inline: true,
+    when: (done) => done.paidObligations > 0,
+  });
   const count = result.paidObligations + result.paidFaturas;
   if (count > 0) revalidatePath("/", "layout");
   return { ok: true, count };
@@ -258,7 +342,10 @@ export async function reconcileAutoPaymentsAction(): Promise<ActionState> {
 export async function materializeRecurringAction(): Promise<ActionState> {
   const userId = await currentUserId();
   if (!userId) return UNAUTHORIZED;
-  const { created } = await materializeRecurring(financeRepository, userId);
+  const { created } = await tracked(userId, "recurring", (repo) => materializeRecurring(repo, userId), {
+    inline: true,
+    when: (done) => done.created > 0,
+  });
   if (created > 0) revalidatePath("/", "layout");
   return { ok: true, count: created };
 }
@@ -273,7 +360,12 @@ export async function materializeOccurrenceAction(raw: unknown): Promise<ActionS
   if (!userId) return UNAUTHORIZED;
   const parsed = materializeOccurrenceSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await materializeOccurrence(financeRepository, userId, parsed.data);
+  const result = await tracked(
+    userId,
+    "recurring",
+    (repo) => materializeOccurrence(repo, userId, parsed.data),
+    { when: whenOk },
+  );
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true, id: result.value.id };
@@ -284,9 +376,31 @@ export async function importTransactionsAction(raw: unknown): Promise<ActionStat
   if (!userId) return UNAUTHORIZED;
   const parsed = importStatementSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  await importStatement(financeRepository, userId, parsed.data);
+  await tracked(userId, "import", (repo) => importStatement(repo, userId, parsed.data));
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+export type TransactionHistoryState =
+  | { ok: true; entries: TransactionHistoryEntry[] }
+  | { ok: false; error: string };
+
+/**
+ * "Histórico de alterações": what was changed in one transaction, and when. Read-only. A failure
+ * to read it (the table missing, the database away) is an answer, never an error page.
+ */
+export async function getTransactionHistoryAction(raw: unknown): Promise<TransactionHistoryState> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, error: "Sessão expirada. Entre novamente." };
+  const parsed = transactionHistorySchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Este lançamento não tem histórico." };
+  try {
+    const entries = await getTransactionHistory(financeRepository, userId, parsed.data.id);
+    return { ok: true, entries };
+  } catch (error) {
+    console.error("getTransactionHistoryAction failed", error);
+    return { ok: false, error: "Não foi possível carregar o histórico." };
+  }
 }
 
 export type ExportBackupState =
@@ -371,7 +485,9 @@ export async function settlePersonAction(raw: unknown): Promise<SettleActionStat
   if (!userId) return UNAUTHORIZED;
   const parsed = settlePersonSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await settlePerson(financeRepository, userId, parsed.data);
+  const result = await tracked(userId, "settle", (repo) => settlePerson(repo, userId, parsed.data), {
+    when: whenOk,
+  });
   if (!result.ok) {
     return {
       ok: false,
@@ -440,7 +556,12 @@ export async function rollPersonDebtAction(raw: unknown): Promise<ActionState> {
   const command = buildCommand(txInput.data);
   if (!command.ok) return { ok: false, error: command.error.message };
 
-  await financeRepository.rollPersonDebt(userId, r.originalTransactionId, command.value);
+  await tracked(
+    userId,
+    "roll",
+    (repo) => repo.rollPersonDebt(userId, r.originalTransactionId, command.value),
+    { snapshot: true },
+  );
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -455,7 +576,9 @@ export async function rollPersonMonthDebtAction(raw: unknown): Promise<ActionSta
   if (!userId) return UNAUTHORIZED;
   const parsed = rollMonthDebtSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await rollPersonMonthDebt(financeRepository, userId, parsed.data);
+  const result = await tracked(userId, "roll", (repo) => rollPersonMonthDebt(repo, userId, parsed.data), {
+    when: whenOk,
+  });
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true };
@@ -470,7 +593,9 @@ export async function assumePersonDebtAction(raw: unknown): Promise<ActionState>
   if (!userId) return UNAUTHORIZED;
   const parsed = assumeDebtSchema.safeParse(raw);
   if (!parsed.success) return INVALID;
-  const result = await assumePersonDebt(financeRepository, userId, parsed.data);
+  const result = await tracked(userId, "assume", (repo) => assumePersonDebt(repo, userId, parsed.data), {
+    when: whenOk,
+  });
   if (!result.ok) return { ok: false, error: result.error.message };
   revalidatePath("/", "layout");
   return { ok: true, count: result.value };

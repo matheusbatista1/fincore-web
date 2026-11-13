@@ -18,7 +18,8 @@ and expenses split with other people.
 - **Accounts & cards** — balances, credit-card bills, limits, due dates. An account can be set
   aside as a reserve / investment: it leaves the available balance and the month-end projection,
   and still counts in the net worth.
-- **Transactions** — income / expense / transfer, with categories and notes.
+- **Transactions** — income / expense / transfer, with categories and notes. Each one keeps a
+  history of what was changed in it (created, edited, paid…), with the values before and after.
 - **Installments** — split a purchase into parcelas; only the current one hits the bill.
 - **Shared expenses** — equal/custom splits and a people ledger (who owes whom).
 - **Recurring** — fixed monthly items projected into future months.

@@ -9,9 +9,11 @@ import {
   undoReceiveAction,
 } from "@/app/_actions/finance";
 import type { TransactionListItem } from "@/application/use-cases/get-transactions";
+import { type LoadTransactionHistory, TxHistory } from "@/presentation/components/transactions/tx-history";
 import { Dialog, DialogModal } from "@/presentation/components/ui/dialog";
 import { Icon } from "@/presentation/components/ui/icon";
 import { Money } from "@/presentation/components/ui/money";
+import type { HistoryNames } from "@/presentation/lib/history-text";
 import { useModuleEnabled } from "@/presentation/providers/modules-provider";
 import { useTxUIStore } from "@/presentation/stores/tx-ui-store";
 import { toast } from "@/presentation/stores/ui-store";
@@ -29,7 +31,16 @@ const SHARE_PA: CSSProperties = {
 };
 
 /** Detalhe da transação — ported 1:1 from the prototype (extras.jsx TxDetailModal). */
-export function TxDetailModal({ today }: { today: string }) {
+export function TxDetailModal({
+  today,
+  historyNames,
+  loadHistory,
+}: {
+  today: string;
+  /** The names behind the ids a history entry carries (accounts, cards, categories, people). */
+  historyNames: HistoryNames;
+  loadHistory?: LoadTransactionHistory;
+}) {
   const tx = useTxUIStore((s) => s.detail);
   // Set when the open row is a projected occurrence: the rule's real anchor row, so the read-only
   // detail can still offer "Editar fixo" / "Excluir fixo" without ever paying the wrong month.
@@ -406,6 +417,18 @@ export function TxDetailModal({ today }: { today: string }) {
                 <Icon name="copy" size={14} />
                 Duplicar lançamento
               </button>
+            )}
+
+            {/* What was changed in this row, and when. Only a row of its own has a history: a
+                forecast or a settlement line is not a transaction. Keyed by the row, so opening
+                another one starts closed. */}
+            {!synthetic && (
+              <TxHistory
+                key={tx.id}
+                transactionId={tx.id}
+                names={historyNames}
+                {...(loadHistory ? { load: loadHistory } : {})}
+              />
             )}
           </div>
 
