@@ -5,10 +5,15 @@ import type { ReactElement } from "react";
  * subtle shine, white growing bars + up-trend tick) rendered as an inline-SVG
  * `<img>`, used to generate the favicon, apple-touch icon and PWA icons via
  * `next/og`. Keeping the original viewBox keeps the tick as crisp as the logo.
+ *
+ * `square` crops to the tile and squares its corners (the shine keeps its own): the same picture,
+ * edge to edge.
  */
-function logoSvg(px: number): string {
+function logoSvg(px: number, square = false): string {
+  const viewBox = square ? "2 2 36 36" : "0 0 40 40";
+  const tileRadius = square ? 0 : 11;
   return [
-    `<svg width="${px}" height="${px}" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">`,
+    `<svg width="${px}" height="${px}" viewBox="${viewBox}" fill="none" xmlns="http://www.w3.org/2000/svg">`,
     `<defs>`,
     `<linearGradient id="fcg" x1="6" y1="4" x2="34" y2="38" gradientUnits="userSpaceOnUse">`,
     `<stop stop-color="#9B79FF"/><stop offset="0.55" stop-color="#7C5CFF"/><stop offset="1" stop-color="#5733D4"/>`,
@@ -17,7 +22,7 @@ function logoSvg(px: number): string {
     `<stop stop-color="#fff" stop-opacity="0.35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>`,
     `</linearGradient>`,
     `</defs>`,
-    `<rect x="2" y="2" width="36" height="36" rx="11" fill="url(#fcg)"/>`,
+    `<rect x="2" y="2" width="36" height="36" rx="${tileRadius}" fill="url(#fcg)"/>`,
     `<rect x="2" y="2" width="36" height="18" rx="11" fill="url(#fcs)"/>`,
     `<rect x="11" y="22" width="5.2" height="8" rx="2.6" fill="#fff" fill-opacity="0.55"/>`,
     `<rect x="17.4" y="16" width="5.2" height="14" rx="2.6" fill="#fff" fill-opacity="0.78"/>`,
@@ -34,11 +39,25 @@ function svgDataUri(svg: string): string {
 export function brandGlyph({
   size,
   bleed = false,
+  square = false,
 }: {
   size: number;
   /** Full-bleed (square corners) for the 512 maskable icon; rounded otherwise. */
   bleed?: boolean;
+  /**
+   * The tile itself, square and opaque, for the iOS home-screen icon: iOS rounds an icon itself
+   * and paints its transparent pixels, so a rounded tile would show dark corners.
+   */
+  square?: boolean;
 }): ReactElement {
+  if (square) {
+    return (
+      <div style={{ display: "flex", width: "100%", height: "100%" }}>
+        {/* biome-ignore lint/performance/noImgElement: next/og (Satori) renders <img>, not next/image. */}
+        <img width={size} height={size} src={svgDataUri(logoSvg(size, true))} alt="" />
+      </div>
+    );
+  }
   // The mark's own viewBox is already a rounded tile, so non-bleed renders it
   // edge to edge. The maskable icon needs a full-bleed gradient behind a smaller
   // mark (safe zone), so we paint the tile gradient on a wrapper div.
